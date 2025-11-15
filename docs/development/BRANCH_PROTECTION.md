@@ -124,7 +124,7 @@ go tool cover -func=coverage.out
 go test -v -race ./test/integration/...
 ```
 
-Or use the one-liner from `AGENTS.md`:
+Or use the one-liner from `../../AGENTS.md`:
 ```bash
 cd homeautomation-go && go build ./... && go test ./... && echo "✅ Ready to push"
 ```
@@ -225,9 +225,9 @@ go test -race ./...
 
 ## Related Documentation
 
-- [AGENTS.md](../AGENTS.md) - Development standards and test guide
-- [homeautomation-go/test/integration/README.md](../homeautomation-go/test/integration/README.md) - Integration test details
-- [INTEGRATION_TEST_FINDINGS.md](../INTEGRATION_TEST_FINDINGS.md) - Known bugs and test failures
+- [AGENTS.md](../../AGENTS.md) - Development standards and test guide
+- [homeautomation-go/test/integration/README.md](../../homeautomation-go/test/integration/README.md) - Integration test details
+- [INTEGRATION_TEST_FINDINGS.md](../../INTEGRATION_TEST_FINDINGS.md) - Known bugs and test failures
 
 ## Questions?
 
