@@ -17,6 +17,15 @@
 - ✅ Integration test suite with mock HA server
 - ✅ Docker support with GHCR automation
 
+✅ **Phase 6+: Plugin Implementation (IN PROGRESS)**
+- ✅ Energy State plugin (complete)
+- ✅ Lighting Control plugin (complete)
+  - Config parsing for hue_config.yaml
+  - Scene activation based on day phase and state changes
+  - Room-specific conditional logic (on_if_true, on_if_false, etc.)
+  - 72.8% test coverage
+  - All tests passing with race detector
+
 ### Critical Bug Fixes
 
 ✅ **Bug #1: Concurrent WebSocket Writes (FIXED)**
@@ -91,10 +100,20 @@ homeautomation-go/
 │   │   ├── client_test.go           # ✅ Comprehensive unit tests
 │   │   ├── types.go                 # ✅ HA message types & structs
 │   │   └── mock.go                  # ✅ Mock client for testing
-│   └── state/                       # ✅ State Manager
-│       ├── manager.go               # ✅ State manager implementation
-│       ├── manager_test.go          # ✅ Unit tests
-│       └── variables.go             # ✅ 28 state variable definitions
+│   ├── state/                       # ✅ State Manager
+│   │   ├── manager.go               # ✅ State manager implementation
+│   │   ├── manager_test.go          # ✅ Unit tests
+│   │   └── variables.go             # ✅ 28 state variable definitions
+│   └── plugins/                     # ✅ Automation plugins
+│       ├── energy/                  # ✅ Energy State plugin
+│       │   ├── manager.go           # ✅ Energy level calculations
+│       │   ├── config.go            # ✅ Energy config loader
+│       │   └── manager_test.go      # ✅ Unit tests
+│       └── lighting/                # ✅ Lighting Control plugin
+│           ├── manager.go           # ✅ Scene activation logic
+│           ├── config.go            # ✅ Hue config loader
+│           ├── manager_test.go      # ✅ Unit tests (72.8% coverage)
+│           └── config_test.go       # ✅ Config tests
 ├── test/
 │   └── integration/                 # ✅ Integration test suite
 │       ├── integration_test.go      # ✅ 11 comprehensive test scenarios
