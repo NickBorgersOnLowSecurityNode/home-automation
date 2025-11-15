@@ -201,7 +201,7 @@ docker-compose -f homeautomation-go/docker-compose.integration.yml up --build
 #### Test Status
 
 ✅ **All tests passing** - No known failures
-- All 12 integration tests pass
+- All 11 integration tests pass
 - All unit tests pass
 - No race conditions detected
 
@@ -212,7 +212,7 @@ See [test/integration/README.md](./homeautomation-go/test/integration/README.md)
 - **HA client coverage**: ≥70%
 - **State manager coverage**: ≥70%
 - **No race conditions** when running with `-race`
-- **Integration tests**: 12/12 passing ✅
+- **Integration tests**: 11/11 passing ✅
 
 ### Test Execution Time
 - HA client tests: ~10 seconds (includes reconnection testing)
@@ -523,7 +523,7 @@ See docs/architecture/IMPLEMENTATION_PLAN.md for complete migration roadmap.
 - All 28 state variables supported
 - Comprehensive integration test suite validates correctness
 - All critical bugs fixed (concurrent writes, subscription leak)
-- All tests passing (12/12 integration tests)
+- All tests passing (11/11 integration tests)
 
 **Next Steps**:
 1. Validate behavior matches Node-RED

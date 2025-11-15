@@ -34,7 +34,7 @@ Comprehensive integration tests for the Home Automation Go client with a full mo
 
 #### Edge Cases
 - ✅ High-frequency state changes (1000+ changes)
-- ✅ Multiple subscribers on same entity (tests subscription leak bug)
+- ✅ Multiple subscribers on same entity (per-subscription ID handling)
 - ✅ Reconnection after disconnect
 - ✅ Network latency handling
 
@@ -68,40 +68,15 @@ go test -v -run TestMultipleSubscribers ./test/integration/
 go test -v -race -timeout=5m ./test/integration/...
 ```
 
-## Expected Failures (Known Bugs)
+## Test Status
 
-### 1. TestMultipleSubscribersOnSameEntity - WILL FAIL ❌
+✅ **All 11 integration tests passing!**
 
-**Bug**: Unsubscribe deletes ALL subscribers, not just one
-
-**Location**: `internal/ha/client.go:422-428`
-
-**What happens**:
-```go
-// BUG: Deletes entire subscriber slice
-func (c *Client) unsubscribe(entityID string) error {
-    c.subsMu.Lock()
-    delete(c.subscribers, entityID)  // ❌ Removes ALL handlers
-    c.subsMu.Unlock()
-    return nil
-}
-```
-
-**Expected behavior**:
-- Subscribe 3 handlers to same entity
-- Unsubscribe 1 handler
-- Other 2 should still receive events
-
-**Actual behavior**:
-- Unsubscribing 1 handler removes ALL handlers
-- No handlers receive subsequent events
-
-**Test output**:
-```
-After unsubscribe one: count1=1, count2=1, count3=1
-Expected count1=2, got 1 (Subscriber 1 should still be called)
-Expected count3=2, got 1 (Subscriber 3 should still be called)
-```
+All critical bugs discovered during testing have been fixed:
+- ✅ Concurrent WebSocket writes (fixed with `writeMu` mutex)
+- ✅ Subscription memory leak (fixed with per-subscription IDs)
+- ✅ All race conditions resolved
+- ✅ No known failures
 
 ## What Each Test Does
 
@@ -141,9 +116,10 @@ Expected count3=2, got 1 (Subscriber 3 should still be called)
 2. Callback calls SetBool → ✅ Should work (new lock acquisition)
 3. SetBool triggers HA update → state change event → another callback → potential recursion
 
-### TestMultipleSubscribersOnSameEntity ⚠️ **WILL FAIL**
-- Demonstrates the subscription leak bug
-- Shows unsubscribe removes ALL handlers
+### TestMultipleSubscribersOnSameEntity
+- Tests multiple subscribers to the same entity
+- Verifies per-subscription IDs work correctly
+- Confirms unsubscribe only removes specific handler
 
 ### TestCompareAndSwapRaceCondition
 - 20 goroutines compete for CAS operation
@@ -229,13 +205,13 @@ Expected performance on typical hardware:
 ## Known Issues
 
 1. ✅ **Deadlock in SetBool** - FALSE ALARM (code is correct, lock released before client call)
-2. ❌ **Subscription memory leak** - CONFIRMED (TestMultipleSubscribersOnSameEntity fails)
+2. ✅ **Subscription memory leak** - FIXED (per-subscription IDs implemented, TestMultipleSubscribersOnSameEntity passes)
 3. ⚠️ **Mock client lock bug** - In test code only (`mock.go:263`)
 
 ## Next Steps
 
-After fixing the subscription bug:
-1. All tests should pass
+With all bugs fixed:
+1. ✅ All tests passing!
 2. Add benchmarks for performance regression testing
 3. Add fuzzing tests for edge cases
-4. Test with real Home Assistant instance
+4. Test with real Home Assistant instance in production-like scenarios

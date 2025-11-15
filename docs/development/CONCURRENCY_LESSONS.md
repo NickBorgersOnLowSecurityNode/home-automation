@@ -232,4 +232,4 @@ func (s *Subscription) Close() {
 - Mock server: `test/integration/mock_ha_server.go`
 
 **Last Updated**: 2025-11-15
-**Test Status**: All 12/12 integration tests passing with `-race` flag
+**Test Status**: All 11/11 integration tests passing with `-race` flag

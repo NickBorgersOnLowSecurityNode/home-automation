@@ -16,7 +16,7 @@ The following CI workflows must pass before a PR can be merged:
    - **Checks**:
      - ✅ Go unit tests with race detector
      - ✅ Test coverage ≥70%
-     - ✅ Integration tests (11/12 passing)
+     - ✅ Integration tests (11/11 passing)
      - ✅ Config validation (YAML, Spotify URIs)
 
 ### 2. **Individual Test Jobs** (Alternative)
@@ -90,13 +90,6 @@ make run-yamllint-hue
 # Spotify URI validation
 make run-spotify-validation-music
 ```
-
-### Known Exceptions
-
-⚠️ **TestMultipleSubscribersOnSameEntity** - Expected to fail
-- **Reason**: Known subscription leak bug
-- **Tracking**: See `INTEGRATION_TEST_FINDINGS.md`
-- **Impact**: Does not block PR merge (11/12 integration tests must pass)
 
 ## For Developers
 
