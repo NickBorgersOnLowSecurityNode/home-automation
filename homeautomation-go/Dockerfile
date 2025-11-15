@@ -38,6 +38,10 @@ COPY --from=builder /build/homeautomation .
 # Copy example env file for reference
 COPY --from=builder /build/.env.example .
 
+# Copy configuration files from repository root
+# When building with repository root context, configs are at /build/configs
+COPY --from=builder /build/configs /app/configs
+
 # Change ownership
 RUN chown -R homeautomation:homeautomation /app
 
