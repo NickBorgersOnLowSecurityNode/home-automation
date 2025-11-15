@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/loadshedding"
+	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/state"
 
 	"github.com/joho/godotenv"
@@ -65,6 +67,11 @@ func main() {
 
 	// Subscribe to interesting state changes
 	subscribeToChanges(stateManager, logger)
+
+	// Start Energy State Manager
+	if err := startEnergyManager(client, stateManager, logger, readOnly); err != nil {
+		logger.Fatal("Failed to start Energy State Manager", zap.Error(err))
+	}
 
 	// Start Load Shedding controller
 	loadSheddingController := loadshedding.New(stateManager, client, logger)
@@ -213,3 +220,26 @@ func demonstrateStateChanges(manager *state.Manager, logger *zap.Logger) {
 
 	logger.Info("===================================")
 }
+
+func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) error {
+	// Load energy configuration
+	configPath := filepath.Join("..", "configs", "energy_config.yaml")
+	energyConfig, err := energy.LoadConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load energy config: %w", err)
+	}
+
+	logger.Info("Loaded energy configuration",
+		zap.Int("energy_states", len(energyConfig.Energy.EnergyStates)),
+		zap.String("free_energy_start", energyConfig.Energy.FreeEnergyTime.Start),
+		zap.String("free_energy_end", energyConfig.Energy.FreeEnergyTime.End))
+
+	// Create and start energy manager
+	energyManager := energy.NewManager(client, stateManager, energyConfig, logger, readOnly)
+	if err := energyManager.Start(); err != nil {
+		return fmt.Errorf("failed to start energy manager: %w", err)
+	}
+
+	return nil
+}
+
