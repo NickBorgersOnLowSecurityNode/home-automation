@@ -88,7 +88,7 @@ func main() {
 	}
 
 	// Start Music Manager
-	if err := startMusicManager(client, stateManager, logger, readOnly); err != nil {
+	if err := startMusicManager(client, stateManager, logger, readOnly, configDir); err != nil {
 		logger.Fatal("Failed to start Music Manager", zap.Error(err))
 	}
 
@@ -262,9 +262,9 @@ func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger 
 	return nil
 }
 
-func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) error {
+func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) error {
 	// Load music configuration
-	configPath := filepath.Join("..", "configs", "music_config.yaml")
+	configPath := filepath.Join(configDir, "music_config.yaml")
 	musicConfig, err := music.LoadMusicConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load music config: %w", err)
