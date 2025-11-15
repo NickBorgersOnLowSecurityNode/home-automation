@@ -20,6 +20,13 @@ type MockClient struct {
 	callsMu      sync.Mutex
 }
 
+func (m *MockClient) clearSubscribers() {
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+
+	m.subscribers = make(map[string][]subscriberEntry)
+}
+
 // ServiceCall records a service call for testing
 type ServiceCall struct {
 	Domain  string
@@ -68,6 +75,7 @@ func (m *MockClient) Disconnect() error {
 	defer m.connMu.Unlock()
 
 	m.connected = false
+	m.clearSubscribers()
 	return nil
 }
 
@@ -317,7 +325,7 @@ func (m *MockClient) updateStateFromServiceCall(entityID, domain, service string
 // notifySubscribers notifies all subscribers of a state change
 func (m *MockClient) notifySubscribers(entityID string, oldState, newState *State) {
 	m.subsMu.RLock()
-	entries := m.subscribers[entityID]
+	entries := append([]subscriberEntry(nil), m.subscribers[entityID]...)
 	m.subsMu.RUnlock()
 
 	for _, entry := range entries {
