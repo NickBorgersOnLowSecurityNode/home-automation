@@ -8,12 +8,12 @@ import (
 
 // MockClient implements HAClient interface for testing
 type MockClient struct {
-	states      map[string]*State
-	statesMu    sync.RWMutex
-	subscribers map[string][]StateChangeHandler
-	subsMu      sync.RWMutex
-	connected   bool
-	connMu      sync.RWMutex
+	states       map[string]*State
+	statesMu     sync.RWMutex
+	subscribers  map[string][]StateChangeHandler
+	subsMu       sync.RWMutex
+	connected    bool
+	connMu       sync.RWMutex
 	serviceCalls []ServiceCall
 	callsMu      sync.Mutex
 }
@@ -29,10 +29,10 @@ type ServiceCall struct {
 // NewMockClient creates a new mock HA client
 func NewMockClient() *MockClient {
 	return &MockClient{
-		states:      make(map[string]*State),
-		subscribers: make(map[string][]StateChangeHandler),
+		states:       make(map[string]*State),
+		subscribers:  make(map[string][]StateChangeHandler),
 		serviceCalls: make([]ServiceCall, 0),
-		connected:   false,
+		connected:    false,
 	}
 }
 
