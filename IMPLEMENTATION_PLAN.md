@@ -24,11 +24,11 @@
 - Location: `internal/ha/client.go`
 - Severity: CRITICAL - Would cause panics in production
 
-❌ **Bug #2: Subscription Memory Leak (NEEDS FIX)**
-- Unsubscribe removes ALL subscribers instead of one
-- Location: `internal/ha/client.go:422-428`
-- Severity: HIGH - Breaks multi-subscriber model
-- Test: `TestMultipleSubscribersOnSameEntity` (expected failure)
+✅ **Bug #2: Subscription Memory Leak & Dispatch Races (FIXED)**
+- Per-subscription IDs prevent collateral unsubscriptions and HA subscriptions now tear down when the last handler leaves
+- Dispatch now snapshots handlers, runs them synchronously, and recovers from panics so cache updates remain deterministic
+- Locations: `internal/ha/client.go`, `internal/ha/mock.go`, `internal/state/manager.go`
+- Tests: `TestClient_DisconnectClearsSubscribers`, `TestManagerNotifySubscribersIsSynchronous`, `TestManagerNotifySubscribersRecoversFromPanics`
 
 ### Test Coverage
 
@@ -51,11 +51,10 @@
 
 ### Next Steps
 
-1. **Fix subscription memory leak** (Bug #2)
-2. **Parallel testing** with Node-RED for validation
-3. **Migrate helper functions** from Node-RED
-4. **Switch to read-write mode** after validation
-5. **Deprecate Node-RED** implementation
+1. **Parallel testing** with Node-RED for validation
+2. **Migrate helper functions** from Node-RED
+3. **Switch to read-write mode** after validation
+4. **Deprecate Node-RED** implementation once read-write mode is stable
 
 ---
 

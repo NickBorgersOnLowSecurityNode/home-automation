@@ -313,6 +313,7 @@ func TestManager_Subscribe(t *testing.T) {
 
 func TestManagerNotifySubscribersIsSynchronous(t *testing.T) {
 	manager := &Manager{
+		logger: zap.NewNop(),
 		subscribers: map[string]map[uint64]StateChangeHandler{
 			"test": {
 				1: func(string, interface{}, interface{}) {
@@ -328,6 +329,28 @@ func TestManagerNotifySubscribersIsSynchronous(t *testing.T) {
 	elapsed := time.Since(start)
 
 	assert.GreaterOrEqual(t, elapsed, 50*time.Millisecond)
+}
+
+func TestManagerNotifySubscribersRecoversFromPanics(t *testing.T) {
+	secondCalled := false
+	manager := &Manager{
+		logger: zap.NewNop(),
+		subscribers: map[string]map[uint64]StateChangeHandler{
+			"test": {
+				1: func(string, interface{}, interface{}) {
+					panic("boom")
+				},
+				2: func(string, interface{}, interface{}) {
+					secondCalled = true
+				},
+			},
+		},
+	}
+
+	assert.NotPanics(t, func() {
+		manager.notifySubscribers("test", nil, nil)
+	})
+	assert.True(t, secondCalled)
 }
 
 func TestManager_GetAllValues(t *testing.T) {
