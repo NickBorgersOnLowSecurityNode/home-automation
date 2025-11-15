@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/loadshedding"
 	"homeautomation/internal/state"
 
 	"github.com/joho/godotenv"
@@ -65,11 +66,19 @@ func main() {
 	// Subscribe to interesting state changes
 	subscribeToChanges(stateManager, logger)
 
+	// Start Load Shedding controller
+	loadSheddingController := loadshedding.New(stateManager, client, logger)
+	if err := loadSheddingController.Start(); err != nil {
+		logger.Fatal("Failed to start Load Shedding controller", zap.Error(err))
+	}
+	defer loadSheddingController.Stop()
+	logger.Info("Load Shedding controller started")
+
 	// Demonstrate setting values (only in read-write mode)
 	if !readOnly {
 		demonstrateStateChanges(stateManager, logger)
 	} else {
-		logger.Info("Running in READ-ONLY mode - no changes will be made to Home Assistant")
+		logger.Info("Running in READ-ONLY mode - state monitoring active")
 	}
 
 	// Setup signal handling for graceful shutdown
