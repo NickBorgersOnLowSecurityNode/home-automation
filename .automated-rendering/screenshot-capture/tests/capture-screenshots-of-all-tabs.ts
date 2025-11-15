@@ -71,7 +71,8 @@ test('Capture screenshot of the entire scrollable webpage', async ({page}) => {
         // Log that we're working this tab ID and flow name
         console.log(`Working tab ${this_tab_id}, ${this_flow_name}`)
         // Select the tab by clicking its tab element by id
-        await page.click(`#${this_tab_id}`)
+        // Escape dots in the tab ID for CSS selector (dots are interpreted as class selectors)
+        await page.click(`#${this_tab_id.replace(/\./g, '\\.')}`)
         // Wait for the chart to show up
         await expect(page.locator('#red-ui-workspace-chart')).toBeVisible({timeout: 1000})
         // There's this little thingy that I want to fade away before we screenshot, but don't want to go find the id for

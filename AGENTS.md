@@ -6,6 +6,10 @@ This document provides guidance for AI agents and developers working on this hom
 
 This repository contains a home automation system that is migrating from Node-RED to Golang for improved type safety, testability, and maintainability.
 
+To see the current NodeRed behaviors look in:
+* flows.json
+* ./automated-rendering/screenshot-capture/screenshots after running `make generate-screenshots`
+
 ### Repository Structure
 
 ```
