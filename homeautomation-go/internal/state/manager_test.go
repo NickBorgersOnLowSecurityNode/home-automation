@@ -15,7 +15,7 @@ func TestNewManager(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
 
-	manager := NewManager(mockClient, logger)
+	manager := NewManager(mockClient, logger, false)
 	assert.NotNil(t, manager)
 	assert.Equal(t, len(AllVariables), len(manager.variables))
 }
@@ -32,7 +32,7 @@ func TestManager_SyncFromHA(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, logger)
+	manager := NewManager(mockClient, logger, false)
 	err := manager.SyncFromHA()
 	require.NoError(t, err)
 
@@ -62,7 +62,7 @@ func TestManager_GetBool(t *testing.T) {
 	mockClient.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, logger)
+	manager := NewManager(mockClient, logger, false)
 	manager.SyncFromHA()
 
 	t.Run("valid key", func(t *testing.T) {
@@ -84,7 +84,7 @@ func TestManager_GetBool(t *testing.T) {
 	})
 
 	t.Run("default value when not synced", func(t *testing.T) {
-		freshManager := NewManager(mockClient, logger)
+		freshManager := NewManager(mockClient, logger, false)
 		value, err := freshManager.GetBool("isExpectingSomeone")
 		assert.NoError(t, err)
 		assert.False(t, value) // Should return default
@@ -97,7 +97,7 @@ func TestManager_SetBool(t *testing.T) {
 	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, logger)
+	manager := NewManager(mockClient, logger, false)
 	manager.SyncFromHA()
 
 	t.Run("set to true", func(t *testing.T) {
@@ -147,7 +147,7 @@ func TestManager_GetSetString(t *testing.T) {
 	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, logger)
+	manager := NewManager(mockClient, logger, false)
 	manager.SyncFromHA()
 
 	// Get
@@ -178,7 +178,7 @@ func TestManager_GetSetNumber(t *testing.T) {
 	mockClient.SetState("input_number.alarm_time", "1668524400000", map[string]interface{}{})
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, logger)
+	manager := NewManager(mockClient, logger, false)
 	manager.SyncFromHA()
 
 	// Get
@@ -209,7 +209,7 @@ func TestManager_CompareAndSwapBool(t *testing.T) {
 	mockClient.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, logger)
+	manager := NewManager(mockClient, logger, false)
 	manager.SyncFromHA()
 
 	t.Run("successful swap", func(t *testing.T) {
@@ -246,7 +246,7 @@ func TestManager_Subscribe(t *testing.T) {
 	mockClient.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, logger)
+	manager := NewManager(mockClient, logger, false)
 	manager.SyncFromHA()
 
 	t.Run("state change notification", func(t *testing.T) {
@@ -322,7 +322,7 @@ func TestManager_GetAllValues(t *testing.T) {
 	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, logger)
+	manager := NewManager(mockClient, logger, false)
 	manager.SyncFromHA()
 
 	values := manager.GetAllValues()
@@ -356,7 +356,7 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, logger)
+	manager := NewManager(mockClient, logger, false)
 	manager.SyncFromHA()
 
 	// Run concurrent reads and writes

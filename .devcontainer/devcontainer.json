@@ -1,0 +1,27 @@
+{
+  "name": "Internet Connection Monitor",
+  "image": "mcr.microsoft.com/devcontainers/go:1.25",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": "false"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "bierner.markdown-mermaid"
+      ]
+    }
+  },
+  "postCreateCommand": "go mod tidy && go mod download && mkdir -p build",
+  "forwardPorts": [],
+  "portsAttributes": {},
+  "mounts": [],
+  "remoteUser": "vscode"
+}

@@ -52,7 +52,7 @@ func main() {
 	logger.Info("Connected to Home Assistant")
 
 	// Create State Manager
-	stateManager := state.NewManager(client, logger)
+	stateManager := state.NewManager(client, logger, readOnly)
 
 	// Sync all state from HA
 	if err := stateManager.SyncFromHA(); err != nil {
@@ -146,53 +146,19 @@ func displayState(manager *state.Manager, logger *zap.Logger) {
 }
 
 func subscribeToChanges(manager *state.Manager, logger *zap.Logger) {
-	// Subscribe to home presence changes
-	manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
-		logger.Info("State changed",
-			zap.String("key", key),
-			zap.Any("old", oldValue),
-			zap.Any("new", newValue))
-	})
+	// Subscribe to all state variables
+	for _, variable := range state.AllVariables {
+		key := variable.Key
+		manager.Subscribe(key, func(varKey string, oldValue, newValue interface{}) {
+			logger.Info("State changed",
+				zap.String("key", varKey),
+				zap.Any("old", oldValue),
+				zap.Any("new", newValue))
+		})
+	}
 
-	manager.Subscribe("isCarolineHome", func(key string, oldValue, newValue interface{}) {
-		logger.Info("State changed",
-			zap.String("key", key),
-			zap.Any("old", oldValue),
-			zap.Any("new", newValue))
-	})
-
-	manager.Subscribe("isAnyoneHome", func(key string, oldValue, newValue interface{}) {
-		logger.Info("State changed",
-			zap.String("key", key),
-			zap.Any("old", oldValue),
-			zap.Any("new", newValue))
-	})
-
-	// Subscribe to sleep status
-	manager.Subscribe("isEveryoneAsleep", func(key string, oldValue, newValue interface{}) {
-		logger.Info("State changed",
-			zap.String("key", key),
-			zap.Any("old", oldValue),
-			zap.Any("new", newValue))
-	})
-
-	// Subscribe to day phase
-	manager.Subscribe("dayPhase", func(key string, oldValue, newValue interface{}) {
-		logger.Info("State changed",
-			zap.String("key", key),
-			zap.Any("old", oldValue),
-			zap.Any("new", newValue))
-	})
-
-	// Subscribe to energy availability
-	manager.Subscribe("isFreeEnergyAvailable", func(key string, oldValue, newValue interface{}) {
-		logger.Info("State changed",
-			zap.String("key", key),
-			zap.Any("old", oldValue),
-			zap.Any("new", newValue))
-	})
-
-	logger.Info("Subscribed to state change notifications")
+	logger.Info("Subscribed to all state change notifications",
+		zap.Int("variable_count", len(state.AllVariables)))
 }
 
 func demonstrateStateChanges(manager *state.Manager, logger *zap.Logger) {
