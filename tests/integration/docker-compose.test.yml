@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # Mock Home Assistant service for testing
+  mockha:
+    build:
+      context: .
+      dockerfile: Dockerfile.mockha
+    container_name: test-mockha
+    ports:
+      - "8123:8123"  # WebSocket + HTTP API
+    volumes:
+      - ./mockha:/app
+      - ./testdata:/testdata:ro
+    environment:
+      - LOG_LEVEL=debug
+      - FIXTURES_FILE=/testdata/test_fixtures.json
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/test/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+      start_period: 5s
+    networks:
+      - test-network
+
+  # Homeautomation system under test
+  homeautomation:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.homeautomation
+    container_name: test-homeautomation
+    depends_on:
+      mockha:
+        condition: service_healthy
+    environment:
+      - HA_URL=ws://mockha:8123/api/websocket
+      - HA_TOKEN=test_token_12345
+      - CONFIG_DIR=/configs
+      - LOG_LEVEL=debug
+      - SYNC_INTERVAL=300
+    volumes:
+      - ./testdata/configs:/configs:ro
+      - test-logs:/logs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 15
+      start_period: 10s
+    networks:
+      - test-network
+
+volumes:
+  test-logs:
+
+networks:
+  test-network:
+    name: homeautomation-test
+    driver: bridge

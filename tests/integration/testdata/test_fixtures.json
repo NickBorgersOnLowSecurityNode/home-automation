@@ -1,0 +1,180 @@
+{
+  "entities": [
+    {
+      "entity_id": "input_boolean.nick_home",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.caroline_home",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.tori_here",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.any_owner_home",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.anyone_home",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.master_asleep",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.guest_asleep",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.everyone_asleep",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.have_guests",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.guest_bedroom_door_open",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.office_occupied",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.tv_playing",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.apple_tv_playing",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.tv_on",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.free_energy_available",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.grid_available",
+      "state": "on",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.expecting_someone",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_boolean.lockdown_active",
+      "state": "off",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_number.alarm_time",
+      "state": 0,
+      "attributes": {
+        "min": 0,
+        "max": 86400000
+      }
+    },
+    {
+      "entity_id": "input_number.remaining_solar_generation",
+      "state": 0.0,
+      "attributes": {
+        "min": 0,
+        "max": 100,
+        "unit_of_measurement": "kWh"
+      }
+    },
+    {
+      "entity_id": "input_number.this_hour_solar_generation",
+      "state": 0.0,
+      "attributes": {
+        "min": 0,
+        "max": 10,
+        "unit_of_measurement": "kWh"
+      }
+    },
+    {
+      "entity_id": "input_text.day_phase",
+      "state": "morning",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.sunevent",
+      "state": "sunrise",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.music_playback_type",
+      "state": "none",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.battery_energy_level",
+      "state": "green",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.solar_production_energy_level",
+      "state": "white",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.current_energy_level",
+      "state": "green",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.currently_playing_music",
+      "state": "{}",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.music_config",
+      "state": "{}",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.hue_config",
+      "state": "{}",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.energy_config",
+      "state": "{}",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.music_playlist_numbers",
+      "state": "{}",
+      "attributes": {}
+    },
+    {
+      "entity_id": "input_text.schedule",
+      "state": "{}",
+      "attributes": {}
+    }
+  ]
+}

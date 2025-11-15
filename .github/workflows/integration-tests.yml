@@ -1,0 +1,68 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, develop, claude/* ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  integration-test:
+    name: Run Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Run integration tests
+        run: |
+          cd tests/integration
+          bash run_tests.sh
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: integration-test-logs
+          path: tests/integration/test-logs/
+          retention-days: 7
+
+      - name: Upload coverage report
+        if: success()
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.out
+          flags: integration
+          name: integration-tests
+
+      - name: Comment PR with test results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const testOutput = fs.readFileSync('tests/integration/test-logs/test-output.log', 'utf8');
+            const summary = testOutput.split('\n').filter(line =>
+              line.includes('PASS') || line.includes('FAIL') || line.includes('ok')
+            ).join('\n');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Integration Test Results\n\n\`\`\`\n${summary}\n\`\`\``
+            });
