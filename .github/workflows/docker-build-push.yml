@@ -1,5 +1,9 @@
 name: Build and Push Docker Image
 
+# This workflow runs ONLY on pushes to main/master or version tags
+# It builds, tests, and pushes the Docker image to ghcr.io
+# For PR testing, see pr-tests.yml instead
+
 on:
   push:
     branches:
@@ -7,10 +11,6 @@ on:
       - master
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
-      - master
   workflow_dispatch:
 
 env:
@@ -101,7 +101,6 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
@@ -113,7 +112,7 @@ jobs:
         with:
           context: ./homeautomation-go
           file: ./homeautomation-go/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

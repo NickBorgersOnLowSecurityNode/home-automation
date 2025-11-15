@@ -12,8 +12,8 @@ This repository contains a home automation system that is migrating from Node-RE
 /workspaces/node-red/
 ├── .github/
 │   ├── workflows/
-│   │   ├── pr-tests.yml        # PR test requirements (NEW)
-│   │   ├── docker-build-push.yml # Docker build + tests
+│   │   ├── pr-tests.yml        # PR test requirements
+│   │   ├── docker-build-push.yml # Docker build + push (main/master only)
 │   │   └── [other workflows]
 ├── docs/
 │   ├── architecture/           # Architecture documentation
