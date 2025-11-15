@@ -36,7 +36,7 @@ func setupTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func())
 	require.NoError(t, err)
 
 	// Create state manager
-	manager := state.NewManager(client, logger)
+	manager := state.NewManager(client, logger, false)
 	err = manager.SyncFromHA()
 	require.NoError(t, err)
 

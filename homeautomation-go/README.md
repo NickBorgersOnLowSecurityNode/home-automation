@@ -136,7 +136,7 @@ func main() {
     defer client.Disconnect()
 
     // Create state manager
-    manager := state.NewManager(client, logger)
+    manager := state.NewManager(client, logger, false)
     manager.SyncFromHA()
 
     // Get boolean state
