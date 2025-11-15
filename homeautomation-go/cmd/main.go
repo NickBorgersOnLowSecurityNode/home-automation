@@ -39,6 +39,19 @@ func main() {
 		logger.Fatal("HA_URL and HA_TOKEN environment variables must be set")
 	}
 
+	// Determine config directory path
+	// Priority: CONFIG_DIR env var > ./configs (container) > ../configs (local dev)
+	configDir := os.Getenv("CONFIG_DIR")
+	if configDir == "" {
+		// Auto-detect: prefer ./configs if it exists (container), otherwise ../configs (local dev)
+		if _, err := os.Stat("./configs"); err == nil {
+			configDir = "./configs"
+		} else {
+			configDir = "../configs"
+		}
+	}
+	logger.Info("Using config directory", zap.String("path", configDir))
+
 	logger.Info("Starting Home Automation Client",
 		zap.String("url", haURL),
 		zap.Bool("read_only", readOnly))
@@ -69,7 +82,7 @@ func main() {
 	subscribeToChanges(stateManager, logger)
 
 	// Start Energy State Manager
-	if err := startEnergyManager(client, stateManager, logger, readOnly); err != nil {
+	if err := startEnergyManager(client, stateManager, logger, readOnly, configDir); err != nil {
 		logger.Fatal("Failed to start Energy State Manager", zap.Error(err))
 	}
 
@@ -221,9 +234,9 @@ func demonstrateStateChanges(manager *state.Manager, logger *zap.Logger) {
 	logger.Info("===================================")
 }
 
-func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) error {
+func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) error {
 	// Load energy configuration
-	configPath := filepath.Join("..", "configs", "energy_config.yaml")
+	configPath := filepath.Join(configDir, "energy_config.yaml")
 	energyConfig, err := energy.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load energy config: %w", err)
