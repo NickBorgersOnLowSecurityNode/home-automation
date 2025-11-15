@@ -30,7 +30,6 @@ jobs:
       # 1. Run unit tests with race detector
       # 2. Run unit tests with coverage (must be >= 70%)
       # 3. Run integration tests (mock HA server, concurrency, deadlock detection)
-      # 4. Run known-failing test separately (subscription leak bug tracked in INTEGRATION_TEST_FINDINGS.md)
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -61,27 +60,17 @@ jobs:
       - name: Run integration tests
         run: |
           echo "Running integration tests with race detector..."
-          # Run all integration tests except the known failing one
-          go test -v -race -timeout=5m ./test/integration/... -run '^(Test(?!MultipleSubscribersOnSameEntity))'
+          go test -v -race -timeout=5m ./test/integration/...
         continue-on-error: false
-
-      - name: Run known-failing test (TestMultipleSubscribersOnSameEntity)
-        run: |
-          echo "Running known-failing test (subscription leak bug)..."
-          echo "This test is expected to fail until the subscription bug is fixed."
-          echo "See INTEGRATION_TEST_FINDINGS.md for details."
-          go test -v -race -timeout=30s ./test/integration/... -run 'TestMultipleSubscribersOnSameEntity' || echo "Expected failure - subscription leak bug tracked in INTEGRATION_TEST_FINDINGS.md"
-        continue-on-error: true
 
       - name: Test Summary
         if: always()
         run: |
           echo "✅ Unit tests passed with race detector"
           echo "✅ Test coverage meets minimum requirement (≥70%)"
-          echo "✅ Integration tests passed (11/12 tests)"
-          echo "⚠️  Known failing test: TestMultipleSubscribersOnSameEntity (subscription leak bug)"
+          echo "✅ All integration tests passed (12/12 tests)"
           echo ""
-          echo "All critical tests passed. Ready for Docker build."
+          echo "All tests passed. Ready for Docker build."
 
   build-and-push:
     name: Build and Push Docker Image
