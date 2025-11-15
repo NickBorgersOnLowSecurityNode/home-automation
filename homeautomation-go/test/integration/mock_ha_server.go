@@ -25,7 +25,7 @@ type MockHAServer struct {
 	connsMu     sync.Mutex
 	eventDelay  time.Duration // Simulates network latency
 	token       string
-	writeMu     sync.Mutex    // Protects websocket writes
+	writeMu     sync.Mutex // Protects websocket writes
 }
 
 // EntityState represents a Home Assistant entity state
