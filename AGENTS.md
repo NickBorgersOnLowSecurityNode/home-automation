@@ -6,74 +6,14 @@ This document provides guidance for AI agents and developers working on this hom
 
 This repository contains a home automation system that is migrating from Node-RED to Golang for improved type safety, testability, and maintainability.
 
----
+## 🚨 CRITICAL: Pre-Push Hook Active
 
-## 🚨 CRITICAL: Test Validation Before Every Push 🚨
+**A pre-push git hook automatically runs all tests before every push and BLOCKS if they fail.**
 
-**STOP! Read this before making ANY changes:**
+After PRs #23 and #24 were pushed with failing tests, we added automated enforcement. The hook runs:
+- Code compilation + all tests + race detector + coverage check (≥70%)
 
-### Automated Pre-Push Hook (ACTIVE)
-
-This repository has an **active pre-push git hook** that automatically runs:
-- ✅ Code compilation check (including test files)
-- ✅ All unit and integration tests
-- ✅ Race detector
-- ✅ Test coverage validation (≥70%)
-
-**The hook will BLOCK your push if any check fails.**
-
-### For AI Agents: Mandatory Validation Steps
-
-Before every `git push`, you MUST:
-
-1. **Run the validation script:**
-   ```bash
-   ./scripts/validate-before-push.sh
-   ```
-   OR manually run:
-   ```bash
-   cd homeautomation-go && go test ./...
-   ```
-
-2. **Fix any failures BEFORE attempting to push**
-
-3. **Verify the pre-push hook is active:**
-   ```bash
-   ls -la .git/hooks/pre-push
-   # Should show executable permissions (not .sample)
-   ```
-
-### Why This Matters
-
-Multiple PRs were pushed with failing tests, causing CI failures:
-- PR #23: Test failures
-- PR #24: Test failures
-
-**These failures waste time and resources.** The pre-push hook prevents this.
-
-### If Tests Fail Locally
-
-❌ **DO NOT:**
-- Push with `--no-verify` to bypass the hook
-- Ignore test failures
-- Assume "CI will catch it"
-
-✅ **DO:**
-- Fix the failing tests
-- Run tests again to verify
-- Only push when all tests pass locally
-
-### Hook Bypass (Emergency Only)
-
-To bypass the pre-push hook (NOT RECOMMENDED):
-```bash
-git push --no-verify
-```
-
-**Only use this if:**
-- You're pushing documentation-only changes
-- You've explicitly coordinated with the team
-- You understand the risks
+**NEVER use `git push --no-verify` to bypass the hook.** Fix the tests instead.
 
 ---
 
@@ -370,33 +310,6 @@ grep "musicPlaybackType" docs/migration/migration_mapping.md
 
 ## Development Standards
 
----
-**🚨 CI/CD Failure Prevention (ENFORCED BY PRE-PUSH HOOK)**
-
-**AUTOMATED:** An active pre-push git hook automatically runs tests before every push.
-
-**MANUAL VALIDATION (recommended before committing):**
-```bash
-./scripts/validate-before-push.sh
-```
-
-**OR run tests directly:**
-```bash
-cd homeautomation-go && go test ./...
-```
-
-This runs:
-- ✅ Unit tests (`internal/ha`, `internal/state`)
-- ✅ Integration tests (`test/integration`)
-- ✅ Compilation of all test files
-- ✅ Race detector
-- ✅ Coverage check (≥70%)
-
-**The pre-push hook will BLOCK your push if tests fail.**
-
-See the **[CRITICAL: Test Validation Before Every Push](#-critical-test-validation-before-every-push-)** section at the top of this document for details.
-
----
 
 ### Update docs/architecture/IMPLEMENTATION_PLAN.md
 As you complete tasks, update the implementation plan with progress, and add additional work items as additional problems to solve are identified.

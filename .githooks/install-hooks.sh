@@ -20,7 +20,7 @@ if [ ! -d ".githooks" ]; then
 fi
 
 # Make hook scripts executable
-chmod +x .githooks/pre-commit
+chmod +x .githooks/pre-commit .githooks/pre-push
 
 # Install pre-commit hook
 if [ -f ".git/hooks/pre-commit" ] && [ ! -L ".git/hooks/pre-commit" ]; then
@@ -28,14 +28,20 @@ if [ -f ".git/hooks/pre-commit" ] && [ ! -L ".git/hooks/pre-commit" ]; then
     echo "   Backing up to .git/hooks/pre-commit.backup"
     mv .git/hooks/pre-commit .git/hooks/pre-commit.backup
 fi
-
-# Create symlink
 ln -sf ../../.githooks/pre-commit .git/hooks/pre-commit
+
+# Install pre-push hook
+if [ -f ".git/hooks/pre-push" ] && [ ! -L ".git/hooks/pre-push" ]; then
+    echo "⚠️  Warning: Existing pre-push hook found (not a symlink)"
+    echo "   Backing up to .git/hooks/pre-push.backup"
+    mv .git/hooks/pre-push .git/hooks/pre-push.backup
+fi
+ln -sf ../../.githooks/pre-push .git/hooks/pre-push
 
 echo "✅ Git hooks installed successfully!"
 echo ""
-echo "Pre-commit hook will now run automatically before each commit."
-echo "It will execute the same tests that CI/CD runs."
+echo "Hooks installed:"
+echo "  • pre-commit: Formatting, linting, build checks"
+echo "  • pre-push: All tests with race detector and coverage"
 echo ""
-echo "To skip the hook temporarily, use: git commit --no-verify"
-echo "To manually run the checks, use: make pre-commit"
+echo "To skip: git commit --no-verify / git push --no-verify"
