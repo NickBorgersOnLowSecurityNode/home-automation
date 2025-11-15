@@ -228,7 +228,7 @@ func (m *Manager) notifySubscribers(key string, oldValue, newValue interface{}) 
 	m.subsMu.RUnlock()
 
 	for _, handler := range handlers {
-		go handler(key, oldValue, newValue)
+		handler(key, oldValue, newValue)
 	}
 }
 

@@ -263,7 +263,6 @@ func TestManager_Subscribe(t *testing.T) {
 
 		// Simulate state change from HA
 		mockClient.SimulateStateChange("input_boolean.nick_home", "on")
-		time.Sleep(50 * time.Millisecond)
 
 		assert.Equal(t, 1, changeCount)
 		assert.Equal(t, false, receivedOld)
@@ -281,7 +280,6 @@ func TestManager_Subscribe(t *testing.T) {
 		})
 
 		mockClient.SimulateStateChange("input_boolean.caroline_home", "on")
-		time.Sleep(50 * time.Millisecond)
 
 		assert.Equal(t, 1, count1)
 		assert.Equal(t, 1, count2)
@@ -299,13 +297,11 @@ func TestManager_Subscribe(t *testing.T) {
 		require.NoError(t, err)
 
 		mockClient.SimulateStateChange("input_boolean.tori_here", "on")
-		time.Sleep(50 * time.Millisecond)
 		assert.Equal(t, 1, changeCount)
 
 		sub.Unsubscribe()
 
 		mockClient.SimulateStateChange("input_boolean.tori_here", "off")
-		time.Sleep(50 * time.Millisecond)
 		assert.Equal(t, 1, changeCount) // Should not increment
 	})
 
@@ -313,6 +309,25 @@ func TestManager_Subscribe(t *testing.T) {
 		_, err := manager.Subscribe("nonexistent", func(key string, oldValue, newValue interface{}) {})
 		assert.Error(t, err)
 	})
+}
+
+func TestManagerNotifySubscribersIsSynchronous(t *testing.T) {
+	manager := &Manager{
+		subscribers: map[string]map[uint64]StateChangeHandler{
+			"test": {
+				1: func(string, interface{}, interface{}) {
+					time.Sleep(50 * time.Millisecond)
+				},
+				2: func(string, interface{}, interface{}) {},
+			},
+		},
+	}
+
+	start := time.Now()
+	manager.notifySubscribers("test", nil, nil)
+	elapsed := time.Since(start)
+
+	assert.GreaterOrEqual(t, elapsed, 50*time.Millisecond)
 }
 
 func TestManager_GetAllValues(t *testing.T) {

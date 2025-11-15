@@ -53,6 +53,18 @@ type Client struct {
 	writeMu     sync.Mutex // Protects websocket writes
 }
 
+func (c *Client) clearSubscribers() {
+	c.subsMu.Lock()
+	defer c.subsMu.Unlock()
+
+	if len(c.subscribers) == 0 {
+		c.subscribers = make(map[string][]subscriberEntry)
+		return
+	}
+
+	c.subscribers = make(map[string][]subscriberEntry)
+}
+
 func (c *Client) resetContextLocked() {
 	if c.cancel != nil {
 		c.cancel()
@@ -183,6 +195,7 @@ func (c *Client) Disconnect() error {
 		c.conn = nil
 	}
 
+	c.clearSubscribers()
 	c.logger.Info("Disconnected from Home Assistant")
 	return nil
 }
@@ -319,11 +332,11 @@ func (c *Client) handleEvent(msg *Message) {
 
 	// Notify subscribers
 	c.subsMu.RLock()
-	entries := c.subscribers[eventData.EntityID]
+	entries := append([]subscriberEntry(nil), c.subscribers[eventData.EntityID]...)
 	c.subsMu.RUnlock()
 
 	for _, entry := range entries {
-		go entry.handler(eventData.EntityID, eventData.OldState, eventData.NewState)
+		entry.handler(eventData.EntityID, eventData.OldState, eventData.NewState)
 	}
 }
 
