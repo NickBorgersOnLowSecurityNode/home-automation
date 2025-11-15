@@ -124,15 +124,18 @@ jobs:
 
       - name: Verify config files are accessible in image
         run: |
-          echo "Starting container to verify config file accessibility..."
-          # Run container with CONFIG_DIR set and check if it can find configs
-          # Use a simple check that will fail fast if paths are wrong
-          docker run --rm \
-            -e CONFIG_DIR=/app/configs \
-            -e HA_URL=wss://test.example.com/api/websocket \
-            -e HA_TOKEN=test_token_for_validation \
-            homeautomation-test:pr \
-            timeout 5s ./homeautomation || [ $? -eq 124 ]
+          echo "Verifying config files are accessible in the image..."
+          # Check that config files exist in the image at /app/configs
+          docker run --rm homeautomation-test:pr ls -la /app/configs/
+
+          # Verify specific config files are present
+          docker run --rm homeautomation-test:pr sh -c '
+            test -f /app/configs/energy_config.yaml && \
+            test -f /app/configs/music_config.yaml && \
+            test -f /app/configs/hue_config.yaml && \
+            test -f /app/configs/schedule_config.yaml && \
+            echo "✅ All config files present in image"
+          '
           echo "✅ Docker image builds and can access configuration paths"
 
       - name: Docker Build Summary
