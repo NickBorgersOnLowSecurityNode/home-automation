@@ -395,6 +395,77 @@ func TestExtractEntityName(t *testing.T) {
 	}
 }
 
+func TestManager_GetJSON(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+
+	manager := NewManager(mockClient, logger, false)
+
+	// Test getting default value
+	var result map[string]interface{}
+	err := manager.GetJSON("currentlyPlayingMusic", &result)
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, 0, len(result))
+
+	// Test getting with cached value
+	testData := map[string]interface{}{
+		"artist": "Test Artist",
+		"title":  "Test Song",
+		"album":  "Test Album",
+	}
+	manager.cache["currentlyPlayingMusic"] = testData
+
+	var cached map[string]interface{}
+	err = manager.GetJSON("currentlyPlayingMusic", &cached)
+	assert.NoError(t, err)
+	assert.Equal(t, "Test Artist", cached["artist"])
+	assert.Equal(t, "Test Song", cached["title"])
+
+	// Test error: non-existent variable
+	var dummy map[string]interface{}
+	err = manager.GetJSON("nonExistent", &dummy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+
+	// Test error: wrong type
+	err = manager.GetJSON("isNickHome", &dummy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not JSON")
+}
+
+func TestManager_SetJSON(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+
+	// Test setting JSON value (local-only variable)
+	testData := map[string]interface{}{
+		"artist": "New Artist",
+		"title":  "New Song",
+	}
+	err := manager.SetJSON("currentlyPlayingMusic", testData)
+	assert.NoError(t, err)
+
+	// Verify the value was set
+	var result map[string]interface{}
+	err = manager.GetJSON("currentlyPlayingMusic", &result)
+	assert.NoError(t, err)
+	assert.Equal(t, "New Artist", result["artist"])
+
+	// Test error: non-existent variable
+	err = manager.SetJSON("nonExistent", testData)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+
+	// Test error: wrong type
+	err = manager.SetJSON("isNickHome", testData)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not JSON")
+}
+
 func TestManager_ConcurrentAccess(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
@@ -425,4 +496,16 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 	value, err := manager.GetBool("isNickHome")
 	assert.NoError(t, err)
 	assert.NotNil(t, value)
+}
+
+func TestVariablesByEntityID(t *testing.T) {
+	vars := VariablesByEntityID()
+	assert.NotNil(t, vars)
+	assert.Greater(t, len(vars), 0)
+
+	// Check that a known variable is in the map
+	nickHome, ok := vars["input_boolean.nick_home"]
+	assert.True(t, ok)
+	assert.Equal(t, "isNickHome", nickHome.Key)
+	assert.Equal(t, TypeBool, nickHome.Type)
 }
