@@ -37,17 +37,17 @@
 - State Manager: >70% coverage
 - No race conditions detected
 
-**Integration Tests:** 11/12 passing ✅
+**Integration Tests:** 11/11 passing ✅
 - 50 goroutines × 100 concurrent reads
 - 20 goroutines × 50 concurrent writes
 - High-frequency state changes (1000+ events)
-- 1 expected failure (subscription leak bug)
+- All race conditions and bugs resolved
 
 ### Deployment Status
 
 - **Mode:** READ_ONLY (safe to run alongside Node-RED)
 - **Docker:** Available with GHCR push automation
-- **Production Ready:** Awaiting subscription bug fix
+- **Production Ready:** ✅ All critical bugs fixed, ready for parallel testing
 
 ### Next Steps
 
@@ -97,7 +97,7 @@ homeautomation-go/
 │       └── variables.go             # ✅ 28 state variable definitions
 ├── test/
 │   └── integration/                 # ✅ Integration test suite
-│       ├── integration_test.go      # ✅ 12 comprehensive test scenarios
+│       ├── integration_test.go      # ✅ 11 comprehensive test scenarios
 │       ├── mock_ha_server.go        # ✅ Full mock HA WebSocket server
 │       ├── Dockerfile               # ✅ Container for isolated testing
 │       ├── docker-compose.yml       # ✅ Integration test runner
@@ -195,10 +195,10 @@ homeautomation-go/
     - `SetInputNumber(name string, value float64) error`
     - `SetInputText(name string, value string) error`
 
-- ⚠️ **2.7** Implement event subscription (HAS BUG):
+- ✅ **2.7** Implement event subscription:
   - `SubscribeStateChanges(entityID string, handler StateChangeHandler) error`
   - Pattern matching for wildcards (e.g., "input_boolean.*")
-  - ❌ Unsubscribe mechanism (Bug: removes ALL subscribers)
+  - ✅ Unsubscribe mechanism (fixed: per-subscription IDs)
 
 **File:** `internal/ha/client_test.go`
 
@@ -421,16 +421,16 @@ homeautomation-go/
   - `TestSubscriptionWithConcurrentWrites` - Real-world scenario
   - `TestCompareAndSwapRaceCondition` - Atomic operations
   - `TestHighFrequencyStateChanges` - 1000+ rapid events
-  - ⚠️ `TestMultipleSubscribersOnSameEntity` - KNOWN FAILURE (bug tracked)
+  - ✅ `TestMultipleSubscribersOnSameEntity` - Multiple subscribers per entity
 
 - ✅ **6.3** Containerized testing:
   - Dockerfile for isolated test environment
   - docker-compose.yml for easy execution
   - CI/CD ready
 
-- ✅ **6.4** Bug discoveries:
+- ✅ **6.4** Bug discoveries and fixes:
   - ✅ **FIXED:** Concurrent WebSocket write panic
-  - ❌ **FOUND:** Subscription memory leak (needs fix)
+  - ✅ **FIXED:** Subscription memory leak (per-subscription IDs)
 
 ---
 
@@ -528,19 +528,13 @@ Now that MVP is complete, the following tasks remain before full production depl
 
 ### Immediate Priorities
 
-1. **Fix Subscription Memory Leak** (Bug #2)
-   - Location: `internal/ha/client.go:422-428`
-   - Current: Unsubscribe removes ALL subscribers
-   - Fix: Track individual subscriptions with unique IDs
-   - Impact: Required for multi-subscriber scenarios
-
-2. **Parallel Testing with Node-RED**
+1. **Parallel Testing with Node-RED**
    - Run both systems side-by-side in READ_ONLY mode
    - Compare state synchronization behavior
    - Validate identical state tracking
    - Identify any edge cases or discrepancies
 
-3. **Performance Validation**
+2. **Performance Validation**
    - Long-running stability test (24+ hours)
    - Memory leak detection
    - Connection resilience testing
@@ -615,8 +609,8 @@ Now that MVP is complete, the following tasks remain before full production depl
 - ✅ JSON values in input_text need to be stringified
 - ✅ WebSocket connection needs keep-alive/ping
 - ⚠️ **CRITICAL:** WebSocket writes MUST be serialized (gorilla/websocket is NOT thread-safe)
-- ⚠️ **BUG:** Current unsubscribe implementation removes all subscribers, not just one
 - ✅ Use `writeMu` mutex for all WebSocket write operations
+- ✅ Per-subscription IDs required for proper unsubscribe behavior
 
 **Bugs Found Through Testing:**
 
@@ -626,10 +620,10 @@ See [INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md) for complete 
    - Would cause panics under concurrent load
    - Fixed by adding `writeMu` mutex in `internal/ha/client.go`
 
-2. **Subscription Memory Leak** ❌ NEEDS FIX
-   - Unsubscribe removes ALL subscribers instead of one
-   - Location: `internal/ha/client.go:422-428`
-   - Test: `TestMultipleSubscribersOnSameEntity`
+2. **Subscription Memory Leak** ✅ FIXED
+   - Unsubscribe was removing ALL subscribers instead of one
+   - Fixed by implementing per-subscription IDs in `internal/ha/client.go`
+   - Test: `TestMultipleSubscribersOnSameEntity` now passes
 
 ---
 

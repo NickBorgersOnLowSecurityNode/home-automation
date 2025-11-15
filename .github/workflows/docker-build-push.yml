@@ -68,7 +68,7 @@ jobs:
         run: |
           echo "✅ Unit tests passed with race detector"
           echo "✅ Test coverage meets minimum requirement (≥70%)"
-          echo "✅ All integration tests passed (12/12 tests)"
+          echo "✅ All integration tests passed (11/11 tests)"
           echo ""
           echo "All tests passed. Ready for Docker build."
 
