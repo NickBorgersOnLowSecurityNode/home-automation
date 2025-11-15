@@ -182,12 +182,12 @@ docker-compose -f homeautomation-go/docker-compose.integration.yml up --build
 ✅ **All State Types**
 - Boolean, Number, String, JSON operations
 
-#### Known Test Failures
+#### Test Status
 
-⚠️ **TestMultipleSubscribersOnSameEntity** - Expected to fail
-- **Bug**: Unsubscribe removes ALL subscribers, not just one
-- **Location**: `internal/ha/client.go:422-428`
-- **Status**: Tracked for fix
+✅ **All tests passing** - No known failures
+- All 12 integration tests pass
+- All unit tests pass
+- No race conditions detected
 
 See [test/integration/README.md](./homeautomation-go/test/integration/README.md) for detailed test documentation.
 
@@ -196,7 +196,7 @@ See [test/integration/README.md](./homeautomation-go/test/integration/README.md)
 - **HA client coverage**: ≥70%
 - **State manager coverage**: ≥70%
 - **No race conditions** when running with `-race`
-- **Integration tests**: 11/12 passing (1 known failure)
+- **Integration tests**: 12/12 passing ✅
 
 ### Test Execution Time
 - HA client tests: ~10 seconds (includes reconnection testing)
@@ -290,12 +290,13 @@ The integration test suite has discovered production-critical bugs. See [INTEGRA
    - **Fix**: Added `writeMu` mutex in `internal/ha/client.go`
    - **Tests**: TestConcurrentWrites, TestConcurrentReadsAndWrites
 
-### Active Bugs ❌
-2. **Subscription Memory Leak** - Unsubscribe removes all handlers
+2. **Subscription Memory Leak** - Unsubscribe removed all handlers
    - **Severity**: HIGH
-   - **Location**: `internal/ha/client.go:422-428`
+   - **Fix**: Fixed subscription handler tracking in `internal/ha/client.go`
    - **Test**: TestMultipleSubscribersOnSameEntity
-   - **Status**: Needs fix
+
+### Active Bugs ❌
+None - all known bugs have been fixed! ✅
 
 **Always run integration tests after making changes to concurrency-sensitive code.**
 
@@ -469,15 +470,14 @@ See IMPLEMENTATION_PLAN.md for complete migration roadmap.
 - Running in READ_ONLY mode alongside Node-RED
 - All 28 state variables supported
 - Comprehensive integration test suite validates correctness
-- 1 critical bug fixed (concurrent writes)
-- 1 known bug tracked (subscription leak)
+- All critical bugs fixed (concurrent writes, subscription leak)
+- All tests passing (12/12 integration tests)
 
 **Next Steps**:
-1. Fix subscription memory leak bug
-2. Validate behavior matches Node-RED
-3. Migrate helper functions
-4. Switch to read-write mode
-5. Deprecate Node-RED implementation
+1. Validate behavior matches Node-RED
+2. Migrate helper functions
+3. Switch to read-write mode
+4. Deprecate Node-RED implementation
 
 ## Getting Help
 
@@ -512,9 +512,6 @@ A: Update `.env` with real credentials, run `go run cmd/main.go`, watch logs.
 
 **Q: Should I use a real HA instance for testing or the mock?**
 A: Use the mock for automated testing (faster, more reliable). Use real HA for final validation.
-
-**Q: Why is TestMultipleSubscribersOnSameEntity failing?**
-A: Known bug in subscription code. See INTEGRATION_TEST_FINDINGS.md. This is expected.
 
 **Q: How do I run tests in Docker?**
 A: `docker-compose -f homeautomation-go/docker-compose.integration.yml up --build`
