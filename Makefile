@@ -34,11 +34,14 @@ generate-screenshots: build run
 	docker run --rm --network=node-red-backend \
 	  --mount type=bind,source=${CURDIR}/.automated-rendering/screenshot-capture/screenshots/,destination=/app/screenshots/ \
 	  --name screenshot-capture screenshot-capture npm test
+	${MAKE} trim-screenshots
+	${MAKE} cleanup
+
+trim-screenshots:
 	# Trim our captured screenshots with ImageMagick
 	docker run --rm --network=none \
 	  --mount type=bind,source=${CURDIR}/.automated-rendering/screenshot-capture/screenshots/,destination=/screenshots/ \
 	  --name image-magick-auto-crop --entrypoint=mogrify dpokidov/imagemagick -fuzz 27% -trim +repage /screenshots/*.png
-	${MAKE} cleanup
 
 #watch-logs: @ Watch the logs of a running node-red instance
 watch-logs:
