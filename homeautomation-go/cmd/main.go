@@ -52,7 +52,7 @@ func main() {
 	logger.Info("Connected to Home Assistant")
 
 	// Create State Manager
-	stateManager := state.NewManager(client, logger)
+	stateManager := state.NewManager(client, logger, readOnly)
 
 	// Sync all state from HA
 	if err := stateManager.SyncFromHA(); err != nil {

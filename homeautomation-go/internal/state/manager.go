@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"homeautomation/internal/ha"
 
@@ -21,11 +22,12 @@ type Subscription interface {
 
 type subscription struct {
 	key     string
+	id      uint64
 	manager *Manager
 }
 
 func (s *subscription) Unsubscribe() {
-	s.manager.unsubscribe(s.key)
+	s.manager.unsubscribe(s.key, s.id)
 }
 
 // Manager manages state synchronization with Home Assistant
@@ -36,13 +38,16 @@ type Manager struct {
 	cacheMu     sync.RWMutex
 	variables   map[string]StateVariable
 	entityToKey map[string]string
-	subscribers map[string][]StateChangeHandler
+	subscribers map[string]map[uint64]StateChangeHandler
 	subsMu      sync.RWMutex
 	haSubs      map[string]ha.Subscription
+	haSubsMu    sync.Mutex
+	nextSubID   uint64
+	readOnly    bool
 }
 
 // NewManager creates a new state manager
-func NewManager(client ha.HAClient, logger *zap.Logger) *Manager {
+func NewManager(client ha.HAClient, logger *zap.Logger, readOnly bool) *Manager {
 	variables := VariablesByKey()
 	entityToKey := make(map[string]string)
 
@@ -56,8 +61,9 @@ func NewManager(client ha.HAClient, logger *zap.Logger) *Manager {
 		cache:       make(map[string]interface{}),
 		variables:   variables,
 		entityToKey: entityToKey,
-		subscribers: make(map[string][]StateChangeHandler),
+		subscribers: make(map[string]map[uint64]StateChangeHandler),
 		haSubs:      make(map[string]ha.Subscription),
+		readOnly:    readOnly,
 	}
 }
 
@@ -159,6 +165,13 @@ func (m *Manager) parseStateValue(stateStr string, varType StateType) (interface
 
 // subscribeToEntity subscribes to state changes for an entity
 func (m *Manager) subscribeToEntity(entityID, key string) error {
+	m.haSubsMu.Lock()
+	if _, exists := m.haSubs[entityID]; exists {
+		m.haSubsMu.Unlock()
+		return nil
+	}
+	m.haSubsMu.Unlock()
+
 	sub, err := m.client.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
 		if newState == nil {
 			return
@@ -198,19 +211,35 @@ func (m *Manager) subscribeToEntity(entityID, key string) error {
 		return err
 	}
 
+	m.haSubsMu.Lock()
 	m.haSubs[entityID] = sub
+	m.haSubsMu.Unlock()
 	return nil
 }
 
 // notifySubscribers notifies all subscribers of a state change
 func (m *Manager) notifySubscribers(key string, oldValue, newValue interface{}) {
 	m.subsMu.RLock()
-	handlers := m.subscribers[key]
+	entries := m.subscribers[key]
+	handlers := make([]StateChangeHandler, 0, len(entries))
+	for _, handler := range entries {
+		handlers = append(handlers, handler)
+	}
 	m.subsMu.RUnlock()
 
 	for _, handler := range handlers {
 		go handler(key, oldValue, newValue)
 	}
+}
+
+func (m *Manager) ensureWritable(variable StateVariable) error {
+	if variable.ReadOnly {
+		return fmt.Errorf("variable %s is read-only", variable.Key)
+	}
+	if m.readOnly && !variable.LocalOnly {
+		return fmt.Errorf("state manager is in read-only mode")
+	}
+	return nil
 }
 
 // GetBool retrieves a boolean state variable
@@ -249,6 +278,9 @@ func (m *Manager) SetBool(key string, value bool) error {
 
 	if variable.Type != TypeBool {
 		return fmt.Errorf("variable %s is not a boolean", key)
+	}
+	if err := m.ensureWritable(variable); err != nil {
+		return err
 	}
 
 	// Update cache
@@ -312,6 +344,9 @@ func (m *Manager) SetString(key string, value string) error {
 	if variable.Type != TypeString {
 		return fmt.Errorf("variable %s is not a string", key)
 	}
+	if err := m.ensureWritable(variable); err != nil {
+		return err
+	}
 
 	// Update cache
 	m.cacheMu.Lock()
@@ -374,6 +409,9 @@ func (m *Manager) SetNumber(key string, value float64) error {
 	if variable.Type != TypeNumber {
 		return fmt.Errorf("variable %s is not a number", key)
 	}
+	if err := m.ensureWritable(variable); err != nil {
+		return err
+	}
 
 	// Update cache
 	m.cacheMu.Lock()
@@ -415,8 +453,11 @@ func (m *Manager) GetJSON(key string, target interface{}) error {
 	m.cacheMu.RUnlock()
 
 	if !ok {
-		// Parse default value
-		return json.Unmarshal([]byte(variable.Default.(string)), target)
+		jsonBytes, err := marshalJSONValue(variable.Default)
+		if err != nil {
+			return fmt.Errorf("invalid default for %s: %w", key, err)
+		}
+		return json.Unmarshal(jsonBytes, target)
 	}
 
 	// Marshal and unmarshal to convert to target type
@@ -437,6 +478,9 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 
 	if variable.Type != TypeJSON {
 		return fmt.Errorf("variable %s is not JSON", key)
+	}
+	if err := m.ensureWritable(variable); err != nil {
+		return err
 	}
 
 	// Update cache
@@ -483,6 +527,9 @@ func (m *Manager) CompareAndSwapBool(key string, old, new bool) (bool, error) {
 	if variable.Type != TypeBool {
 		return false, fmt.Errorf("variable %s is not a boolean", key)
 	}
+	if err := m.ensureWritable(variable); err != nil {
+		return false, err
+	}
 
 	m.cacheMu.Lock()
 
@@ -527,21 +574,81 @@ func (m *Manager) Subscribe(key string, handler StateChangeHandler) (Subscriptio
 		return nil, fmt.Errorf("variable %s not found", key)
 	}
 
+	variable := m.variables[key]
+	if !variable.LocalOnly {
+		if err := m.ensureHASubscription(variable); err != nil {
+			return nil, err
+		}
+	}
+
+	subID := atomic.AddUint64(&m.nextSubID, 1)
 	m.subsMu.Lock()
-	m.subscribers[key] = append(m.subscribers[key], handler)
+	if _, ok := m.subscribers[key]; !ok {
+		m.subscribers[key] = make(map[uint64]StateChangeHandler)
+	}
+	m.subscribers[key][subID] = handler
 	m.subsMu.Unlock()
 
 	return &subscription{
 		key:     key,
+		id:      subID,
 		manager: m,
 	}, nil
 }
 
-// unsubscribe removes all subscriptions for a key
-func (m *Manager) unsubscribe(key string) {
+// unsubscribe removes a specific subscription
+func (m *Manager) unsubscribe(key string, id uint64) {
 	m.subsMu.Lock()
-	delete(m.subscribers, key)
+	handlers, ok := m.subscribers[key]
+	if !ok {
+		m.subsMu.Unlock()
+		return
+	}
+	delete(handlers, id)
+	if len(handlers) == 0 {
+		delete(m.subscribers, key)
+	}
+	empty := len(handlers) == 0
 	m.subsMu.Unlock()
+
+	if empty {
+		m.teardownHASubscription(key)
+	}
+}
+
+func (m *Manager) ensureHASubscription(variable StateVariable) error {
+	if variable.EntityID == "" {
+		return nil
+	}
+	m.haSubsMu.Lock()
+	_, ok := m.haSubs[variable.EntityID]
+	m.haSubsMu.Unlock()
+	if ok {
+		return nil
+	}
+	return m.subscribeToEntity(variable.EntityID, variable.Key)
+}
+
+func (m *Manager) teardownHASubscription(key string) {
+	variable, ok := m.variables[key]
+	if !ok || variable.LocalOnly || variable.EntityID == "" {
+		return
+	}
+
+	m.haSubsMu.Lock()
+	sub, ok := m.haSubs[variable.EntityID]
+	if ok {
+		delete(m.haSubs, variable.EntityID)
+	}
+	m.haSubsMu.Unlock()
+
+	if !ok {
+		return
+	}
+
+	if err := sub.Unsubscribe(); err != nil {
+		m.logger.Warn("Failed to unsubscribe from HA entity", zap.String("entity_id", variable.EntityID), zap.Error(err))
+	}
 }
 
 // GetAllValues returns all cached values
@@ -565,4 +672,25 @@ func extractEntityName(entityID string) string {
 		}
 	}
 	return entityID
+}
+
+func marshalJSONValue(value interface{}) ([]byte, error) {
+	switch v := value.(type) {
+	case nil:
+		return []byte("null"), nil
+	case json.RawMessage:
+		return v, nil
+	case []byte:
+		if !json.Valid(v) {
+			return nil, fmt.Errorf("invalid JSON bytes")
+		}
+		return v, nil
+	case string:
+		if json.Valid([]byte(v)) {
+			return []byte(v), nil
+		}
+		return json.Marshal(v)
+	default:
+		return json.Marshal(v)
+	}
 }
