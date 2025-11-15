@@ -1,6 +1,7 @@
 package energy
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -256,4 +257,171 @@ func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
 			_ = tc     // Use tc to avoid unused variable warning
 		})
 	}
+}
+
+// TestManagerStartAndHandlers tests the manager lifecycle and handlers
+func TestManagerStartAndHandlers(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+
+	// Initialize state manager with initial values
+	stateManager := state.NewManager(mockClient, logger, false)
+	err := stateManager.SyncFromHA()
+	assert.NoError(t, err)
+
+	// Set initial state
+	stateManager.SetBool("isGridAvailable", true)
+	stateManager.SetString("batteryEnergyLevel", "black")
+	stateManager.SetString("solarProductionEnergyLevel", "black")
+	stateManager.SetNumber("thisHourSolarGeneration", 0.0)
+	stateManager.SetNumber("remainingSolarGeneration", 0.0)
+
+	manager := NewManager(mockClient, stateManager, config, logger, false)
+
+	// Test Start method
+	err = manager.Start()
+	assert.NoError(t, err)
+
+	// Give goroutines time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Test handler functions by triggering state changes
+	t.Run("handleBatteryChange", func(t *testing.T) {
+		manager.handleBatteryChange(50.0)
+		level, _ := stateManager.GetString("batteryEnergyLevel")
+		assert.Equal(t, "red", level)
+	})
+
+	t.Run("handleBatteryChange_with_invalid_value", func(t *testing.T) {
+		// Test with Inf - should be ignored
+		manager.handleBatteryChange(math.Inf(1))
+		// Level should remain red from previous test
+		level, _ := stateManager.GetString("batteryEnergyLevel")
+		assert.Equal(t, "red", level)
+	})
+
+	t.Run("handleThisHourSolarChange", func(t *testing.T) {
+		manager.handleThisHourSolarChange(5.0)
+		kw, _ := stateManager.GetNumber("thisHourSolarGeneration")
+		assert.Equal(t, 5.0, kw)
+	})
+
+	t.Run("handleRemainingSolarChange", func(t *testing.T) {
+		manager.handleRemainingSolarChange(15.0)
+		kwh, _ := stateManager.GetNumber("remainingSolarGeneration")
+		assert.Equal(t, 15.0, kwh)
+	})
+
+	t.Run("recalculateSolarProductionLevel", func(t *testing.T) {
+		manager.recalculateSolarProductionLevel()
+		level, _ := stateManager.GetString("solarProductionEnergyLevel")
+		assert.Equal(t, "green", level)
+	})
+
+	t.Run("recalculateOverallEnergyLevel", func(t *testing.T) {
+		// Set known values
+		stateManager.SetString("batteryEnergyLevel", "yellow")
+		stateManager.SetString("solarProductionEnergyLevel", "green")
+		stateManager.SetBool("isFreeEnergyAvailable", false)
+
+		manager.recalculateOverallEnergyLevel()
+		level, _ := stateManager.GetString("currentEnergyLevel")
+		assert.Equal(t, "green", level)
+	})
+
+	t.Run("recalculateOverallEnergyLevel_with_free_energy", func(t *testing.T) {
+		stateManager.SetBool("isFreeEnergyAvailable", true)
+		manager.recalculateOverallEnergyLevel()
+		level, _ := stateManager.GetString("currentEnergyLevel")
+		assert.Equal(t, "white", level)
+	})
+
+	t.Run("checkFreeEnergy", func(t *testing.T) {
+		stateManager.SetBool("isGridAvailable", false)
+		manager.checkFreeEnergy()
+		isFree, _ := stateManager.GetBool("isFreeEnergyAvailable")
+		assert.False(t, isFree)
+	})
+
+	t.Run("handleGridAvailabilityChange", func(t *testing.T) {
+		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
+		// Just verify it doesn't panic
+	})
+
+	t.Run("handleIntermediateLevelChange", func(t *testing.T) {
+		manager.handleIntermediateLevelChange("batteryEnergyLevel", "black", "red")
+		// Just verify it doesn't panic
+	})
+}
+
+// TestDetermineOverallEnergyLevel_EdgeCases tests edge cases
+func TestDetermineOverallEnergyLevel_EdgeCases(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	manager := NewManager(mockClient, stateManager, config, logger, false)
+
+	t.Run("invalid_battery_level", func(t *testing.T) {
+		result := manager.determineOverallEnergyLevel("invalid", "green")
+		assert.Equal(t, "black", result)
+	})
+
+	t.Run("invalid_solar_level", func(t *testing.T) {
+		result := manager.determineOverallEnergyLevel("green", "invalid")
+		assert.Equal(t, "black", result)
+	})
+}
+
+// TestLoadConfigError tests error handling in config loading
+func TestLoadConfigError(t *testing.T) {
+	_, err := LoadConfig("/nonexistent/path/config.yaml")
+	assert.Error(t, err)
+}
+
+// TestIsFreeEnergyTime_EdgeCases tests edge cases for free energy time
+func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	t.Run("invalid_start_time", func(t *testing.T) {
+		config := &EnergyConfig{
+			Energy: struct {
+				FreeEnergyTime FreeEnergyTime `yaml:"free_energy_time"`
+				EnergyStates   []EnergyState  `yaml:"energy_states"`
+			}{
+				FreeEnergyTime: FreeEnergyTime{
+					Start: "invalid",
+					End:   "07:00",
+				},
+				EnergyStates: []EnergyState{},
+			},
+		}
+
+		manager := NewManager(mockClient, stateManager, config, logger, false)
+		result := manager.isFreeEnergyTime(true)
+		assert.False(t, result)
+	})
+
+	t.Run("invalid_end_time", func(t *testing.T) {
+		config := &EnergyConfig{
+			Energy: struct {
+				FreeEnergyTime FreeEnergyTime `yaml:"free_energy_time"`
+				EnergyStates   []EnergyState  `yaml:"energy_states"`
+			}{
+				FreeEnergyTime: FreeEnergyTime{
+					Start: "21:00",
+					End:   "invalid",
+				},
+				EnergyStates: []EnergyState{},
+			},
+		}
+
+		manager := NewManager(mockClient, stateManager, config, logger, false)
+		result := manager.isFreeEnergyTime(true)
+		assert.False(t, result)
+	})
 }
