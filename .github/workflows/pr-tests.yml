@@ -58,17 +58,8 @@ jobs:
 
       - name: Run integration tests
         run: |
-          echo "Running integration tests with race detector..."
-          # Run all integration tests except the known failing one
-          go test -v -race -timeout=5m ./test/integration/... -run '^(Test(?!MultipleSubscribersOnSameEntity))'
-
-      - name: Verify known-failing test still exists
-        run: |
-          echo "Verifying known-failing test (subscription leak bug)..."
-          echo "This test is expected to fail until the subscription bug is fixed."
-          echo "See INTEGRATION_TEST_FINDINGS.md for details."
-          go test -v -race -timeout=30s ./test/integration/... -run 'TestMultipleSubscribersOnSameEntity' || echo "✅ Expected failure - subscription leak bug tracked in INTEGRATION_TEST_FINDINGS.md"
-        continue-on-error: true
+          echo "Running all integration tests with race detector..."
+          go test -v -race -timeout=5m ./test/integration/...
 
       - name: Test Summary
         if: always()
@@ -79,9 +70,7 @@ jobs:
           echo "✅ All code compiles (including test files)"
           echo "✅ Unit tests passed with race detector"
           echo "✅ Test coverage meets minimum requirement (≥70%)"
-          echo "✅ Integration tests passed (11/12 tests)"
-          echo "⚠️  Known failing test: TestMultipleSubscribersOnSameEntity"
-          echo "   (subscription leak bug tracked in INTEGRATION_TEST_FINDINGS.md)"
+          echo "✅ All integration tests passed (12/12 tests)"
           echo ""
           echo "✅ ALL REQUIRED TESTS PASSED - PR can be merged"
           echo "==============================================="
