@@ -361,7 +361,7 @@ homeautomation-go/
 **File:** `README.md`
 
 - ✅ **4.6** Create comprehensive guide:
-  - Prerequisites (Go 1.21+)
+  - Prerequisites (Go 1.23+)
   - Setup instructions
   - Environment configuration
   - Running the demo

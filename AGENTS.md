@@ -525,6 +525,6 @@ A: MUST test with `-race` flag and run integration tests. Protect WebSocket writ
 ---
 
 **Last Updated**: 2025-11-15
-**Go Version**: 1.21
+**Go Version**: 1.23
 **Project Status**: MVP Complete, Integration Testing Added, Parallel Testing Phase
 
