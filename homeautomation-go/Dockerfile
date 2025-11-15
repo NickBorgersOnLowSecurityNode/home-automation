@@ -7,11 +7,11 @@ RUN apk add --no-cache git ca-certificates
 WORKDIR /build
 
 # Copy go mod files and download dependencies
-COPY go.mod go.sum ./
+COPY homeautomation-go/go.mod homeautomation-go/go.sum ./
 RUN go mod download
 
 # Copy source code
-COPY . .
+COPY homeautomation-go/ .
 
 # Build the application
 # CGO_ENABLED=0 for static binary (better for Alpine)
@@ -38,9 +38,8 @@ COPY --from=builder /build/homeautomation .
 # Copy example env file for reference
 COPY --from=builder /build/.env.example .
 
-# Copy configuration files from repository root
-# When building with repository root context, configs are at /build/configs
-COPY --from=builder /build/configs /app/configs
+# Copy config files from repository root
+COPY configs ./configs
 
 # Change ownership
 RUN chown -R homeautomation:homeautomation /app
