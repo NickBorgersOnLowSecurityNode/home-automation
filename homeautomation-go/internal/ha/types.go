@@ -103,10 +103,11 @@ type Subscription interface {
 
 // subscription implements Subscription interface
 type subscription struct {
-	id     string
-	client *Client
+	entityID string
+	subID    int
+	client   *Client
 }
 
 func (s *subscription) Unsubscribe() error {
-	return s.client.unsubscribe(s.id)
+	return s.client.unsubscribe(s.entityID, s.subID)
 }

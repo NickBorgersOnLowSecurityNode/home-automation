@@ -25,6 +25,12 @@ type HAClient interface {
 	SetInputText(name string, value string) error
 }
 
+// subscriberEntry holds a handler with its unique subscription ID
+type subscriberEntry struct {
+	subID   int
+	handler StateChangeHandler
+}
+
 // Client implements HAClient interface
 type Client struct {
 	url         string
@@ -37,8 +43,10 @@ type Client struct {
 	msgIDMu     sync.Mutex
 	pending     map[int]chan Message
 	pendingMu   sync.Mutex
-	subscribers map[string][]StateChangeHandler
+	subscribers map[string][]subscriberEntry
 	subsMu      sync.RWMutex
+	nextSubID   int
+	nextSubIDMu sync.Mutex
 	ctx         context.Context
 	cancel      context.CancelFunc
 	reconnect   bool
@@ -60,7 +68,7 @@ func NewClient(url, token string, logger *zap.Logger) *Client {
 		token:       token,
 		logger:      logger,
 		pending:     make(map[int]chan Message),
-		subscribers: make(map[string][]StateChangeHandler),
+		subscribers: make(map[string][]subscriberEntry),
 		ctx:         ctx,
 		cancel:      cancel,
 		reconnect:   true,
@@ -311,11 +319,11 @@ func (c *Client) handleEvent(msg *Message) {
 
 	// Notify subscribers
 	c.subsMu.RLock()
-	handlers := c.subscribers[eventData.EntityID]
+	entries := c.subscribers[eventData.EntityID]
 	c.subsMu.RUnlock()
 
-	for _, handler := range handlers {
-		go handler(eventData.EntityID, eventData.OldState, eventData.NewState)
+	for _, entry := range entries {
+		go entry.handler(eventData.EntityID, eventData.OldState, eventData.NewState)
 	}
 }
 
@@ -430,21 +438,51 @@ func (c *Client) CallService(domain, service string, data map[string]interface{}
 
 // SubscribeStateChanges subscribes to state changes for a specific entity
 func (c *Client) SubscribeStateChanges(entityID string, handler StateChangeHandler) (Subscription, error) {
+	// Get unique subscription ID
+	c.nextSubIDMu.Lock()
+	subID := c.nextSubID
+	c.nextSubID++
+	c.nextSubIDMu.Unlock()
+
+	// Add subscriber entry
 	c.subsMu.Lock()
-	c.subscribers[entityID] = append(c.subscribers[entityID], handler)
+	c.subscribers[entityID] = append(c.subscribers[entityID], subscriberEntry{
+		subID:   subID,
+		handler: handler,
+	})
 	c.subsMu.Unlock()
 
 	return &subscription{
-		id:     entityID,
-		client: c,
+		entityID: entityID,
+		subID:    subID,
+		client:   c,
 	}, nil
 }
 
-// unsubscribe removes a subscription
-func (c *Client) unsubscribe(entityID string) error {
+// unsubscribe removes a specific subscription by entity ID and subscription ID
+func (c *Client) unsubscribe(entityID string, subID int) error {
 	c.subsMu.Lock()
-	delete(c.subscribers, entityID)
-	c.subsMu.Unlock()
+	defer c.subsMu.Unlock()
+
+	subscribers, ok := c.subscribers[entityID]
+	if !ok {
+		return nil // Already unsubscribed
+	}
+
+	// Find and remove the subscription with matching subID
+	for i, entry := range subscribers {
+		if entry.subID == subID {
+			// Remove this entry by slicing
+			c.subscribers[entityID] = append(subscribers[:i], subscribers[i+1:]...)
+
+			// If no more subscribers for this entity, delete the entry
+			if len(c.subscribers[entityID]) == 0 {
+				delete(c.subscribers, entityID)
+			}
+			break
+		}
+	}
+
 	return nil
 }
 
