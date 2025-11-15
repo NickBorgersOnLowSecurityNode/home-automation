@@ -59,6 +59,9 @@ This command runs:
 
 ---
 
+### Update IMPLEMENTATION_PLAN.md
+As you complete tasks, update the implementation plan with progress, and add additional work items as additional problems to solve are identified.
+
 ### Go Code Standards
 
 #### Style Guidelines
