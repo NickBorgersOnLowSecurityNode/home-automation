@@ -268,7 +268,6 @@ func TestManager_Subscribe(t *testing.T) {
 
 		// Simulate state change from HA
 		mockClient.SimulateStateChange("input_boolean.nick_home", "on")
-		time.Sleep(50 * time.Millisecond)
 
 		assert.Equal(t, int32(1), atomic.LoadInt32(&changeCount))
 		mu.Lock()
@@ -288,7 +287,6 @@ func TestManager_Subscribe(t *testing.T) {
 		})
 
 		mockClient.SimulateStateChange("input_boolean.caroline_home", "on")
-		time.Sleep(50 * time.Millisecond)
 
 		assert.Equal(t, int32(1), atomic.LoadInt32(&count1))
 		assert.Equal(t, int32(1), atomic.LoadInt32(&count2))
@@ -306,13 +304,11 @@ func TestManager_Subscribe(t *testing.T) {
 		require.NoError(t, err)
 
 		mockClient.SimulateStateChange("input_boolean.tori_here", "on")
-		time.Sleep(50 * time.Millisecond)
 		assert.Equal(t, int32(1), atomic.LoadInt32(&changeCount))
 
 		sub.Unsubscribe()
 
 		mockClient.SimulateStateChange("input_boolean.tori_here", "off")
-		time.Sleep(50 * time.Millisecond)
 		assert.Equal(t, int32(1), atomic.LoadInt32(&changeCount)) // Should not increment
 	})
 
@@ -320,6 +316,48 @@ func TestManager_Subscribe(t *testing.T) {
 		_, err := manager.Subscribe("nonexistent", func(key string, oldValue, newValue interface{}) {})
 		assert.Error(t, err)
 	})
+}
+
+func TestManagerNotifySubscribersIsSynchronous(t *testing.T) {
+	manager := &Manager{
+		logger: zap.NewNop(),
+		subscribers: map[string]map[uint64]StateChangeHandler{
+			"test": {
+				1: func(string, interface{}, interface{}) {
+					time.Sleep(50 * time.Millisecond)
+				},
+				2: func(string, interface{}, interface{}) {},
+			},
+		},
+	}
+
+	start := time.Now()
+	manager.notifySubscribers("test", nil, nil)
+	elapsed := time.Since(start)
+
+	assert.GreaterOrEqual(t, elapsed, 50*time.Millisecond)
+}
+
+func TestManagerNotifySubscribersRecoversFromPanics(t *testing.T) {
+	secondCalled := false
+	manager := &Manager{
+		logger: zap.NewNop(),
+		subscribers: map[string]map[uint64]StateChangeHandler{
+			"test": {
+				1: func(string, interface{}, interface{}) {
+					panic("boom")
+				},
+				2: func(string, interface{}, interface{}) {
+					secondCalled = true
+				},
+			},
+		},
+	}
+
+	assert.NotPanics(t, func() {
+		manager.notifySubscribers("test", nil, nil)
+	})
+	assert.True(t, secondCalled)
 }
 
 func TestManager_GetAllValues(t *testing.T) {
@@ -357,6 +395,77 @@ func TestExtractEntityName(t *testing.T) {
 	}
 }
 
+func TestManager_GetJSON(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+
+	manager := NewManager(mockClient, logger, false)
+
+	// Test getting default value
+	var result map[string]interface{}
+	err := manager.GetJSON("currentlyPlayingMusic", &result)
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, 0, len(result))
+
+	// Test getting with cached value
+	testData := map[string]interface{}{
+		"artist": "Test Artist",
+		"title":  "Test Song",
+		"album":  "Test Album",
+	}
+	manager.cache["currentlyPlayingMusic"] = testData
+
+	var cached map[string]interface{}
+	err = manager.GetJSON("currentlyPlayingMusic", &cached)
+	assert.NoError(t, err)
+	assert.Equal(t, "Test Artist", cached["artist"])
+	assert.Equal(t, "Test Song", cached["title"])
+
+	// Test error: non-existent variable
+	var dummy map[string]interface{}
+	err = manager.GetJSON("nonExistent", &dummy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+
+	// Test error: wrong type
+	err = manager.GetJSON("isNickHome", &dummy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not JSON")
+}
+
+func TestManager_SetJSON(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+
+	// Test setting JSON value (local-only variable)
+	testData := map[string]interface{}{
+		"artist": "New Artist",
+		"title":  "New Song",
+	}
+	err := manager.SetJSON("currentlyPlayingMusic", testData)
+	assert.NoError(t, err)
+
+	// Verify the value was set
+	var result map[string]interface{}
+	err = manager.GetJSON("currentlyPlayingMusic", &result)
+	assert.NoError(t, err)
+	assert.Equal(t, "New Artist", result["artist"])
+
+	// Test error: non-existent variable
+	err = manager.SetJSON("nonExistent", testData)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+
+	// Test error: wrong type
+	err = manager.SetJSON("isNickHome", testData)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not JSON")
+}
+
 func TestManager_ConcurrentAccess(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
@@ -387,4 +496,16 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 	value, err := manager.GetBool("isNickHome")
 	assert.NoError(t, err)
 	assert.NotNil(t, value)
+}
+
+func TestVariablesByEntityID(t *testing.T) {
+	vars := VariablesByEntityID()
+	assert.NotNil(t, vars)
+	assert.Greater(t, len(vars), 0)
+
+	// Check that a known variable is in the map
+	nickHome, ok := vars["input_boolean.nick_home"]
+	assert.True(t, ok)
+	assert.Equal(t, "isNickHome", nickHome.Key)
+	assert.Equal(t, TypeBool, nickHome.Type)
 }

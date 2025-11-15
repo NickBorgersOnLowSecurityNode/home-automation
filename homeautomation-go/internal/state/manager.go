@@ -3,6 +3,7 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -221,14 +222,31 @@ func (m *Manager) subscribeToEntity(entityID, key string) error {
 func (m *Manager) notifySubscribers(key string, oldValue, newValue interface{}) {
 	m.subsMu.RLock()
 	entries := m.subscribers[key]
-	handlers := make([]StateChangeHandler, 0, len(entries))
-	for _, handler := range entries {
-		handlers = append(handlers, handler)
+	ids := make([]uint64, 0, len(entries))
+	for id := range entries {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	handlers := make([]StateChangeHandler, 0, len(ids))
+	for _, id := range ids {
+		handlers = append(handlers, entries[id])
 	}
 	m.subsMu.RUnlock()
 
-	for _, handler := range handlers {
-		go handler(key, oldValue, newValue)
+	for idx, handler := range handlers {
+		func(h StateChangeHandler, ordinal int) {
+			defer func() {
+				if r := recover(); r != nil {
+					m.logger.Warn("State change handler panicked",
+						zap.String("key", key),
+						zap.Int("handler_index", ordinal),
+						zap.Any("panic", r),
+						zap.Stack("stack"))
+				}
+			}()
+
+			h(key, oldValue, newValue)
+		}(handler, idx)
 	}
 }
 

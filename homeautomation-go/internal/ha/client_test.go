@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -516,4 +517,58 @@ func TestMockClient(t *testing.T) {
 
 		assert.Equal(t, 1, callCount)
 	})
+}
+
+func TestClient_DisconnectClearsSubscribers(t *testing.T) {
+	logger := zap.NewNop()
+	client := NewClient("ws://example", "token", logger)
+
+	client.connMu.Lock()
+	client.connected = true
+	client.connMu.Unlock()
+
+	_, err := client.SubscribeStateChanges("input_boolean.test", func(string, *State, *State) {})
+	require.NoError(t, err)
+
+	err = client.Disconnect()
+	require.NoError(t, err)
+
+	client.subsMu.RLock()
+	defer client.subsMu.RUnlock()
+	assert.Empty(t, client.subscribers)
+}
+
+func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
+	client := &Client{
+		logger:      zap.NewNop(),
+		subscribers: make(map[string][]subscriberEntry),
+	}
+
+	var calls int32
+	handler := func(entityID string, oldState, newState *State) {
+		time.Sleep(50 * time.Millisecond)
+		atomic.AddInt32(&calls, 1)
+	}
+
+	client.subscribers["sensor.test"] = []subscriberEntry{
+		{subID: 1, handler: handler},
+		{subID: 2, handler: handler},
+	}
+
+	eventPayload := StateChangedEvent{EntityID: "sensor.test"}
+	data, err := json.Marshal(eventPayload)
+	require.NoError(t, err)
+
+	start := time.Now()
+	client.handleEvent(&Message{
+		Type: "event",
+		Event: &Event{
+			EventType: "state_changed",
+			Data:      data,
+		},
+	})
+	elapsed := time.Since(start)
+
+	assert.GreaterOrEqual(t, elapsed, 100*time.Millisecond)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&calls))
 }
