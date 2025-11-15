@@ -44,6 +44,13 @@ type Client struct {
 	reconnect   bool
 }
 
+func (c *Client) resetContextLocked() {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+}
+
 // NewClient creates a new Home Assistant WebSocket client
 func NewClient(url, token string, logger *zap.Logger) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -121,7 +128,9 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("expected auth_ok, got %s", authResponse.Type)
 	}
 
+	c.resetContextLocked()
 	c.connected = true
+	c.reconnect = true
 	c.logger.Info("Connected to Home Assistant")
 
 	// Start background message receiver
