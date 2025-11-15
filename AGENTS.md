@@ -42,6 +42,23 @@ This repository contains a home automation system that is migrating from Node-RE
 
 ## Development Standards
 
+---
+**⚠️ CI/CD Failure Prevention**
+
+Before EVERY push, run this locally:
+```bash
+cd homeautomation-go && go test ./...
+```
+
+This command runs:
+- ✅ Unit tests (`internal/ha`, `internal/state`)
+- ✅ Integration tests (`test/integration`)
+- ✅ Compilation of all test files
+
+**If it passes locally, CI will likely pass. If it fails, CI WILL fail.**
+
+---
+
 ### Go Code Standards
 
 #### Style Guidelines
@@ -229,13 +246,35 @@ staticcheck ./...               # Advanced static analysis
 ```
 
 ### Pre-commit Checks
-Before committing code, ensure:
+
+**MANDATORY** before every commit. These checks mirror what CI/CD will run:
+
 ```bash
-# Format and check
+# 1. Format code
 gofmt -w .
+
+# 2. Static analysis
 go vet ./...
-go test ./... -race
-go test -v -race ./test/integration/...  # NEW: Run integration tests
+
+# 3. Ensure everything compiles (including tests!)
+go build ./...
+
+# 4. Run ALL tests (this is what CI runs!)
+go test ./...
+
+# 5. Run with race detector
+go test -race ./...
+
+# 6. Run integration tests explicitly (for visibility)
+go test -v -race ./test/integration/...
+```
+
+**If ANY of these fail, CI will fail. Fix locally first!**
+
+#### Quick Pre-Push Validation
+```bash
+# One-liner to catch most issues:
+cd homeautomation-go && go build ./... && go test ./... && echo "✅ Ready to push"
 ```
 
 ## Critical Bugs Found by Integration Tests
@@ -257,21 +296,61 @@ The integration test suite has discovered production-critical bugs. See [INTEGRA
 
 **Always run integration tests after making changes to concurrency-sensitive code.**
 
+## API Change Protocol
+
+When modifying function signatures, types, or interfaces:
+
+### CRITICAL: Search for All Call Sites
+```bash
+# Before changing a function signature, find ALL usages
+cd homeautomation-go
+grep -r "FunctionName" .
+# OR use Grep tool to find all call sites
+
+# Example: When changing NewManager signature
+grep -r "NewManager" .
+```
+
+### Required Steps for API Changes
+1. ✅ **Search** for all call sites using grep/ripgrep
+2. ✅ **Update** ALL call sites (code + tests + docs)
+3. ✅ **Compile check**: `go build ./...`
+4. ✅ **Run ALL tests**: `go test ./...` (includes integration)
+5. ✅ **Verify CI will pass** locally before pushing
+
+### Common Files to Check
+- [ ] All `*_test.go` files (especially integration tests)
+- [ ] `cmd/main.go` (application entry point)
+- [ ] `README.md` (code examples)
+- [ ] Other documentation with code samples
+
+**⚠️ Breaking Change Alert**: Compilation errors in tests are easy to miss if you don't run `go test ./...`
+
 ## Development Workflow
 
 ### Making Changes
 
 1. **Create feature branch** from main
 2. **Make code changes** following standards above
-3. **Write/update tests** (both unit and integration if needed)
-4. **Run all tests** with race detector:
+3. **If changing function signatures**:
+   - Search for ALL usages: `grep -r "FunctionName" .`
+   - Update code, tests, AND documentation
+   - Verify compilation: `go build ./...`
+4. **Write/update tests** (both unit and integration if needed)
+5. **Run ALL tests** (exactly what CI runs):
    ```bash
+   # This single command runs EVERYTHING (unit + integration)
+   go test ./...
+
+   # Add race detection (CI requirement)
    go test -race ./...
-   go test -v -race ./test/integration/...
+
+   # ⚠️ Common mistake: forgetting integration tests exist in ./test/integration
+   # The command above INCLUDES them, so watch for failures there!
    ```
-5. **Format and lint** code
-6. **Commit with descriptive message**
-7. **Push and create PR**
+6. **Format and lint** code
+7. **Commit with descriptive message**
+8. **Push and create PR**
 
 ### Pull Request Checklist
 - [ ] All tests passing (unit + integration)
@@ -293,6 +372,52 @@ When reporting issues or making decisions:
 - **Show test output** when relevant
 - **Explain reasoning** for design choices
 - **Link to documentation** for context
+
+## Common CI Failures & Prevention
+
+### "not enough arguments in call to X"
+**Cause**: Function signature changed but not all call sites updated
+
+**Prevention**:
+- Run `grep -r "FunctionName" .` before changing signatures
+- Always run `go test ./...` (not just `go build`)
+- Check README.md and test files
+
+**Fix**: Search for all usages, update them, verify with `go test ./...`
+
+### "undefined: X" or import errors
+**Cause**: Missing dependency or module not updated
+
+**Prevention**: Run `go mod tidy` before committing
+
+**Fix**: `go mod tidy && go mod download`
+
+### Test timeout or deadlock
+**Cause**: Concurrent code issue, missing mutex
+
+**Prevention**: Always run tests with `-race` flag
+
+**Fix**: Review integration test output, check for missing locks
+
+### "No tests run" but expecting tests
+**Cause**: Test files not updated, syntax errors in test files
+
+**Prevention**: Run `go test ./... -v` to see which tests run
+
+**Fix**: Check test file syntax, ensure `_test.go` suffix
+
+### Tests pass locally but fail in CI
+**Cause**:
+- Environment differences
+- Race conditions only visible under CI load
+- Missing dependencies in CI environment
+
+**Prevention**:
+- Always run `go test -race ./...` locally
+- Check CI logs for environment-specific errors
+- Ensure `go.mod` and `go.sum` are committed
+
+**Fix**: Review CI logs, reproduce locally with same Go version
 
 ## Useful Commands Reference
 
