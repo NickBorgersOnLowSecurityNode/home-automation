@@ -1,6 +1,8 @@
 package music
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -284,9 +286,42 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 	}
 }
 
+// findRepoRoot finds the repository root by looking for go.mod
+func findRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	// Walk up the directory tree until we find the parent of homeautomation-go
+	for {
+		// Check if we're at or can find the homeautomation-go directory
+		if filepath.Base(dir) == "homeautomation-go" {
+			return filepath.Dir(dir) // Return parent directory
+		}
+
+		// Check if configs directory exists here
+		configsDir := filepath.Join(dir, "configs")
+		if _, err := os.Stat(configsDir); err == nil {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("Could not find repository root")
+		}
+		dir = parent
+	}
+}
+
 func TestLoadMusicConfig(t *testing.T) {
+	// Find the repository root and construct path to config file
+	repoRoot := findRepoRoot(t)
+	configPath := filepath.Join(repoRoot, "configs", "music_config.yaml")
+
 	// Test with the actual config file
-	config, err := LoadMusicConfig("/home/user/home-automation/configs/music_config.yaml")
+	config, err := LoadMusicConfig(configPath)
 	if err != nil {
 		t.Fatalf("Failed to load music config: %v", err)
 	}
