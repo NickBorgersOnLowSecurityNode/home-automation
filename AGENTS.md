@@ -6,9 +6,27 @@ This document provides guidance for AI agents and developers working on this hom
 
 This repository contains a home automation system that is migrating from Node-RED to Golang for improved type safety, testability, and maintainability.
 
-To see the current NodeRed behaviors look in:
-* flows.json
-* ./automated-rendering/screenshot-capture/screenshots after running `make generate-screenshots`
+### Understanding Current Node-RED Behavior
+
+**⚠️ IMPORTANT:** Before implementing any feature, you MUST understand the current Node-RED behavior.
+
+See the **[Understanding the Node-RED Implementation](#understanding-the-node-red-implementation)** section below for:
+- How to efficiently read `flows.json` (650KB file - don't read it all at once!)
+- How to generate and use flow screenshots
+- Recommended workflow for researching flows
+- Search patterns and examples
+
+**Quick Start:**
+```bash
+# Generate flow screenshots
+make generate-screenshots
+
+# View screenshots in:
+./automated-rendering/screenshot-capture/screenshots/
+
+# Access live Node-RED instance:
+# https://node-red.featherback-mermaid.ts.net/
+```
 
 ### Repository Structure
 
@@ -59,6 +77,225 @@ To see the current NodeRed behaviors look in:
 - [Home Assistant WebSocket API](https://developers.home-assistant.io/docs/api/websocket)
 - [gorilla/websocket](https://pkg.go.dev/github.com/gorilla/websocket)
 - [zap Logger](https://pkg.go.dev/go.uber.org/zap)
+
+## Understanding the Node-RED Implementation
+
+Before implementing features in Go, you need to understand the current Node-RED behavior. This section provides guidance on efficiently reading and analyzing the legacy implementation.
+
+### flows.json Structure
+
+**File:** `flows.json` (~650KB)
+**⚠️ WARNING:** This file is very large. Do NOT attempt to read it all at once. Use targeted searches instead.
+
+**Structure Overview:**
+```json
+[
+  {
+    "id": "d7a3510d.e93d98",
+    "type": "tab",
+    "label": "State Tracking",
+    "disabled": false
+  },
+  {
+    "type": "function",
+    "name": "Pick Appropriate Music",
+    "func": "// JavaScript code here",
+    "wires": [...]
+  }
+  // ... thousands more nodes
+]
+```
+
+**Key Node Types:**
+- `type: "tab"` - Represents a flow/tab (e.g., "Music", "Lighting Control")
+- `type: "function"` - JavaScript function nodes containing business logic
+- `type: "api-call-service"` - Home Assistant service calls
+- `type: "server-state-changed"` - HA entity state change triggers
+- `type: "switch"` - Routing/conditional logic
+
+### Efficient Search Strategies
+
+**DO NOT** read flows.json directly. Instead, use these targeted search patterns:
+
+#### Find a Specific Flow
+
+```bash
+# Find the Music flow definition
+grep -A 5 '"label":"Music"' flows.json
+
+# Find all flows (tabs)
+grep '"type":"tab"' flows.json
+```
+
+#### Find Business Logic Functions
+
+```bash
+# Find a specific function node by name
+grep -A 20 '"name":"Pick Appropriate Music"' flows.json
+
+# Find all function nodes in the Music flow
+# (First get the flow ID, then search for nodes with that flow ID)
+grep -A 50 '"label":"Music"' flows.json | grep '"type":"function"'
+```
+
+#### Find State Variable Usage
+
+```bash
+# Find where isNickHome is used
+grep -n "isNickHome" flows.json
+
+# Find all presence variables
+grep -n "isNickHome\|isCarolineHome\|isToriHere" flows.json
+
+# Find Home Assistant service calls
+grep -n '"type":"api-call-service"' flows.json
+```
+
+#### Understand Entity Subscriptions
+
+```bash
+# Find what entities a flow listens to
+grep -A 5 '"type":"server-state-changed"' flows.json | grep "entityid"
+
+# Find all subscriptions to a specific entity
+grep "input_boolean.nick_home" flows.json
+```
+
+### Visual Flow Analysis
+
+Screenshots provide the best high-level understanding of each flow.
+
+#### Generate Screenshots
+
+```bash
+# From repository root
+make generate-screenshots
+
+# Screenshots will be in:
+# ./automated-rendering/screenshot-capture/screenshots/
+```
+
+**Available Flows (when screenshots are generated):**
+- `State Tracking.png` - Presence and sleep state tracking
+- `Music.png` - Music mode selection and Sonos control
+- `Lighting Control.png` - Scene activation and sun events
+- `Sleep Hygiene.png` - Wake-up sequences
+- `Energy State.png` - Battery and solar tracking
+- `Load Shedding.png` - Thermostat control
+- `Security.png` - Lockdown and garage automation
+- `TV Monitoring and Manipulation.png` - TV state detection
+- `Configuration.png` - Config file loading
+- `Calendar.png` - Meeting reminders
+- `Nagging.png` - Weather-based reminders
+
+#### View Live Node-RED Instance
+
+You can access the running Node-RED instance with your MCP server:
+**URL:** https://node-red.featherback-mermaid.ts.net/
+
+This allows interactive exploration of flows, clicking through nodes, and seeing live configuration.
+
+### Recommended Workflow for Understanding Behavior
+
+When implementing a feature, follow this workflow:
+
+1. **Start with the screenshot** for visual overview
+   ```bash
+   make generate-screenshots
+   # View ./automated-rendering/screenshot-capture/screenshots/Music.png
+   ```
+
+2. **Find the flow in flows.json** for detailed configuration
+   ```bash
+   grep -A 100 '"label":"Music"' flows.json > music_flow.json
+   ```
+
+3. **Identify function nodes** containing business logic
+   ```bash
+   grep -A 50 '"type":"function"' music_flow.json | less
+   ```
+
+4. **Check state variables used** in the flow
+   ```bash
+   # Cross-reference with docs/migration/migration_mapping.md
+   grep "input_boolean\|input_number\|input_text" music_flow.json
+   ```
+
+5. **Review relevant config files** for data structures
+   ```bash
+   # For Music flow, check:
+   cat configs/music_config.yaml
+   ```
+
+6. **Test against live Node-RED** for behavior verification
+   - Visit https://node-red.featherback-mermaid.ts.net/
+   - Navigate to the flow tab
+   - Click "Deploy" and observe behavior
+
+### Quick Reference: Flow to Config Mapping
+
+| Flow | Screenshot | Config File | Key State Variables |
+|------|-----------|-------------|---------------------|
+| **State Tracking** | State Tracking.png | N/A | isNickHome, isCarolineHome, isToriHere, isMasterAsleep, isGuestAsleep |
+| **Lighting Control** | Lighting Control.png | hue_config.yaml | dayPhase, sunevent, isAnyoneHome |
+| **Music** | Music.png | music_config.yaml | musicPlaybackType, currentlyPlayingMusic, sleep states |
+| **Sleep Hygiene** | Sleep Hygiene.png | schedule_config.yaml | isMasterAsleep, alarmTime, musicPlaybackType |
+| **Energy State** | Energy State.png | energy_config.yaml | batteryEnergyLevel, solarProductionEnergyLevel, currentEnergyLevel |
+| **Load Shedding** | Load Shedding.png | N/A | currentEnergyLevel |
+| **Security** | Security.png | N/A | isEveryoneAsleep, isAnyoneHome, isExpectingSomeone |
+| **TV Monitoring** | TV Monitoring and Manipulation.png | N/A | isTVPlaying, isAppleTVPlaying, isTVOn, dayPhase |
+| **Calendar** | Calendar.png | N/A | isNickHome, isCarolineHome |
+| **Nagging** | Nagging.png | N/A | isAnyoneHome, musicPlaybackType |
+
+### Example: Researching the Music Flow
+
+Here's a complete example of researching how music mode selection works:
+
+```bash
+# 1. Generate and view the screenshot
+make generate-screenshots
+# View ./automated-rendering/screenshot-capture/screenshots/Music.png
+
+# 2. Extract the Music flow to a temporary file
+grep -A 1000 '"label":"Music"' flows.json | head -500 > /tmp/music.json
+
+# 3. Find the main decision logic function
+grep -B 2 -A 30 '"name":"Pick Appropriate Music"' /tmp/music.json
+
+# 4. Find what triggers music mode changes
+grep -A 10 '"type":"server-state-changed"' /tmp/music.json | grep "dayPhase\|isNickHome\|isMasterAsleep"
+
+# 5. Check the config file structure
+cat configs/music_config.yaml
+
+# 6. Verify state variable definitions
+grep "musicPlaybackType" docs/migration/migration_mapping.md
+
+# 7. Test on live instance
+# Visit https://node-red.featherback-mermaid.ts.net/#flow/90f5fe8cb80ae6a7
+# (90f5fe8cb80ae6a7 is the Music flow ID from flows.json)
+```
+
+### Common Pitfalls
+
+❌ **Don't:** Try to read all of flows.json at once
+✅ **Do:** Use grep to extract specific flows or node types
+
+❌ **Don't:** Implement based on assumptions
+✅ **Do:** Cross-reference screenshots, flows.json, and the live instance
+
+❌ **Don't:** Ignore disabled flows
+✅ **Do:** Check the `"disabled": true/false` field when researching
+
+❌ **Don't:** Miss complex logic in function nodes
+✅ **Do:** Extract and read the JavaScript in `"func"` fields carefully
+
+### Additional Resources
+
+- **[README.md](./README.md)** - High-level overview of all flows with visual diagrams
+- **[docs/architecture/GOLANG_DESIGN.md](./docs/architecture/GOLANG_DESIGN.md)** - Detailed flow descriptions and migration strategy
+- **[docs/migration/migration_mapping.md](./docs/migration/migration_mapping.md)** - Complete state variable mapping
+- **[configs/](./configs/)** - YAML configuration files defining behavior
 
 ## Development Standards
 
