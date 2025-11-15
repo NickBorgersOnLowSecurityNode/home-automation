@@ -10,16 +10,22 @@ This repository contains a home automation system that is migrating from Node-RE
 
 ```
 /workspaces/node-red/
-├── homeautomation-go/          # Golang implementation (NEW)
+├── .github/
+│   ├── workflows/
+│   │   ├── pr-tests.yml        # PR test requirements (NEW)
+│   │   ├── docker-build-push.yml # Docker build + tests
+│   │   └── [other workflows]
+│   └── BRANCH_PROTECTION.md    # PR requirements guide (NEW)
+├── homeautomation-go/          # Golang implementation
 │   ├── cmd/main.go             # Demo application
 │   ├── internal/ha/            # Home Assistant WebSocket client
 │   ├── internal/state/         # State management layer
-│   ├── test/integration/       # Integration test suite (NEW)
+│   ├── test/integration/       # Integration test suite
 │   ├── go.mod                  # Go module definition
 │   └── README.md               # Go project documentation
 ├── IMPLEMENTATION_PLAN.md      # Architecture and design decisions
 ├── HA_SYNC_README.md          # HA synchronization documentation
-├── INTEGRATION_TEST_FINDINGS.md # Bug discoveries from integration tests (NEW)
+├── INTEGRATION_TEST_FINDINGS.md # Bug discoveries from integration tests
 ├── AGENTS.md                   # This file
 └── [Node-RED files]           # Legacy implementation
 
@@ -31,8 +37,9 @@ This repository contains a home automation system that is migrating from Node-RE
 1. **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** - Complete architecture, design decisions, and migration strategy
 2. **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation user guide
 3. **[HA_SYNC_README.md](./HA_SYNC_README.md)** - Home Assistant synchronization details
-4. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide (NEW)
-5. **[INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md)** - Bugs found via integration tests (NEW)
+4. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide
+5. **[INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md)** - Bugs found via integration tests
+6. **[.github/BRANCH_PROTECTION.md](./.github/BRANCH_PROTECTION.md)** - PR requirements and branch protection setup (NEW)
 
 ### External Documentation
 - [Go Documentation](https://go.dev/doc/)
@@ -355,7 +362,41 @@ grep -r "NewManager" .
 7. **Commit with descriptive message**
 8. **Push and create PR**
 
+### Pull Request Requirements
+
+**⚠️ IMPORTANT: All PRs require passing tests before merge**
+
+This repository enforces test requirements through GitHub branch protection rules and automated CI checks.
+
+#### Automated PR Testing
+
+Every pull request automatically runs:
+- ✅ **Go unit tests** with race detector
+- ✅ **Test coverage check** (minimum 70%)
+- ✅ **Integration tests** (concurrent load, deadlocks, race conditions)
+- ✅ **Config validation** (YAML files, Spotify URIs)
+
+**The PR merge button will be blocked until all required tests pass.**
+
+See [.github/BRANCH_PROTECTION.md](./.github/BRANCH_PROTECTION.md) for details on:
+- How to configure branch protection rules
+- What tests are required
+- Troubleshooting test failures
+
+#### CI Workflow
+
+When you create or update a PR:
+1. **GitHub Actions automatically triggers** the `PR Tests` workflow
+2. **Tests run in parallel** (Go tests + Config validation)
+3. **Status checks appear** on your PR:
+   - 🟡 Yellow circle: Tests running
+   - 🟢 Green checkmark: All tests passed - **ready to merge**
+   - 🔴 Red X: Tests failed - **merge blocked**
+4. **Review workflow logs** in the Actions tab if tests fail
+
 ### Pull Request Checklist
+
+Before creating a PR, verify locally:
 - [ ] All tests passing (unit + integration)
 - [ ] No race conditions (`-race` flag)
 - [ ] Code coverage ≥70%
@@ -366,6 +407,8 @@ grep -r "NewManager" .
 - [ ] Documented (godoc comments)
 - [ ] No performance regressions
 - [ ] Backward compatible if possible
+
+**Note**: The first 4 items are automatically verified by CI, but running locally first saves time.
 
 ### Communication
 
