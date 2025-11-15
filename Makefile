@@ -128,28 +128,20 @@ clean-go:
 #pre-commit: @ Run all pre-commit checks (format, lint, build, tests)
 pre-commit:
 	@echo "🔍 Running pre-commit checks..."
-	@echo "📝 Step 1/6: Formatting code..."
+	@echo "📝 Step 1/4: Formatting code..."
 	cd homeautomation-go && gofmt -w .
 	@echo "✅ Code formatted"
 	@echo ""
-	@echo "🔎 Step 2/6: Running static analysis (go vet)..."
+	@echo "🔎 Step 2/4: Running static analysis (go vet)..."
 	cd homeautomation-go && go vet ./...
 	@echo "✅ Static analysis passed"
 	@echo ""
-	@echo "🔨 Step 3/6: Building all packages..."
+	@echo "🔨 Step 3/4: Building all packages..."
 	cd homeautomation-go && go build ./...
 	@echo "✅ Build successful"
 	@echo ""
-	@echo "🧪 Step 4/6: Running all tests..."
-	cd homeautomation-go && go test ./...
-	@echo "✅ All tests passed"
-	@echo ""
-	@echo "🏁 Step 5/6: Running tests with race detector..."
+	@echo "🧪 Step 4/4: Running all tests with race detector..."
 	cd homeautomation-go && go test -race ./...
-	@echo "✅ Race detector tests passed"
-	@echo ""
-	@echo "🔬 Step 6/6: Running integration tests explicitly..."
-	cd homeautomation-go && go test -v -race ./test/integration/...
-	@echo "✅ Integration tests passed"
+	@echo "✅ All tests passed (including integration tests)"
 	@echo ""
 	@echo "🎉 All pre-commit checks passed! Ready to commit."
