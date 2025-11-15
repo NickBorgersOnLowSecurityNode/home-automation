@@ -2,6 +2,8 @@
 
 A robust Golang client for managing Home Assistant state variables with type-safe operations, automatic synchronization, and real-time event subscriptions.
 
+> **Implementation Details**: This project was implemented based on the design documented in [../IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md), which outlines the architecture, design decisions, and migration strategy from the existing Node-RED implementation.
+
 ## Features
 
 - **WebSocket Client**: Full Home Assistant WebSocket API implementation
