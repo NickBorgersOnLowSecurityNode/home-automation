@@ -8,12 +8,14 @@ import (
 
 // MockClient implements HAClient interface for testing
 type MockClient struct {
-	states      map[string]*State
-	statesMu    sync.RWMutex
-	subscribers map[string][]StateChangeHandler
-	subsMu      sync.RWMutex
-	connected   bool
-	connMu      sync.RWMutex
+	states       map[string]*State
+	statesMu     sync.RWMutex
+	subscribers  map[string][]subscriberEntry
+	subsMu       sync.RWMutex
+	nextSubID    int
+	nextSubIDMu  sync.Mutex
+	connected    bool
+	connMu       sync.RWMutex
 	serviceCalls []ServiceCall
 	callsMu      sync.Mutex
 }
@@ -26,13 +28,24 @@ type ServiceCall struct {
 	Time    time.Time
 }
 
+// mockSubscription implements Subscription interface for MockClient
+type mockSubscription struct {
+	entityID string
+	subID    int
+	mock     *MockClient
+}
+
+func (s *mockSubscription) Unsubscribe() error {
+	return s.mock.unsubscribe(s.entityID, s.subID)
+}
+
 // NewMockClient creates a new mock HA client
 func NewMockClient() *MockClient {
 	return &MockClient{
-		states:      make(map[string]*State),
-		subscribers: make(map[string][]StateChangeHandler),
+		states:       make(map[string]*State),
+		subscribers:  make(map[string][]subscriberEntry),
 		serviceCalls: make([]ServiceCall, 0),
-		connected:   false,
+		connected:    false,
 	}
 }
 
@@ -112,14 +125,52 @@ func (m *MockClient) CallService(domain, service string, data map[string]interfa
 
 // SubscribeStateChanges subscribes to state changes
 func (m *MockClient) SubscribeStateChanges(entityID string, handler StateChangeHandler) (Subscription, error) {
+	// Get unique subscription ID
+	m.nextSubIDMu.Lock()
+	subID := m.nextSubID
+	m.nextSubID++
+	m.nextSubIDMu.Unlock()
+
+	// Add subscriber entry
 	m.subsMu.Lock()
-	m.subscribers[entityID] = append(m.subscribers[entityID], handler)
+	m.subscribers[entityID] = append(m.subscribers[entityID], subscriberEntry{
+		subID:   subID,
+		handler: handler,
+	})
 	m.subsMu.Unlock()
 
-	return &subscription{
-		id:     entityID,
-		client: &Client{}, // Dummy client for subscription
+	return &mockSubscription{
+		entityID: entityID,
+		subID:    subID,
+		mock:     m,
 	}, nil
+}
+
+// unsubscribe removes a specific subscription by entity ID and subscription ID
+func (m *MockClient) unsubscribe(entityID string, subID int) error {
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+
+	subscribers, ok := m.subscribers[entityID]
+	if !ok {
+		return nil // Already unsubscribed
+	}
+
+	// Find and remove the subscription with matching subID
+	for i, entry := range subscribers {
+		if entry.subID == subID {
+			// Remove this entry by slicing
+			m.subscribers[entityID] = append(subscribers[:i], subscribers[i+1:]...)
+
+			// If no more subscribers for this entity, delete the entry
+			if len(m.subscribers[entityID]) == 0 {
+				delete(m.subscribers, entityID)
+			}
+			break
+		}
+	}
+
+	return nil
 }
 
 // SetInputBoolean sets a mock input_boolean
@@ -266,10 +317,10 @@ func (m *MockClient) updateStateFromServiceCall(entityID, domain, service string
 // notifySubscribers notifies all subscribers of a state change
 func (m *MockClient) notifySubscribers(entityID string, oldState, newState *State) {
 	m.subsMu.RLock()
-	handlers := m.subscribers[entityID]
+	entries := m.subscribers[entityID]
 	m.subsMu.RUnlock()
 
-	for _, handler := range handlers {
-		handler(entityID, oldState, newState)
+	for _, entry := range entries {
+		entry.handler(entityID, oldState, newState)
 	}
 }

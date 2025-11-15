@@ -15,17 +15,22 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// connWrapper wraps a WebSocket connection with its write mutex
+type connWrapper struct {
+	conn    *websocket.Conn
+	writeMu sync.Mutex
+}
+
 // MockHAServer simulates a Home Assistant WebSocket server
 type MockHAServer struct {
 	server      *http.Server
 	addr        string
 	states      map[string]*EntityState
 	statesMu    sync.RWMutex
-	connections []*websocket.Conn
+	connections []*connWrapper
 	connsMu     sync.Mutex
 	eventDelay  time.Duration // Simulates network latency
 	token       string
-	writeMu     sync.Mutex    // Protects websocket writes
 }
 
 // EntityState represents a Home Assistant entity state
@@ -94,7 +99,7 @@ func NewMockHAServer(addr, token string) *MockHAServer {
 	return &MockHAServer{
 		addr:        addr,
 		states:      make(map[string]*EntityState),
-		connections: make([]*websocket.Conn, 0),
+		connections: make([]*connWrapper, 0),
 		eventDelay:  10 * time.Millisecond, // Simulate network latency
 		token:       token,
 	}
@@ -129,8 +134,8 @@ func (s *MockHAServer) Start() error {
 // Stop stops the mock server
 func (s *MockHAServer) Stop() error {
 	s.connsMu.Lock()
-	for _, conn := range s.connections {
-		conn.Close()
+	for _, wrapper := range s.connections {
+		wrapper.conn.Close()
 	}
 	s.connections = nil
 	s.connsMu.Unlock()
@@ -213,14 +218,16 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	wrapper := &connWrapper{conn: conn}
+
 	s.connsMu.Lock()
-	s.connections = append(s.connections, conn)
+	s.connections = append(s.connections, wrapper)
 	s.connsMu.Unlock()
 
 	defer func() {
 		s.connsMu.Lock()
-		for i, c := range s.connections {
-			if c == conn {
+		for i, w := range s.connections {
+			if w.conn == conn {
 				s.connections = append(s.connections[:i], s.connections[i+1:]...)
 				break
 			}
@@ -230,7 +237,9 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Send auth_required
+	wrapper.writeMu.Lock()
 	conn.WriteJSON(Message{Type: "auth_required"})
+	wrapper.writeMu.Unlock()
 
 	// Receive auth
 	var authMsg AuthMessage
@@ -241,12 +250,16 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Validate token
 	if authMsg.AccessToken != s.token {
+		wrapper.writeMu.Lock()
 		conn.WriteJSON(Message{Type: "auth_invalid"})
+		wrapper.writeMu.Unlock()
 		return
 	}
 
 	// Send auth_ok
+	wrapper.writeMu.Lock()
 	conn.WriteJSON(Message{Type: "auth_ok"})
+	wrapper.writeMu.Unlock()
 
 	// Handle messages
 	for {
@@ -266,32 +279,34 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		switch baseMsg.Type {
 		case "subscribe_events":
-			s.handleSubscribeEvents(conn, msg)
+			s.handleSubscribeEvents(wrapper, msg)
 		case "get_states":
-			s.handleGetStates(conn, msg)
+			s.handleGetStates(wrapper, msg)
 		case "call_service":
-			s.handleCallService(conn, msg)
+			s.handleCallService(wrapper, msg)
 		}
 	}
 }
 
 // handleSubscribeEvents handles event subscriptions
-func (s *MockHAServer) handleSubscribeEvents(conn *websocket.Conn, msg json.RawMessage) {
+func (s *MockHAServer) handleSubscribeEvents(wrapper *connWrapper, msg json.RawMessage) {
 	var req SubscribeEventsRequest
 	if err := json.Unmarshal(msg, &req); err != nil {
 		return
 	}
 
 	success := true
-	conn.WriteJSON(Message{
+	wrapper.writeMu.Lock()
+	wrapper.conn.WriteJSON(Message{
 		ID:      req.ID,
 		Type:    "result",
 		Success: &success,
 	})
+	wrapper.writeMu.Unlock()
 }
 
 // handleGetStates handles get_states requests
-func (s *MockHAServer) handleGetStates(conn *websocket.Conn, msg json.RawMessage) {
+func (s *MockHAServer) handleGetStates(wrapper *connWrapper, msg json.RawMessage) {
 	var req GetStatesRequest
 	if err := json.Unmarshal(msg, &req); err != nil {
 		return
@@ -306,16 +321,18 @@ func (s *MockHAServer) handleGetStates(conn *websocket.Conn, msg json.RawMessage
 
 	statesJSON, _ := json.Marshal(states)
 	success := true
-	conn.WriteJSON(Message{
+	wrapper.writeMu.Lock()
+	wrapper.conn.WriteJSON(Message{
 		ID:      req.ID,
 		Type:    "result",
 		Success: &success,
 		Result:  statesJSON,
 	})
+	wrapper.writeMu.Unlock()
 }
 
 // handleCallService handles service calls
-func (s *MockHAServer) handleCallService(conn *websocket.Conn, msg json.RawMessage) {
+func (s *MockHAServer) handleCallService(wrapper *connWrapper, msg json.RawMessage) {
 	var req CallServiceRequest
 	if err := json.Unmarshal(msg, &req); err != nil {
 		return
@@ -364,11 +381,13 @@ func (s *MockHAServer) handleCallService(conn *websocket.Conn, msg json.RawMessa
 	}
 
 	success := true
-	conn.WriteJSON(Message{
+	wrapper.writeMu.Lock()
+	wrapper.conn.WriteJSON(Message{
 		ID:      req.ID,
 		Type:    "result",
 		Success: &success,
 	})
+	wrapper.writeMu.Unlock()
 }
 
 // broadcastStateChange broadcasts a state change event to all connections
@@ -394,14 +413,14 @@ func (s *MockHAServer) broadcastStateChange(entityID string, oldState, newState 
 	}
 
 	s.connsMu.Lock()
-	connections := make([]*websocket.Conn, len(s.connections))
-	copy(connections, s.connections)
+	wrappers := make([]*connWrapper, len(s.connections))
+	copy(wrappers, s.connections)
 	s.connsMu.Unlock()
 
-	for _, conn := range connections {
-		// Write to each connection sequentially to avoid concurrent writes
-		s.writeMu.Lock()
-		conn.WriteJSON(msg)
-		s.writeMu.Unlock()
+	for _, wrapper := range wrappers {
+		// Write to each connection with per-connection mutex
+		wrapper.writeMu.Lock()
+		wrapper.conn.WriteJSON(msg)
+		wrapper.writeMu.Unlock()
 	}
 }
