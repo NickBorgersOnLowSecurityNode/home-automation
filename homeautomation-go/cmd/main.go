@@ -11,6 +11,7 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/loadshedding"
 	"homeautomation/internal/plugins/energy"
+	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/state"
 
 	"github.com/joho/godotenv"
@@ -84,6 +85,11 @@ func main() {
 	// Start Energy State Manager
 	if err := startEnergyManager(client, stateManager, logger, readOnly, configDir); err != nil {
 		logger.Fatal("Failed to start Energy State Manager", zap.Error(err))
+	}
+
+	// Start Music Manager
+	if err := startMusicManager(client, stateManager, logger, readOnly); err != nil {
+		logger.Fatal("Failed to start Music Manager", zap.Error(err))
 	}
 
 	// Start Load Shedding controller
@@ -253,6 +259,28 @@ func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger 
 		return fmt.Errorf("failed to start energy manager: %w", err)
 	}
 
+	return nil
+}
+
+func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) error {
+	// Load music configuration
+	configPath := filepath.Join("..", "configs", "music_config.yaml")
+	musicConfig, err := music.LoadMusicConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load music config: %w", err)
+	}
+
+	// Count total music modes
+	logger.Info("Loaded music configuration",
+		zap.Int("music_modes", len(musicConfig.Music)))
+
+	// Create and start music manager
+	musicManager := music.NewManager(client, stateManager, musicConfig, logger, readOnly)
+	if err := musicManager.Start(); err != nil {
+		return fmt.Errorf("failed to start music manager: %w", err)
+	}
+
+	logger.Info("Music Manager started successfully")
 	return nil
 }
 
