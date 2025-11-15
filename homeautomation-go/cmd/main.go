@@ -184,6 +184,14 @@ func subscribeToChanges(manager *state.Manager, logger *zap.Logger) {
 			zap.Any("new", newValue))
 	})
 
+	// Subscribe to music playback type
+	manager.Subscribe("musicPlaybackType", func(key string, oldValue, newValue interface{}) {
+		logger.Info("State changed",
+			zap.String("key", key),
+			zap.Any("old", oldValue),
+			zap.Any("new", newValue))
+	})
+
 	// Subscribe to energy availability
 	manager.Subscribe("isFreeEnergyAvailable", func(key string, oldValue, newValue interface{}) {
 		logger.Info("State changed",
