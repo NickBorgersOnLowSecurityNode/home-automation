@@ -204,9 +204,13 @@ Expected performance on typical hardware:
 
 ## Known Issues
 
+All previously identified issues have been resolved:
+
 1. ✅ **Deadlock in SetBool** - FALSE ALARM (code is correct, lock released before client call)
 2. ✅ **Subscription memory leak** - FIXED (per-subscription IDs implemented, TestMultipleSubscribersOnSameEntity passes)
-3. ⚠️ **Mock client lock bug** - In test code only (`mock.go:263`)
+3. ✅ **Race conditions** - All 11 tests pass with `-race` flag
+
+No known bugs or issues remain. All integration tests pass successfully.
 
 ## Next Steps
 

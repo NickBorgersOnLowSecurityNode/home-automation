@@ -356,12 +356,11 @@ func TestMultipleSubscribersOnSameEntity(t *testing.T) {
 	mu2.Lock()
 	mu3.Lock()
 
-	// BUG: This test will fail because unsubscribe deletes ALL subscribers
+	// Verify per-subscription ID handling: only subscriber 2 should be unsubscribed
 	// Expected: count1=2, count2=1, count3=2
-	// Actual: count1=1, count2=1, count3=1 (all unsubscribed)
 	t.Logf("After unsubscribe one: count1=%d, count2=%d, count3=%d", count1, count2, count3)
 
-	// This assertion will FAIL and demonstrate the bug
+	// Verify correct unsubscribe behavior (only removes specific subscription)
 	assert.Equal(t, 2, count1, "Subscriber 1 should still be called after sub2 unsubscribe")
 	assert.Equal(t, 1, count2, "Subscriber 2 should NOT be called after unsubscribe")
 	assert.Equal(t, 2, count3, "Subscriber 3 should still be called after sub2 unsubscribe")

@@ -614,7 +614,7 @@ Now that MVP is complete, the following tasks remain before full production depl
 
 **Bugs Found Through Testing:**
 
-See [INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md) for complete details.
+See [docs/development/CONCURRENCY_LESSONS.md](../development/CONCURRENCY_LESSONS.md) for detailed concurrency patterns and lessons learned.
 
 1. **Concurrent WebSocket Writes** ✅ FIXED
    - Would cause panics under concurrent load
@@ -632,7 +632,7 @@ See [INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md) for complete 
 - **[AGENTS.md](./AGENTS.md)** - Development guide for AI agents
 - **[homeautomation-go/README.md](./homeautomation-go/README.md)** - User guide
 - **[HA_SYNC_README.md](./HA_SYNC_README.md)** - State synchronization details
-- **[INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md)** - Bug reports from testing
+- **[docs/development/CONCURRENCY_LESSONS.md](../development/CONCURRENCY_LESSONS.md)** - Concurrency patterns and lessons learned
 - **[test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration test guide
 
 ---
