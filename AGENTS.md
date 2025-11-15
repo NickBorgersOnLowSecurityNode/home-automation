@@ -6,6 +6,17 @@ This document provides guidance for AI agents and developers working on this hom
 
 This repository contains a home automation system that is migrating from Node-RED to Golang for improved type safety, testability, and maintainability.
 
+## 🚨 CRITICAL: Pre-Push Hook Active
+
+**A pre-push git hook automatically runs all tests before every push and BLOCKS if they fail.**
+
+After PRs #23 and #24 were pushed with failing tests, we added automated enforcement. The hook runs:
+- Code compilation + all tests + race detector + coverage check (≥70%)
+
+**NEVER use `git push --no-verify` to bypass the hook.** Fix the tests instead.
+
+---
+
 ### Understanding Current Node-RED Behavior
 
 **⚠️ IMPORTANT:** Before implementing any feature, you MUST understand the current Node-RED behavior.
@@ -299,22 +310,6 @@ grep "musicPlaybackType" docs/migration/migration_mapping.md
 
 ## Development Standards
 
----
-**⚠️ CI/CD Failure Prevention**
-
-Before EVERY push, run this locally:
-```bash
-cd homeautomation-go && go test ./...
-```
-
-This command runs:
-- ✅ Unit tests (`internal/ha`, `internal/state`)
-- ✅ Integration tests (`test/integration`)
-- ✅ Compilation of all test files
-
-**If it passes locally, CI will likely pass. If it fails, CI WILL fail.**
-
----
 
 ### Update docs/architecture/IMPLEMENTATION_PLAN.md
 As you complete tasks, update the implementation plan with progress, and add additional work items as additional problems to solve are identified.

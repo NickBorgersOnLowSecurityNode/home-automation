@@ -1,0 +1,88 @@
+#!/bin/bash
+#
+# Git pre-push hook
+# This hook runs automated test validation before allowing a push.
+# It executes the same tests that CI/CD will run to catch issues early.
+#
+
+set -e  # Exit on any error
+
+echo ""
+echo "🔍 Running pre-push validation..."
+echo "════════════════════════════════════════════════════════════════════════════"
+echo ""
+
+# Change to repository root
+cd "$(git rev-parse --show-toplevel)"
+
+# Navigate to Go project
+cd homeautomation-go
+
+# Track failures
+FAILED=0
+
+# 1. Compile check
+echo "📦 Compiling all code (including tests)..."
+if ! go build ./... 2>&1; then
+    echo "❌ FAILED: Code does not compile"
+    FAILED=1
+else
+    echo "✅ All code compiles"
+fi
+echo ""
+
+# 2. Run all tests
+echo "🧪 Running all tests..."
+if ! go test ./... -timeout=2m 2>&1; then
+    echo "❌ FAILED: Tests are failing"
+    FAILED=1
+else
+    echo "✅ All tests passed"
+fi
+echo ""
+
+# 3. Race detector
+echo "🏁 Running race detector..."
+if ! go test ./... -race -timeout=2m >/dev/null 2>&1; then
+    echo "❌ FAILED: Race conditions detected"
+    FAILED=1
+else
+    echo "✅ No race conditions"
+fi
+echo ""
+
+# 4. Coverage check
+echo "📊 Checking test coverage..."
+if go test ./... -coverprofile=/tmp/coverage.out -covermode=atomic >/dev/null 2>&1; then
+    COVERAGE=$(go tool cover -func=/tmp/coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+    echo "Coverage: ${COVERAGE}%"
+    if awk -v cov="$COVERAGE" 'BEGIN {exit !(cov >= 70)}'; then
+        echo "✅ Coverage meets requirement (≥70%)"
+    else
+        echo "❌ FAILED: Coverage ${COVERAGE}% below required 70%"
+        FAILED=1
+    fi
+    rm -f /tmp/coverage.out
+fi
+echo ""
+
+echo "════════════════════════════════════════════════════════════════════════════"
+
+if [ $FAILED -eq 1 ]; then
+    echo "❌ PRE-PUSH VALIDATION FAILED"
+    echo ""
+    echo "Your push has been blocked because tests are failing."
+    echo "Please fix the issues above before pushing."
+    echo ""
+    echo "To skip this hook (NOT recommended): git push --no-verify"
+    echo "════════════════════════════════════════════════════════════════════════════"
+    exit 1
+fi
+
+echo "✅ PRE-PUSH VALIDATION PASSED"
+echo ""
+echo "All checks passed. Proceeding with push..."
+echo "════════════════════════════════════════════════════════════════════════════"
+echo ""
+
+exit 0
