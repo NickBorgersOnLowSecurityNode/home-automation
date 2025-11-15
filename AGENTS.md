@@ -19,7 +19,7 @@ This repository contains a home automation system that is migrating from Node-RE
 │   └── README.md               # Go project documentation
 ├── IMPLEMENTATION_PLAN.md      # Architecture and design decisions
 ├── HA_SYNC_README.md          # HA synchronization documentation
-├── INTEGRATION_TEST_FINDINGS.md # Bug discoveries from integration tests (NEW)
+├── CONCURRENCY_LESSONS.md     # Concurrency patterns and lessons learned
 ├── AGENTS.md                   # This file
 └── [Node-RED files]           # Legacy implementation
 
@@ -31,8 +31,8 @@ This repository contains a home automation system that is migrating from Node-RE
 1. **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** - Complete architecture, design decisions, and migration strategy
 2. **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation user guide
 3. **[HA_SYNC_README.md](./HA_SYNC_README.md)** - Home Assistant synchronization details
-4. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide (NEW)
-5. **[INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md)** - Bugs found via integration tests (NEW)
+4. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide
+5. **[CONCURRENCY_LESSONS.md](./CONCURRENCY_LESSONS.md)** - Concurrency patterns and lessons learned
 
 ### External Documentation
 - [Go Documentation](https://go.dev/doc/)
@@ -282,7 +282,7 @@ cd homeautomation-go && go build ./... && go test ./... && echo "✅ Ready to pu
 
 ## Critical Bugs Found by Integration Tests
 
-The integration test suite has discovered production-critical bugs. See [INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md) for complete details.
+The integration test suite discovered and helped fix production-critical bugs. See [CONCURRENCY_LESSONS.md](./CONCURRENCY_LESSONS.md) for concurrency patterns and lessons learned.
 
 ### Fixed Bugs ✅
 1. **Concurrent WebSocket Writes** - Would cause panics under load
@@ -485,8 +485,8 @@ See IMPLEMENTATION_PLAN.md for complete migration roadmap.
 - [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) - Architecture decisions
 - [homeautomation-go/README.md](./homeautomation-go/README.md) - User guide
 - [HA_SYNC_README.md](./HA_SYNC_README.md) - Sync details
-- [test/integration/README.md](./homeautomation-go/test/integration/README.md) - Integration testing (NEW)
-- [INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md) - Bug reports (NEW)
+- [test/integration/README.md](./homeautomation-go/test/integration/README.md) - Integration testing
+- [CONCURRENCY_LESSONS.md](./CONCURRENCY_LESSONS.md) - Concurrency patterns and lessons
 
 ### External Resources
 - [Go Documentation](https://go.dev/doc/)
