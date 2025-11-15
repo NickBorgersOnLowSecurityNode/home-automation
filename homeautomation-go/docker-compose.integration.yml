@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  integration-tests:
+    build:
+      context: .
+      dockerfile: test/integration/Dockerfile
+    container_name: homeautomation-integration-tests
+    environment:
+      - TEST_TIMEOUT=30s
+    # Run with race detector
+    command: ["./integration-tests", "-test.v", "-test.race", "-test.timeout=5m"]
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    driver: bridge

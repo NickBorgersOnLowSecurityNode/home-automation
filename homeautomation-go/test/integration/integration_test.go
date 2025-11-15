@@ -1,0 +1,558 @@
+package integration
+
+import (
+	"fmt"
+	"sync"
+	"testing"
+	"time"
+
+	"homeautomation/internal/ha"
+	"homeautomation/internal/state"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+)
+
+const (
+	testToken = "test_token_12345"
+	testAddr  = "localhost:18123"
+)
+
+func setupTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func()) {
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Start mock HA server
+	server := NewMockHAServer(testAddr, testToken)
+	server.InitializeStates()
+
+	err := server.Start()
+	require.NoError(t, err)
+
+	// Create and connect client
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	err = client.Connect()
+	require.NoError(t, err)
+
+	// Create state manager
+	manager := state.NewManager(client, logger)
+	err = manager.SyncFromHA()
+	require.NoError(t, err)
+
+	// Cleanup function
+	cleanup := func() {
+		client.Disconnect()
+		server.Stop()
+	}
+
+	return server, client, manager, cleanup
+}
+
+// TestBasicConnection tests basic connection and sync
+func TestBasicConnection(t *testing.T) {
+	server, client, manager, cleanup := setupTest(t)
+	defer cleanup()
+
+	t.Run("connection status", func(t *testing.T) {
+		assert.True(t, client.IsConnected())
+	})
+
+	t.Run("initial sync", func(t *testing.T) {
+		// Check boolean
+		isHome, err := manager.GetBool("isNickHome")
+		assert.NoError(t, err)
+		assert.False(t, isHome)
+
+		// Check string
+		phase, err := manager.GetString("dayPhase")
+		assert.NoError(t, err)
+		assert.Equal(t, "morning", phase)
+
+		// Check number
+		alarmTime, err := manager.GetNumber("alarmTime")
+		assert.NoError(t, err)
+		assert.Equal(t, 0.0, alarmTime)
+	})
+
+	t.Run("state update from manager", func(t *testing.T) {
+		err := manager.SetBool("isExpectingSomeone", true)
+		assert.NoError(t, err)
+
+		// Verify in manager
+		value, err := manager.GetBool("isExpectingSomeone")
+		assert.NoError(t, err)
+		assert.True(t, value)
+
+		// Wait for propagation
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify in server
+		serverState := server.GetState("input_boolean.expecting_someone")
+		assert.NotNil(t, serverState)
+		assert.Equal(t, "on", serverState.State)
+	})
+}
+
+// TestStateChangeSubscription tests subscription to state changes
+func TestStateChangeSubscription(t *testing.T) {
+	server, _, manager, cleanup := setupTest(t)
+	defer cleanup()
+
+	changeCount := 0
+	var lastOld, lastNew interface{}
+	var mu sync.Mutex
+
+	sub, err := manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
+		mu.Lock()
+		defer mu.Unlock()
+		changeCount++
+		lastOld = oldValue
+		lastNew = newValue
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Trigger change from server
+	server.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
+
+	// Wait for event propagation
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	assert.Equal(t, 1, changeCount)
+	assert.False(t, lastOld.(bool))
+	assert.True(t, lastNew.(bool))
+	mu.Unlock()
+}
+
+// TestConcurrentReads tests concurrent read operations
+func TestConcurrentReads(t *testing.T) {
+	_, _, manager, cleanup := setupTest(t)
+	defer cleanup()
+
+	const numGoroutines = 50
+	const readsPerGoroutine = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < readsPerGoroutine; j++ {
+				manager.GetBool("isNickHome")
+				manager.GetString("dayPhase")
+				manager.GetNumber("alarmTime")
+			}
+		}()
+	}
+
+	wg.Wait()
+	// If we get here without hanging, no deadlock
+}
+
+// TestConcurrentWrites tests concurrent write operations
+func TestConcurrentWrites(t *testing.T) {
+	_, _, manager, cleanup := setupTest(t)
+	defer cleanup()
+
+	const numGoroutines = 20
+	const writesPerGoroutine = 50
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < writesPerGoroutine; j++ {
+				manager.SetBool("isExpectingSomeone", j%2 == 0)
+				manager.SetString("dayPhase", fmt.Sprintf("phase_%d", j%3))
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	// If we get here without hanging, no deadlock
+}
+
+// TestConcurrentReadsAndWrites tests mixed read/write operations
+func TestConcurrentReadsAndWrites(t *testing.T) {
+	_, _, manager, cleanup := setupTest(t)
+	defer cleanup()
+
+	const duration = 3 * time.Second
+	done := make(chan bool)
+
+	// Readers
+	for i := 0; i < 10; i++ {
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					manager.GetBool("isNickHome")
+					manager.GetString("dayPhase")
+					time.Sleep(1 * time.Millisecond)
+				}
+			}
+		}()
+	}
+
+	// Writers
+	for i := 0; i < 5; i++ {
+		go func(id int) {
+			count := 0
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					manager.SetBool("isExpectingSomeone", count%2 == 0)
+					count++
+					time.Sleep(5 * time.Millisecond)
+				}
+			}
+		}(i)
+	}
+
+	// Run for duration
+	time.Sleep(duration)
+	close(done)
+
+	// Wait a bit for goroutines to exit
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestSubscriptionWithConcurrentWrites tests the deadlock scenario
+func TestSubscriptionWithConcurrentWrites(t *testing.T) {
+	server, _, manager, cleanup := setupTest(t)
+	defer cleanup()
+
+	const duration = 3 * time.Second
+	done := make(chan bool)
+
+	changeCount := 0
+	var countMu sync.Mutex
+
+	// Subscribe to state changes and trigger more writes in callback
+	sub, err := manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
+		countMu.Lock()
+		changeCount++
+		countMu.Unlock()
+
+		// This could trigger deadlock if manager doesn't release locks properly
+		manager.GetBool("isCarolineHome")
+		manager.SetBool("isExpectingSomeone", newValue.(bool))
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Trigger rapid state changes from server
+	go func() {
+		count := 0
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				state := "off"
+				if count%2 == 0 {
+					state = "on"
+				}
+				server.SetState("input_boolean.nick_home", state, map[string]interface{}{})
+				count++
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+	}()
+
+	// Also trigger writes from manager side
+	go func() {
+		count := 0
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				manager.SetBool("isNickHome", count%2 == 0)
+				count++
+				time.Sleep(75 * time.Millisecond)
+			}
+		}
+	}()
+
+	// Run for duration
+	time.Sleep(duration)
+	close(done)
+
+	// Wait for things to settle
+	time.Sleep(500 * time.Millisecond)
+
+	countMu.Lock()
+	t.Logf("Total state changes observed: %d", changeCount)
+	assert.Greater(t, changeCount, 0)
+	countMu.Unlock()
+}
+
+// TestMultipleSubscribersOnSameEntity tests multiple subscribers to same entity
+func TestMultipleSubscribersOnSameEntity(t *testing.T) {
+	server, _, manager, cleanup := setupTest(t)
+	defer cleanup()
+
+	count1, count2, count3 := 0, 0, 0
+	var mu1, mu2, mu3 sync.Mutex
+
+	// Subscribe three times to the same entity
+	sub1, err := manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
+		mu1.Lock()
+		count1++
+		mu1.Unlock()
+	})
+	require.NoError(t, err)
+	defer sub1.Unsubscribe()
+
+	sub2, err := manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
+		mu2.Lock()
+		count2++
+		mu2.Unlock()
+	})
+	require.NoError(t, err)
+	defer sub2.Unsubscribe()
+
+	sub3, err := manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
+		mu3.Lock()
+		count3++
+		mu3.Unlock()
+	})
+	require.NoError(t, err)
+	defer sub3.Unsubscribe()
+
+	// Trigger change
+	server.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
+	time.Sleep(200 * time.Millisecond)
+
+	mu1.Lock()
+	mu2.Lock()
+	mu3.Lock()
+
+	assert.Equal(t, 1, count1, "Subscriber 1 should be called")
+	assert.Equal(t, 1, count2, "Subscriber 2 should be called")
+	assert.Equal(t, 1, count3, "Subscriber 3 should be called")
+
+	mu3.Unlock()
+	mu2.Unlock()
+	mu1.Unlock()
+
+	// Now unsubscribe one and verify others still work
+	sub2.Unsubscribe()
+
+	server.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
+	time.Sleep(200 * time.Millisecond)
+
+	mu1.Lock()
+	mu2.Lock()
+	mu3.Lock()
+
+	// BUG: This test will fail because unsubscribe deletes ALL subscribers
+	// Expected: count1=2, count2=1, count3=2
+	// Actual: count1=1, count2=1, count3=1 (all unsubscribed)
+	t.Logf("After unsubscribe one: count1=%d, count2=%d, count3=%d", count1, count2, count3)
+
+	// This assertion will FAIL and demonstrate the bug
+	assert.Equal(t, 2, count1, "Subscriber 1 should still be called after sub2 unsubscribe")
+	assert.Equal(t, 1, count2, "Subscriber 2 should NOT be called after unsubscribe")
+	assert.Equal(t, 2, count3, "Subscriber 3 should still be called after sub2 unsubscribe")
+
+	mu3.Unlock()
+	mu2.Unlock()
+	mu1.Unlock()
+}
+
+// TestCompareAndSwapRaceCondition tests atomic operations under load
+func TestCompareAndSwapRaceCondition(t *testing.T) {
+	_, _, manager, cleanup := setupTest(t)
+	defer cleanup()
+
+	const numGoroutines = 20
+	successCount := 0
+	var mu sync.Mutex
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// Multiple goroutines try to CAS the same variable
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+
+			// Try to swap from false to true
+			swapped, err := manager.CompareAndSwapBool("isFadeOutInProgress", false, true)
+			if err == nil && swapped {
+				mu.Lock()
+				successCount++
+				mu.Unlock()
+
+				// Do some "work"
+				time.Sleep(10 * time.Millisecond)
+
+				// Swap back
+				manager.SetBool("isFadeOutInProgress", false)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Only one goroutine should have succeeded at a time
+	// But we set it back to false each time, so multiple could succeed sequentially
+	mu.Lock()
+	t.Logf("Successful CAS operations: %d", successCount)
+	assert.Greater(t, successCount, 0)
+	mu.Unlock()
+}
+
+// TestReconnection tests client reconnection behavior
+func TestReconnection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping reconnection test in short mode")
+	}
+
+	logger, _ := zap.NewDevelopment()
+
+	// Start server
+	server := NewMockHAServer(testAddr, testToken)
+	server.InitializeStates()
+	err := server.Start()
+	require.NoError(t, err)
+
+	// Connect client
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	err = client.Connect()
+	require.NoError(t, err)
+
+	assert.True(t, client.IsConnected())
+
+	// Stop server to force disconnect
+	t.Log("Stopping server to trigger reconnection...")
+	server.Stop()
+
+	// Wait for disconnect detection
+	time.Sleep(1 * time.Second)
+
+	// Restart server
+	t.Log("Restarting server...")
+	server = NewMockHAServer(testAddr, testToken)
+	server.InitializeStates()
+	err = server.Start()
+	require.NoError(t, err)
+	defer server.Stop()
+
+	// Wait for reconnection (with timeout)
+	t.Log("Waiting for reconnection...")
+	reconnected := false
+	for i := 0; i < 40; i++ { // 40 seconds max
+		if client.IsConnected() {
+			reconnected = true
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	assert.True(t, reconnected, "Client should reconnect automatically")
+
+	client.Disconnect()
+}
+
+// TestHighFrequencyStateChanges tests system under high load
+func TestHighFrequencyStateChanges(t *testing.T) {
+	server, _, manager, cleanup := setupTest(t)
+	defer cleanup()
+
+	const numChanges = 1000
+	changeCount := 0
+	var mu sync.Mutex
+
+	sub, err := manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
+		mu.Lock()
+		changeCount++
+		mu.Unlock()
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Rapidly toggle state
+	start := time.Now()
+	for i := 0; i < numChanges; i++ {
+		state := "off"
+		if i%2 == 0 {
+			state = "on"
+		}
+		server.SetState("input_boolean.nick_home", state, map[string]interface{}{})
+		time.Sleep(1 * time.Millisecond) // Small delay to prevent overwhelming
+	}
+	duration := time.Since(start)
+
+	// Wait for all events to propagate
+	time.Sleep(500 * time.Millisecond)
+
+	mu.Lock()
+	finalCount := changeCount
+	mu.Unlock()
+
+	t.Logf("Sent %d changes in %v, received %d callbacks", numChanges, duration, finalCount)
+
+	// We should receive most of them (allow some loss due to network/timing)
+	assert.Greater(t, finalCount, numChanges*8/10, "Should receive at least 80% of changes")
+}
+
+// TestAllStateTypes tests all supported state types
+func TestAllStateTypes(t *testing.T) {
+	_, _, manager, cleanup := setupTest(t)
+	defer cleanup()
+
+	t.Run("boolean operations", func(t *testing.T) {
+		err := manager.SetBool("isHaveGuests", true)
+		assert.NoError(t, err)
+
+		value, err := manager.GetBool("isHaveGuests")
+		assert.NoError(t, err)
+		assert.True(t, value)
+	})
+
+	t.Run("number operations", func(t *testing.T) {
+		err := manager.SetNumber("alarmTime", 1234567890.0)
+		assert.NoError(t, err)
+
+		value, err := manager.GetNumber("alarmTime")
+		assert.NoError(t, err)
+		assert.Equal(t, 1234567890.0, value)
+	})
+
+	t.Run("string operations", func(t *testing.T) {
+		err := manager.SetString("dayPhase", "evening")
+		assert.NoError(t, err)
+
+		value, err := manager.GetString("dayPhase")
+		assert.NoError(t, err)
+		assert.Equal(t, "evening", value)
+	})
+
+	t.Run("JSON operations", func(t *testing.T) {
+		data := map[string]interface{}{
+			"playlist": "spotify:123",
+			"volume":   75,
+		}
+
+		err := manager.SetJSON("currentlyPlayingMusic", data)
+		assert.NoError(t, err)
+
+		var retrieved map[string]interface{}
+		err = manager.GetJSON("currentlyPlayingMusic", &retrieved)
+		assert.NoError(t, err)
+		assert.Equal(t, "spotify:123", retrieved["playlist"])
+		assert.Equal(t, float64(75), retrieved["volume"])
+	})
+}

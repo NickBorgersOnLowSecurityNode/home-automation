@@ -42,6 +42,7 @@ type Client struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	reconnect   bool
+	writeMu     sync.Mutex // Protects websocket writes
 }
 
 func (c *Client) resetContextLocked() {
@@ -102,7 +103,11 @@ func (c *Client) Connect() error {
 		Type:        "auth",
 		AccessToken: c.token,
 	}
-	if err := c.conn.WriteJSON(authMsg); err != nil {
+	c.writeMu.Lock()
+	err = c.conn.WriteJSON(authMsg)
+	c.writeMu.Unlock()
+
+	if err != nil {
 		c.conn.Close()
 		c.connMu.Unlock()
 		return fmt.Errorf("failed to send auth: %w", err)
@@ -161,8 +166,11 @@ func (c *Client) Disconnect() error {
 	c.connected = false
 
 	if c.conn != nil {
-		// Send close message
+		// Send close message (protected by writeMu)
+		c.writeMu.Lock()
 		c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		c.writeMu.Unlock()
+
 		c.conn.Close()
 		c.conn = nil
 	}
@@ -221,8 +229,12 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 		c.pendingMu.Unlock()
 	}()
 
-	// Send message
-	if err := c.conn.WriteJSON(msg); err != nil {
+	// Send message (protected by writeMu to prevent concurrent writes)
+	c.writeMu.Lock()
+	err := c.conn.WriteJSON(msg)
+	c.writeMu.Unlock()
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 

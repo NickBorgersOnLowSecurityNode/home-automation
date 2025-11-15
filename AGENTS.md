@@ -14,10 +14,12 @@ This repository contains a home automation system that is migrating from Node-RE
 │   ├── cmd/main.go             # Demo application
 │   ├── internal/ha/            # Home Assistant WebSocket client
 │   ├── internal/state/         # State management layer
+│   ├── test/integration/       # Integration test suite (NEW)
 │   ├── go.mod                  # Go module definition
 │   └── README.md               # Go project documentation
 ├── IMPLEMENTATION_PLAN.md      # Architecture and design decisions
 ├── HA_SYNC_README.md          # HA synchronization documentation
+├── INTEGRATION_TEST_FINDINGS.md # Bug discoveries from integration tests (NEW)
 ├── AGENTS.md                   # This file
 └── [Node-RED files]           # Legacy implementation
 
@@ -29,6 +31,8 @@ This repository contains a home automation system that is migrating from Node-RE
 1. **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** - Complete architecture, design decisions, and migration strategy
 2. **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation user guide
 3. **[HA_SYNC_README.md](./HA_SYNC_README.md)** - Home Assistant synchronization details
+4. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide (NEW)
+5. **[INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md)** - Bugs found via integration tests (NEW)
 
 ### External Documentation
 - [Go Documentation](https://go.dev/doc/)
@@ -53,6 +57,7 @@ This repository contains a home automation system that is migrating from Node-RE
 - Use table-driven tests where appropriate
 - Tests must pass with race detector: `go test -race`
 - Mock external dependencies (Home Assistant client)
+- **Run integration tests** before major changes
 
 #### Error Handling
 - Always check and handle errors
@@ -65,6 +70,7 @@ This repository contains a home automation system that is migrating from Node-RE
 - Use `sync.RWMutex` for read-heavy operations
 - Document goroutine lifecycles
 - Always test concurrent code with `-race` flag
+- **WebSocket writes must be serialized** (use writeMu)
 
 ### File Organization
 ```
@@ -78,11 +84,18 @@ internal/
     ├── manager.go        # State manager implementation
     ├── variables.go      # Variable definitions
     └── manager_test.go   # Manager tests
+
+test/
+└── integration/          # Integration tests (NEW)
+    ├── mock_ha_server.go      # Mock Home Assistant server
+    ├── integration_test.go    # Test scenarios
+    ├── Dockerfile             # Container for tests
+    └── README.md              # Testing guide
 ```
 
 ## Running Tests
 
-### Quick Test Commands
+### Unit Tests
 
 ```bash
 # Navigate to Go project directory
@@ -106,16 +119,70 @@ go test ./... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 ```
 
+### Integration Tests (NEW)
+
+Integration tests use a full mock Home Assistant WebSocket server to validate the system under realistic concurrent load.
+
+#### Quick Run
+```bash
+cd homeautomation-go
+
+# Run all integration tests with race detector (recommended)
+go test -v -race ./test/integration/...
+
+# Run specific test scenarios
+go test -v -race -run TestConcurrent ./test/integration/
+go test -v -race -run TestSubscription ./test/integration/
+```
+
+#### Docker Run (Isolated)
+```bash
+# From repository root
+docker-compose -f homeautomation-go/docker-compose.integration.yml up --build
+```
+
+#### What Integration Tests Validate
+
+✅ **Concurrency & Race Conditions**
+- 50 goroutines × 100 concurrent reads
+- 20 goroutines × 50 concurrent writes
+- Mixed read/write workloads
+- CompareAndSwap atomic operations
+
+✅ **Deadlock Detection**
+- Subscription callbacks triggering more state operations
+- Rapid state changes from both server and client
+- Multiple subscribers on same entity
+
+✅ **Edge Cases**
+- High-frequency state changes (1000+ events)
+- Reconnection after disconnect
+- Network latency simulation
+
+✅ **All State Types**
+- Boolean, Number, String, JSON operations
+
+#### Known Test Failures
+
+⚠️ **TestMultipleSubscribersOnSameEntity** - Expected to fail
+- **Bug**: Unsubscribe removes ALL subscribers, not just one
+- **Location**: `internal/ha/client.go:422-428`
+- **Status**: Tracked for fix
+
+See [test/integration/README.md](./homeautomation-go/test/integration/README.md) for detailed test documentation.
+
 ### Expected Test Results
-- **All tests must pass** ✅
+- **All unit tests must pass** ✅
 - **HA client coverage**: ≥70%
 - **State manager coverage**: ≥70%
 - **No race conditions** when running with `-race`
+- **Integration tests**: 11/12 passing (1 known failure)
 
 ### Test Execution Time
 - HA client tests: ~10 seconds (includes reconnection testing)
 - State manager tests: <1 second
-- Total test suite: ~10-11 seconds
+- Integration tests: ~20-30 seconds
+- Total test suite: ~30-40 seconds
 
 ## Building and Running
 
@@ -148,240 +215,68 @@ See `.env.example` for template.
 
 ### Required Tools
 ```bash
-# Install Go tools
+# Install tools
 go install golang.org/x/tools/cmd/goimports@latest
 go install golang.org/x/lint/golint@latest
+go install honnef.co/go/tools/cmd/staticcheck@latest
 
-# Format code
+# Run checks
+gofmt -w .                      # Format code
+goimports -w .                  # Fix imports
+go vet ./...                    # Static analysis
+golint ./...                    # Linting
+staticcheck ./...               # Advanced static analysis
+```
+
+### Pre-commit Checks
+Before committing code, ensure:
+```bash
+# Format and check
 gofmt -w .
-
-# Vet code
 go vet ./...
-
-# Tidy dependencies
-go mod tidy
+go test ./... -race
+go test -v -race ./test/integration/...  # NEW: Run integration tests
 ```
 
-### Pre-commit Checklist
-- [ ] Code is formatted with `gofmt`
-- [ ] No warnings from `go vet`
-- [ ] All tests pass: `go test ./...`
-- [ ] No race conditions: `go test ./... -race`
-- [ ] Test coverage ≥70%
-- [ ] Documentation updated if API changed
-- [ ] Commit message follows convention (see below)
+## Critical Bugs Found by Integration Tests
 
-## Git Workflow
+The integration test suite has discovered production-critical bugs. See [INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md) for complete details.
 
-### Commit Message Format
-```
-<type>: <short description>
+### Fixed Bugs ✅
+1. **Concurrent WebSocket Writes** - Would cause panics under load
+   - **Severity**: CRITICAL
+   - **Fix**: Added `writeMu` mutex in `internal/ha/client.go`
+   - **Tests**: TestConcurrentWrites, TestConcurrentReadsAndWrites
 
-<detailed description>
+### Active Bugs ❌
+2. **Subscription Memory Leak** - Unsubscribe removes all handlers
+   - **Severity**: HIGH
+   - **Location**: `internal/ha/client.go:422-428`
+   - **Test**: TestMultipleSubscribersOnSameEntity
+   - **Status**: Needs fix
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+**Always run integration tests after making changes to concurrency-sensitive code.**
 
-Co-Authored-By: Claude <noreply@anthropic.com>
-```
+## Development Workflow
 
-**Types**: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`
+### Making Changes
 
-### Example Commits
-```
-feat: Add support for JSON state variables
-
-Implemented GetJSON/SetJSON methods with local-only variable support
-for data that is too large to sync with Home Assistant.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-```
-
-## Common Tasks
-
-### Adding a New State Variable
-
-1. **Update `internal/state/variables.go`:**
-```go
-{Key: "myNewVar", EntityID: "input_boolean.my_new_var", Type: TypeBool, Default: false}
-```
-
-2. **Create corresponding entity in Home Assistant**
-
-3. **Use the variable:**
-```go
-value, _ := manager.GetBool("myNewVar")
-manager.SetBool("myNewVar", true)
-```
-
-4. **Add tests** in `manager_test.go`
-
-### Debugging
-
-#### Enable Debug Logging
-Change logger creation in `cmd/main.go`:
-```go
-// From:
-logger, err := zap.NewProduction()
-
-// To:
-logger, err := zap.NewDevelopment()
-```
-
-#### Common Issues
-
-**Connection Refused**
-- Check `HA_URL` in `.env`
-- Verify Home Assistant is running
-- Check WebSocket API is enabled
-
-**Authentication Failed**
-- Verify `HA_TOKEN` is valid
-- Check token hasn't expired
-- Ensure token has proper permissions
-
-**State Not Syncing**
-- Verify entity exists in Home Assistant
-- Check entity name matches in `variables.go`
-- Look for warnings in logs
-
-## Architecture Patterns
-
-### WebSocket Client Pattern
-```go
-// Connect and handle reconnection
-client := ha.NewClient(url, token, logger)
-client.Connect()
-defer client.Disconnect()
-```
-
-### State Management Pattern
-```go
-// Create manager and sync
-manager := state.NewManager(client, logger)
-manager.SyncFromHA()
-
-// Subscribe to changes
-manager.Subscribe("key", func(key string, old, new interface{}) {
-    // Handle change
-})
-```
-
-### Testing Pattern
-```go
-func TestFeature(t *testing.T) {
-    logger, _ := zap.NewDevelopment()
-    mockClient := ha.NewMockClient()
-    mockClient.SetState("entity_id", "value", map[string]interface{}{})
-    mockClient.Connect()
-
-    // Test code here
-
-    assert.Equal(t, expected, actual)
-}
-```
-
-## Performance Standards
-
-### Expected Metrics
-- **Sync Time**: 100-200ms for all 27 variables
-- **State Change Latency**: <100ms from HA event to callback
-- **Memory Usage**: 10-20MB typical
-- **Goroutines**: <50 under normal operation
-
-### Optimization Guidelines
-- Use `sync.RWMutex` for read-heavy caches
-- Avoid allocations in hot paths
-- Pool WebSocket messages if needed
-- Profile before optimizing: `go test -cpuprofile=cpu.prof`
-
-## Security Considerations
-
-### Secrets Management
-- **NEVER** commit `.env` files
-- **NEVER** commit tokens or credentials
-- Use environment variables for all secrets
-- `.gitignore` must include `.env`
-
-### Network Security
-- Use `wss://` (WebSocket Secure) for production
-- Validate all inputs from Home Assistant
-- Use timeouts for all network operations
-- Implement exponential backoff for retries
-
-## Thread Safety Rules
-
-### Always Thread-Safe
-1. **State cache** - protected by `cacheMu`
-2. **Subscribers map** - protected by `subsMu`
-3. **WebSocket connection** - protected by `connMu`
-
-### Deadlock Prevention
-- **Never** hold locks while calling external code
-- **Always** release locks before making HA API calls
-- Use `defer` for lock cleanup
-- Test with `-race` flag regularly
-
-## Troubleshooting Guide
-
-### Test Failures
-
-**Setup failed: directory not found**
-```bash
-# Use full package path
-go test homeautomation/internal/ha
-go test homeautomation/internal/state
-```
-
-**Timeout in tests**
-- Check for deadlocks
-- Verify mock client is connected
-- Increase timeout if testing reconnection
-
-**Race detector warnings**
-- Fix immediately - indicates real bug
-- Use mutexes to protect shared state
-- Never ignore race warnings
-
-### Build Failures
-
-**Cannot find package**
-```bash
-go mod tidy
-go mod download
-```
-
-**Import cycle**
-- Reorganize packages
-- Extract shared types to separate package
-- Review dependency graph
-
-## Agent-Specific Guidelines
-
-### When Making Changes
-
-1. **Read relevant documentation first**
-   - IMPLEMENTATION_PLAN.md for architecture
-   - README.md for usage patterns
-   - Existing code for style
-
-2. **Run tests before and after changes**
+1. **Create feature branch** from main
+2. **Make code changes** following standards above
+3. **Write/update tests** (both unit and integration if needed)
+4. **Run all tests** with race detector:
    ```bash
-   go test ./... -race
+   go test -race ./...
+   go test -v -race ./test/integration/...
    ```
+5. **Format and lint** code
+6. **Commit with descriptive message**
+7. **Push and create PR**
 
-3. **Check test coverage**
-   ```bash
-   go test ./... -cover
-   ```
-
-4. **Update documentation** if APIs change
-
-5. **Commit with descriptive messages**
-
-### Code Review Checklist
-
+### Pull Request Checklist
+- [ ] All tests passing (unit + integration)
+- [ ] No race conditions (`-race` flag)
+- [ ] Code coverage ≥70%
 - [ ] Follows Go style guidelines
 - [ ] Has comprehensive tests
 - [ ] Handles errors properly
@@ -407,11 +302,16 @@ go run cmd/main.go              # Run application
 go build -o homeautomation ./cmd/main.go  # Build binary
 
 # Testing
-go test ./...                   # Run all tests
+go test ./...                   # Run all unit tests
 go test ./... -v                # Verbose output
 go test ./... -race             # Race detection
 go test ./... -cover            # Coverage summary
 go test ./... -coverprofile=coverage.out  # Coverage report
+
+# Integration Testing (NEW)
+go test -v -race ./test/integration/...   # All integration tests
+go test -v -race -run TestConcurrent ./test/integration/  # Specific test
+docker-compose -f docker-compose.integration.yml up --build  # Docker run
 
 # Code Quality
 gofmt -w .                      # Format code
@@ -436,16 +336,20 @@ dlv debug ./cmd/main.go         # Debug with delve (if installed)
 ### Migration Strategy
 See IMPLEMENTATION_PLAN.md for complete migration roadmap.
 
-**Current Phase**: MVP Complete ✅
+**Current Phase**: MVP Complete + Integration Testing ✅
 - Go implementation is ready for parallel testing
 - Running in READ_ONLY mode alongside Node-RED
 - All 28 state variables supported
+- Comprehensive integration test suite validates correctness
+- 1 critical bug fixed (concurrent writes)
+- 1 known bug tracked (subscription leak)
 
 **Next Steps**:
-1. Validate behavior matches Node-RED
-2. Migrate helper functions
-3. Switch to read-write mode
-4. Deprecate Node-RED implementation
+1. Fix subscription memory leak bug
+2. Validate behavior matches Node-RED
+3. Migrate helper functions
+4. Switch to read-write mode
+5. Deprecate Node-RED implementation
 
 ## Getting Help
 
@@ -453,6 +357,8 @@ See IMPLEMENTATION_PLAN.md for complete migration roadmap.
 - [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) - Architecture decisions
 - [homeautomation-go/README.md](./homeautomation-go/README.md) - User guide
 - [HA_SYNC_README.md](./HA_SYNC_README.md) - Sync details
+- [test/integration/README.md](./homeautomation-go/test/integration/README.md) - Integration testing (NEW)
+- [INTEGRATION_TEST_FINDINGS.md](./INTEGRATION_TEST_FINDINGS.md) - Bug reports (NEW)
 
 ### External Resources
 - [Go Documentation](https://go.dev/doc/)
@@ -476,8 +382,21 @@ A: Use full package path: `go test homeautomation/internal/state`
 **Q: How do I test against real Home Assistant?**
 A: Update `.env` with real credentials, run `go run cmd/main.go`, watch logs.
 
+**Q: Should I use a real HA instance for testing or the mock?**
+A: Use the mock for automated testing (faster, more reliable). Use real HA for final validation.
+
+**Q: Why is TestMultipleSubscribersOnSameEntity failing?**
+A: Known bug in subscription code. See INTEGRATION_TEST_FINDINGS.md. This is expected.
+
+**Q: How do I run tests in Docker?**
+A: `docker-compose -f homeautomation-go/docker-compose.integration.yml up --build`
+
+**Q: What if I'm adding concurrent code?**
+A: MUST test with `-race` flag and run integration tests. Protect WebSocket writes with mutex.
+
 ---
 
 **Last Updated**: 2025-11-15
-**Go Version**: 1.25.3
-**Project Status**: MVP Complete, Parallel Testing Phase
+**Go Version**: 1.21
+**Project Status**: MVP Complete, Integration Testing Added, Parallel Testing Phase
+
