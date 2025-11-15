@@ -934,7 +934,7 @@ client.CallService("media_player", "play_media", map[string]interface{}{
 
 **Dockerfile:**
 ```dockerfile
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -1214,7 +1214,7 @@ homeautomation/
 ```go.mod
 module homeautomation
 
-go 1.21
+go 1.23
 
 require (
     github.com/gorilla/websocket v1.5.0   // WebSocket client for HA
