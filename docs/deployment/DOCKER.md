@@ -286,8 +286,9 @@ The GitHub Actions workflow (`.github/workflows/docker-build-push.yml`) performs
 
 - **Push to main/master**: Builds and pushes `latest` tag
 - **Push tag `v*`**: Builds and pushes version tags
-- **Pull request**: Builds but doesn't push
 - **Manual dispatch**: Allows manual workflow trigger
+
+> **Note**: Pull requests are tested by the `pr-tests.yml` workflow. Docker images are only built and pushed from the main/master branches.
 
 ## Troubleshooting
 

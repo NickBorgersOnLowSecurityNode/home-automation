@@ -76,7 +76,7 @@ I wanted to be able to git track the fairly complex configuration objects that I
   - [music_config.yaml](configs/music_config.yaml)
   - [schedule_config.yaml](configs/schedule_config.yaml)
 
-[The config files are validated for YAML correctness using `yamllint` in a GitHub Action](.github/workflows/validate.yml#10-24). Because the majority of music playback leverages public Spotify playlists, the [music_config.yaml](configs/music_config.yaml) gets some additional validation by a [script which confirms every indicated Spotify Playback URI is a valid, reachable, and public Spotify Playlist](config-test/validate_spotify_uris.py).
+[The config files are validated for YAML correctness using `yamllint` in a GitHub Action](.github/workflows/pr-tests.yml). Because the majority of music playback leverages public Spotify playlists, the [music_config.yaml](configs/music_config.yaml) gets some additional validation by a [script which confirms every indicated Spotify Playback URI is a valid, reachable, and public Spotify Playlist](config-test/validate_spotify_uris.py).
 
 The Node Red Flow which manages Configuration is:
 
