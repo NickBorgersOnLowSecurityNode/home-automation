@@ -49,6 +49,7 @@ type Client struct {
 	nextSubIDMu sync.Mutex
 	ctx         context.Context
 	cancel      context.CancelFunc
+	ctxMu       sync.RWMutex // Protects ctx and cancel
 	reconnect   bool
 	writeMu     sync.Mutex // Protects websocket writes
 }
@@ -66,6 +67,8 @@ func (c *Client) clearSubscribers() {
 }
 
 func (c *Client) resetContextLocked() {
+	c.ctxMu.Lock()
+	defer c.ctxMu.Unlock()
 	if c.cancel != nil {
 		c.cancel()
 	}
@@ -182,7 +185,12 @@ func (c *Client) Disconnect() error {
 	}
 
 	c.reconnect = false
+
+	// Cancel context
+	c.ctxMu.Lock()
 	c.cancel()
+	c.ctxMu.Unlock()
+
 	c.connected = false
 
 	if c.conn != nil {
@@ -223,6 +231,11 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 		return nil, fmt.Errorf("not connected")
 	}
 	c.connMu.RUnlock()
+
+	// Get context for cancellation check
+	c.ctxMu.RLock()
+	ctx := c.ctx
+	c.ctxMu.RUnlock()
 
 	// Get message ID
 	var msgID int
@@ -271,7 +284,7 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 		return &resp, nil
 	case <-time.After(10 * time.Second):
 		return nil, fmt.Errorf("timeout waiting for response")
-	case <-c.ctx.Done():
+	case <-ctx.Done():
 		return nil, fmt.Errorf("client disconnected")
 	}
 }
@@ -279,8 +292,13 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 // receiveMessages handles incoming messages in the background
 func (c *Client) receiveMessages() {
 	for {
+		// Get context for cancellation check
+		c.ctxMu.RLock()
+		ctx := c.ctx
+		c.ctxMu.RUnlock()
+
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			return
 		default:
 		}
@@ -362,8 +380,13 @@ func (c *Client) attemptReconnect() {
 	maxBackoff := 30 * time.Second
 
 	for {
+		// Get context for cancellation check
+		c.ctxMu.RLock()
+		ctx := c.ctx
+		c.ctxMu.RUnlock()
+
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-time.After(backoff):
 		}
