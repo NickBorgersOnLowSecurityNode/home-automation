@@ -8,9 +8,7 @@ on:
       - '**'
   push:
     branches:
-      - main
-      - master
-      - 'claude/**'
+      - 'claude/**'  # Only test development branches; main/master tested in docker-build-push.yml
 
 permissions:
   contents: read
