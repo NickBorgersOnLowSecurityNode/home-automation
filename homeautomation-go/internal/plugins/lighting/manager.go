@@ -1,0 +1,359 @@
+package lighting
+
+import (
+	"fmt"
+
+	"homeautomation/internal/ha"
+	"homeautomation/internal/state"
+
+	"go.uber.org/zap"
+)
+
+// Manager handles lighting control and scene activation
+type Manager struct {
+	haClient     ha.HAClient
+	stateManager *state.Manager
+	config       *HueConfig
+	logger       *zap.Logger
+	readOnly     bool
+}
+
+// NewManager creates a new Lighting Control manager
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueConfig, logger *zap.Logger, readOnly bool) *Manager {
+	return &Manager{
+		haClient:     haClient,
+		stateManager: stateManager,
+		config:       config,
+		logger:       logger.Named("lighting"),
+		readOnly:     readOnly,
+	}
+}
+
+// Start begins monitoring lighting state and triggers
+func (m *Manager) Start() error {
+	m.logger.Info("Starting Lighting Control Manager")
+
+	// Subscribe to day phase changes
+	if _, err := m.stateManager.Subscribe("dayPhase", m.handleDayPhaseChange); err != nil {
+		return fmt.Errorf("failed to subscribe to dayPhase: %w", err)
+	}
+
+	// Subscribe to sun event changes
+	if _, err := m.stateManager.Subscribe("sunevent", m.handleSunEventChange); err != nil {
+		return fmt.Errorf("failed to subscribe to sunevent: %w", err)
+	}
+
+	// Subscribe to presence changes that might affect lighting
+	if _, err := m.stateManager.Subscribe("isAnyoneHome", m.handlePresenceChange); err != nil {
+		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
+	}
+
+	// Subscribe to TV state for brightness adjustments
+	if _, err := m.stateManager.Subscribe("isTVPlaying", m.handleTVStateChange); err != nil {
+		return fmt.Errorf("failed to subscribe to isTVPlaying: %w", err)
+	}
+
+	// Subscribe to sleep state changes
+	if _, err := m.stateManager.Subscribe("isEveryoneAsleep", m.handleSleepStateChange); err != nil {
+		return fmt.Errorf("failed to subscribe to isEveryoneAsleep: %w", err)
+	}
+
+	if _, err := m.stateManager.Subscribe("isMasterAsleep", m.handleSleepStateChange); err != nil {
+		return fmt.Errorf("failed to subscribe to isMasterAsleep: %w", err)
+	}
+
+	// Subscribe to guest presence
+	if _, err := m.stateManager.Subscribe("isHaveGuests", m.handlePresenceChange); err != nil {
+		return fmt.Errorf("failed to subscribe to isHaveGuests: %w", err)
+	}
+
+	m.logger.Info("Lighting Control Manager started successfully")
+	return nil
+}
+
+// handleDayPhaseChange processes day phase changes and activates scenes
+func (m *Manager) handleDayPhaseChange(key string, oldValue, newValue interface{}) {
+	newPhase, ok := newValue.(string)
+	if !ok {
+		m.logger.Warn("Day phase value is not a string", zap.Any("value", newValue))
+		return
+	}
+
+	m.logger.Info("Day phase changed, activating scenes",
+		zap.Any("old", oldValue),
+		zap.String("new", newPhase))
+
+	// Activate scenes for all rooms based on new day phase
+	m.activateScenesForAllRooms(newPhase)
+}
+
+// handleSunEventChange processes sun event changes
+func (m *Manager) handleSunEventChange(key string, oldValue, newValue interface{}) {
+	newEvent, ok := newValue.(string)
+	if !ok {
+		m.logger.Warn("Sun event value is not a string", zap.Any("value", newValue))
+		return
+	}
+
+	m.logger.Info("Sun event changed",
+		zap.Any("old", oldValue),
+		zap.String("new", newEvent))
+
+	// Sun events might trigger scene changes
+	// Get current day phase and reactivate scenes
+	dayPhase, err := m.stateManager.GetString("dayPhase")
+	if err != nil {
+		m.logger.Error("Failed to get dayPhase", zap.Error(err))
+		return
+	}
+
+	m.activateScenesForAllRooms(dayPhase)
+}
+
+// handlePresenceChange processes presence changes
+func (m *Manager) handlePresenceChange(key string, oldValue, newValue interface{}) {
+	m.logger.Info("Presence state changed",
+		zap.String("key", key),
+		zap.Any("old", oldValue),
+		zap.Any("new", newValue))
+
+	// Re-evaluate all rooms
+	dayPhase, err := m.stateManager.GetString("dayPhase")
+	if err != nil {
+		m.logger.Error("Failed to get dayPhase", zap.Error(err))
+		return
+	}
+
+	m.evaluateAllRooms(dayPhase)
+}
+
+// handleTVStateChange processes TV state changes
+func (m *Manager) handleTVStateChange(key string, oldValue, newValue interface{}) {
+	m.logger.Info("TV state changed",
+		zap.Any("old", oldValue),
+		zap.Any("new", newValue))
+
+	// Re-evaluate rooms that depend on TV state
+	dayPhase, err := m.stateManager.GetString("dayPhase")
+	if err != nil {
+		m.logger.Error("Failed to get dayPhase", zap.Error(err))
+		return
+	}
+
+	m.evaluateAllRooms(dayPhase)
+}
+
+// handleSleepStateChange processes sleep state changes
+func (m *Manager) handleSleepStateChange(key string, oldValue, newValue interface{}) {
+	m.logger.Info("Sleep state changed",
+		zap.String("key", key),
+		zap.Any("old", oldValue),
+		zap.Any("new", newValue))
+
+	// Re-evaluate all rooms
+	dayPhase, err := m.stateManager.GetString("dayPhase")
+	if err != nil {
+		m.logger.Error("Failed to get dayPhase", zap.Error(err))
+		return
+	}
+
+	m.evaluateAllRooms(dayPhase)
+}
+
+// activateScenesForAllRooms activates scenes for all configured rooms
+func (m *Manager) activateScenesForAllRooms(dayPhase string) {
+	for _, room := range m.config.Rooms {
+		m.evaluateAndActivateRoom(&room, dayPhase)
+	}
+}
+
+// evaluateAllRooms re-evaluates all rooms and activates scenes as needed
+func (m *Manager) evaluateAllRooms(dayPhase string) {
+	for _, room := range m.config.Rooms {
+		m.evaluateAndActivateRoom(&room, dayPhase)
+	}
+}
+
+// evaluateAndActivateRoom evaluates a room's conditions and activates the appropriate scene
+func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string) {
+	m.logger.Debug("Evaluating room",
+		zap.String("room", room.HueGroup),
+		zap.String("area_id", room.HASSAreaID),
+		zap.String("day_phase", dayPhase))
+
+	// Evaluate on/off conditions
+	shouldTurnOn := m.evaluateOnConditions(room)
+	shouldTurnOff := m.evaluateOffConditions(room)
+
+	m.logger.Debug("Room evaluation result",
+		zap.String("room", room.HueGroup),
+		zap.Bool("should_turn_on", shouldTurnOn),
+		zap.Bool("should_turn_off", shouldTurnOff))
+
+	// If both are true, prioritize turning off (safety first)
+	if shouldTurnOff {
+		m.logger.Info("Room should be turned off",
+			zap.String("room", room.HueGroup))
+		m.turnOffRoom(room)
+		return
+	}
+
+	if shouldTurnOn {
+		m.logger.Info("Room should be turned on with scene",
+			zap.String("room", room.HueGroup),
+			zap.String("day_phase", dayPhase))
+		m.activateScene(room, dayPhase)
+		return
+	}
+
+	m.logger.Debug("No action needed for room",
+		zap.String("room", room.HueGroup))
+}
+
+// evaluateOnConditions evaluates whether a room should turn on
+func (m *Manager) evaluateOnConditions(room *RoomConfig) bool {
+	// Check on_if_true conditions
+	onIfTrueConditions := room.GetOnIfTrueConditions()
+	for _, condition := range onIfTrueConditions {
+		if m.evaluateCondition(condition) {
+			m.logger.Debug("on_if_true condition is true",
+				zap.String("room", room.HueGroup),
+				zap.String("condition", condition))
+			return true
+		}
+	}
+
+	// Check on_if_false conditions
+	onIfFalseConditions := room.GetOnIfFalseConditions()
+	for _, condition := range onIfFalseConditions {
+		if !m.evaluateCondition(condition) {
+			m.logger.Debug("on_if_false condition is false",
+				zap.String("room", room.HueGroup),
+				zap.String("condition", condition))
+			return true
+		}
+	}
+
+	return false
+}
+
+// evaluateOffConditions evaluates whether a room should turn off
+func (m *Manager) evaluateOffConditions(room *RoomConfig) bool {
+	// Check off_if_true conditions
+	offIfTrueConditions := room.GetOffIfTrueConditions()
+	for _, condition := range offIfTrueConditions {
+		if m.evaluateCondition(condition) {
+			m.logger.Debug("off_if_true condition is true",
+				zap.String("room", room.HueGroup),
+				zap.String("condition", condition))
+			return true
+		}
+	}
+
+	// Check off_if_false conditions
+	offIfFalseConditions := room.GetOffIfFalseConditions()
+	for _, condition := range offIfFalseConditions {
+		if !m.evaluateCondition(condition) {
+			m.logger.Debug("off_if_false condition is false",
+				zap.String("room", room.HueGroup),
+				zap.String("condition", condition))
+			return true
+		}
+	}
+
+	return false
+}
+
+// evaluateCondition evaluates a boolean state variable condition
+func (m *Manager) evaluateCondition(condition string) bool {
+	if condition == "" {
+		return false
+	}
+
+	value, err := m.stateManager.GetBool(condition)
+	if err != nil {
+		m.logger.Warn("Failed to evaluate condition",
+			zap.String("condition", condition),
+			zap.Error(err))
+		return false
+	}
+
+	return value
+}
+
+// activateScene activates a Hue scene for a room
+func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
+	if m.readOnly {
+		m.logger.Info("READ ONLY MODE: Would activate scene",
+			zap.String("room", room.HueGroup),
+			zap.String("area_id", room.HASSAreaID),
+			zap.String("scene", dayPhase))
+		return
+	}
+
+	m.logger.Info("Activating scene",
+		zap.String("room", room.HueGroup),
+		zap.String("area_id", room.HASSAreaID),
+		zap.String("scene", dayPhase),
+		zap.Any("transition_seconds", room.TransitionSeconds))
+
+	// Call Home Assistant hue.hue_activate_scene service
+	serviceData := map[string]interface{}{
+		"group_name": room.HueGroup,
+		"scene_name": dayPhase,
+	}
+
+	// Add transition if specified
+	if room.TransitionSeconds != nil {
+		serviceData["transition"] = *room.TransitionSeconds
+	}
+
+	err := m.haClient.CallService("hue", "hue_activate_scene", serviceData)
+	if err != nil {
+		m.logger.Error("Failed to activate scene",
+			zap.String("room", room.HueGroup),
+			zap.String("scene", dayPhase),
+			zap.Error(err))
+		return
+	}
+
+	m.logger.Info("Scene activated successfully",
+		zap.String("room", room.HueGroup),
+		zap.String("scene", dayPhase))
+}
+
+// turnOffRoom turns off lights in a room
+func (m *Manager) turnOffRoom(room *RoomConfig) {
+	if m.readOnly {
+		m.logger.Info("READ ONLY MODE: Would turn off room",
+			zap.String("room", room.HueGroup),
+			zap.String("area_id", room.HASSAreaID))
+		return
+	}
+
+	m.logger.Info("Turning off room",
+		zap.String("room", room.HueGroup),
+		zap.String("area_id", room.HASSAreaID))
+
+	// Use light.turn_off with area_id
+	serviceData := map[string]interface{}{
+		"area_id": room.HASSAreaID,
+	}
+
+	// Add transition if specified
+	if room.TransitionSeconds != nil {
+		serviceData["transition"] = *room.TransitionSeconds
+	}
+
+	err := m.haClient.CallService("light", "turn_off", serviceData)
+	if err != nil {
+		m.logger.Error("Failed to turn off room",
+			zap.String("room", room.HueGroup),
+			zap.String("area_id", room.HASSAreaID),
+			zap.Error(err))
+		return
+	}
+
+	m.logger.Info("Room turned off successfully",
+		zap.String("room", room.HueGroup))
+}

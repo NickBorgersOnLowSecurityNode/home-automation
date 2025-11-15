@@ -1,0 +1,412 @@
+package lighting
+
+import (
+	"testing"
+
+	"homeautomation/internal/ha"
+	"homeautomation/internal/state"
+
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+)
+
+// createTestConfig creates a test hue configuration
+// Note: Only using state variables that exist in the state manager
+func createTestConfig() *HueConfig {
+	transition30 := 30
+	transition180 := 180
+
+	return &HueConfig{
+		Rooms: []RoomConfig{
+			{
+				HueGroup:                  "Living Room",
+				HASSAreaID:                "living_room_2",
+				OnIfTrue:                  "isAnyoneHome",
+				OnIfFalse:                 "isTVPlaying",
+				OffIfTrue:                 "isEveryoneAsleep",
+				OffIfFalse:                "isAnyoneHome",
+				IncreaseBrightnessIfTrue:  "isHaveGuests",
+				TransitionSeconds:         &transition30,
+			},
+			{
+				HueGroup:                  "Primary Suite",
+				HASSAreaID:                "master_bedroom",
+				OnIfTrue:                  nil,
+				OnIfFalse:                 "isMasterAsleep",
+				OffIfTrue:                 "isMasterAsleep",
+				OffIfFalse:                "isNickHome",
+				IncreaseBrightnessIfTrue:  nil,
+				TransitionSeconds:         &transition180,
+			},
+		},
+	}
+}
+
+func TestNewManager(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	manager := NewManager(mockClient, stateManager, config, logger, false)
+
+	assert.NotNil(t, manager)
+	assert.Equal(t, mockClient, manager.haClient)
+	assert.Equal(t, stateManager, manager.stateManager)
+	assert.Equal(t, config, manager.config)
+	assert.False(t, manager.readOnly)
+}
+
+func TestEvaluateCondition(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false)
+
+	// Set test conditions
+	err := stateManager.SetBool("isAnyoneHome", true)
+	assert.NoError(t, err)
+
+	err = stateManager.SetBool("isEveryoneAsleep", false)
+	assert.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		condition string
+		expected  bool
+	}{
+		{"Empty condition", "", false},
+		{"True condition", "isAnyoneHome", true},
+		{"False condition", "isEveryoneAsleep", false},
+		{"Nonexistent condition", "nonexistent", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := manager.evaluateCondition(tt.condition)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestEvaluateOnConditions(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false)
+
+
+	tests := []struct {
+		name           string
+		setupState     func()
+		roomIndex      int
+		expectedResult bool
+	}{
+		{
+			name: "Living room - on_if_true is true",
+			setupState: func() {
+				_ = stateManager.SetBool("isAnyoneHome", true)
+				_ = stateManager.SetBool("isTVPlaying", true)
+			},
+			roomIndex:      0,
+			expectedResult: true,
+		},
+		{
+			name: "Living room - on_if_false is false",
+			setupState: func() {
+				_ = stateManager.SetBool("isAnyoneHome", false)
+				_ = stateManager.SetBool("isTVPlaying", false)
+			},
+			roomIndex:      0,
+			expectedResult: true,
+		},
+		{
+			name: "Living room - neither condition met",
+			setupState: func() {
+				_ = stateManager.SetBool("isAnyoneHome", false)
+				_ = stateManager.SetBool("isTVPlaying", true)
+			},
+			roomIndex:      0,
+			expectedResult: false,
+		},
+		{
+			name: "Primary suite - on_if_false is false",
+			setupState: func() {
+				_ = stateManager.SetBool("isMasterAsleep", false)
+			},
+			roomIndex:      1,
+			expectedResult: true,
+		},
+		{
+			name: "Primary suite - on_if_false is true",
+			setupState: func() {
+				_ = stateManager.SetBool("isMasterAsleep", true)
+			},
+			roomIndex:      1,
+			expectedResult: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setupState()
+			room := &config.Rooms[tt.roomIndex]
+			result := manager.evaluateOnConditions(room)
+			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
+func TestEvaluateOffConditions(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false)
+
+
+	tests := []struct {
+		name           string
+		setupState     func()
+		roomIndex      int
+		expectedResult bool
+	}{
+		{
+			name: "Living room - off_if_true is true",
+			setupState: func() {
+				_ = stateManager.SetBool("isEveryoneAsleep", true)
+				_ = stateManager.SetBool("isAnyoneHome", true)
+			},
+			roomIndex:      0,
+			expectedResult: true,
+		},
+		{
+			name: "Living room - off_if_false is false",
+			setupState: func() {
+				_ = stateManager.SetBool("isEveryoneAsleep", false)
+				_ = stateManager.SetBool("isAnyoneHome", false)
+			},
+			roomIndex:      0,
+			expectedResult: true,
+		},
+		{
+			name: "Living room - neither condition met",
+			setupState: func() {
+				_ = stateManager.SetBool("isEveryoneAsleep", false)
+				_ = stateManager.SetBool("isAnyoneHome", true)
+			},
+			roomIndex:      0,
+			expectedResult: false,
+		},
+		{
+			name: "Primary suite - off_if_true is true",
+			setupState: func() {
+				_ = stateManager.SetBool("isMasterAsleep", true)
+			},
+			roomIndex:      1,
+			expectedResult: true,
+		},
+		{
+			name: "Primary suite - off_if_true is false, off_if_false is false",
+			setupState: func() {
+				_ = stateManager.SetBool("isMasterAsleep", false)
+				_ = stateManager.SetBool("isNickHome", false)
+			},
+			roomIndex:      1,
+			expectedResult: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setupState()
+			room := &config.Rooms[tt.roomIndex]
+			result := manager.evaluateOffConditions(room)
+			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
+func TestActivateSceneReadOnly(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, true) // Read-only mode
+
+	room := &config.Rooms[0]
+	dayPhase := "Morning"
+
+	// Should not call service in read-only mode
+	manager.activateScene(room, dayPhase)
+
+	// Verify no service calls were made
+	calls := mockClient.GetServiceCalls()
+	assert.Equal(t, 0, len(calls))
+}
+
+func TestActivateScene(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false) // Not read-only
+
+	room := &config.Rooms[0]
+	dayPhase := "Morning"
+
+	manager.activateScene(room, dayPhase)
+
+	// Verify service call was made
+	calls := mockClient.GetServiceCalls()
+	assert.Equal(t, 1, len(calls))
+
+	call := calls[0]
+	assert.Equal(t, "hue", call.Domain)
+	assert.Equal(t, "hue_activate_scene", call.Service)
+	assert.Equal(t, "Living Room", call.Data["group_name"])
+	assert.Equal(t, "Morning", call.Data["scene_name"])
+	assert.Equal(t, 30, call.Data["transition"])
+}
+
+func TestTurnOffRoomReadOnly(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, true) // Read-only mode
+
+	room := &config.Rooms[0]
+
+	// Should not call service in read-only mode
+	manager.turnOffRoom(room)
+
+	// Verify no service calls were made
+	calls := mockClient.GetServiceCalls()
+	assert.Equal(t, 0, len(calls))
+}
+
+func TestTurnOffRoom(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false) // Not read-only
+
+	room := &config.Rooms[0]
+
+	manager.turnOffRoom(room)
+
+	// Verify service call was made
+	calls := mockClient.GetServiceCalls()
+	assert.Equal(t, 1, len(calls))
+
+	call := calls[0]
+	assert.Equal(t, "light", call.Domain)
+	assert.Equal(t, "turn_off", call.Service)
+	assert.Equal(t, "living_room_2", call.Data["area_id"])
+	assert.Equal(t, 30, call.Data["transition"])
+}
+
+func TestEvaluateAndActivateRoom(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false)
+
+
+	tests := []struct {
+		name              string
+		setupState        func()
+		roomIndex         int
+		dayPhase          string
+		expectedService   string
+		expectedDomain    string
+		shouldCallService bool
+	}{
+		{
+			name: "Room should turn off",
+			setupState: func() {
+				_ = stateManager.SetBool("isEveryoneAsleep", true)
+			},
+			roomIndex:         0,
+			dayPhase:          "Night",
+			expectedService:   "turn_off",
+			expectedDomain:    "light",
+			shouldCallService: true,
+		},
+		{
+			name: "Room should turn on with scene",
+			setupState: func() {
+				_ = stateManager.SetBool("isEveryoneAsleep", false)
+				_ = stateManager.SetBool("isAnyoneHome", true)
+			},
+			roomIndex:         0,
+			dayPhase:          "Morning",
+			expectedService:   "hue_activate_scene",
+			expectedDomain:    "hue",
+			shouldCallService: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset mock client
+			mockClient.ClearServiceCalls()
+
+			tt.setupState()
+			room := &config.Rooms[tt.roomIndex]
+			manager.evaluateAndActivateRoom(room, tt.dayPhase)
+
+			calls := mockClient.GetServiceCalls()
+			if tt.shouldCallService {
+				assert.GreaterOrEqual(t, len(calls), 1, "Expected at least one service call")
+				// Find the expected call
+				found := false
+				for _, call := range calls {
+					if call.Domain == tt.expectedDomain && call.Service == tt.expectedService {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Expected to find %s.%s call", tt.expectedDomain, tt.expectedService)
+			} else {
+				assert.Equal(t, 0, len(calls))
+			}
+		})
+	}
+}
+
+func TestStart(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false)
+
+	// Start manager
+	err := manager.Start()
+	assert.NoError(t, err)
+
+	// Verify subscriptions were created
+	// The state manager should have subscriptions for all the lighting-related states
+	// We can verify this by triggering a state change and checking if the handler is called
+
+	// Set initial state
+	err = stateManager.SetString("dayPhase", "Morning")
+	assert.NoError(t, err)
+
+	err = stateManager.SetBool("isAnyoneHome", true)
+	assert.NoError(t, err)
+
+	// Change day phase - this should trigger scene activation
+	err = stateManager.SetString("dayPhase", "Day")
+	assert.NoError(t, err)
+
+	// Verify that scenes were activated (service calls were made)
+	calls := mockClient.GetServiceCalls()
+	assert.Greater(t, len(calls), 0, "Expected service calls after day phase change")
+}
