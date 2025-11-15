@@ -161,6 +161,63 @@ func main() {
 }
 ```
 
+## Docker
+
+The application can be run in Docker for easy deployment and isolation.
+
+### Quick Start with Docker
+
+**Build the image:**
+```bash
+# From repository root
+make docker-build-go
+
+# Or directly
+docker build -t homeautomation:latest ./homeautomation-go/
+```
+
+**Run the container:**
+```bash
+# Make sure you have .env file configured first
+make docker-run-go
+
+# Or directly
+docker run --rm -it --env-file homeautomation-go/.env homeautomation:latest
+```
+
+### Pull from GitHub Container Registry
+
+Pre-built images are automatically published to GHCR:
+
+```bash
+# Pull latest version
+docker pull ghcr.io/nickborgersonlowsecuritynode/home-automation:latest
+
+# Run from GHCR
+docker run --rm -it --env-file .env ghcr.io/nickborgersonlowsecuritynode/home-automation:latest
+```
+
+### Docker Compose Example
+
+```yaml
+version: '3.8'
+services:
+  homeautomation:
+    image: ghcr.io/nickborgersonlowsecuritynode/home-automation:latest
+    container_name: homeautomation
+    restart: unless-stopped
+    env_file:
+      - .env
+```
+
+### Makefile Commands
+
+- `make docker-build-go` - Build Docker image
+- `make docker-run-go` - Build and run container
+- `make docker-push-go` - Push to GHCR
+
+For detailed Docker documentation, see [DOCKER.md](./DOCKER.md).
+
 ## Testing
 
 ### Run all tests:

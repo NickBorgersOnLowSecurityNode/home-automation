@@ -83,3 +83,44 @@ run-spotify-validation-music: build-config-tester
 
 build-config-tester:
 	docker build -t node-red-config-tester ./config-test/
+
+# ============================================================================
+# Go Application (homeautomation-go) Targets
+# ============================================================================
+
+#build-go: @ Build the Go application binary
+build-go:
+	cd homeautomation-go && go build -o homeautomation ./cmd/main.go
+
+#test-go: @ Run Go tests with race detection and coverage
+test-go:
+	cd homeautomation-go && go test ./... -race -v -coverprofile=coverage.out
+	cd homeautomation-go && go tool cover -func=coverage.out | grep total
+
+#docker-build-go: @ Build Docker image for the Go application
+docker-build-go:
+	docker build -t homeautomation:latest ./homeautomation-go/
+
+#docker-run-go: @ Run the Go application in Docker (requires .env file)
+docker-run-go: docker-build-go
+	@if [ ! -f homeautomation-go/.env ]; then \
+		echo "ERROR: homeautomation-go/.env file not found. Copy .env.example and configure it."; \
+		exit 1; \
+	fi
+	docker run --rm -it \
+		--name homeautomation \
+		--env-file homeautomation-go/.env \
+		homeautomation:latest
+
+#docker-push-go: @ Push Go application image to GitHub Container Registry
+docker-push-go: docker-build-go
+	@echo "Tagging image for GHCR..."
+	docker tag homeautomation:latest ghcr.io/nickborgersonlowsecuritynode/home-automation:latest
+	@echo "Pushing to ghcr.io/nickborgersonlowsecuritynode/home-automation:latest"
+	@echo "Note: You may need to authenticate first with: echo \$$GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin"
+	docker push ghcr.io/nickborgersonlowsecuritynode/home-automation:latest
+
+#clean-go: @ Clean Go build artifacts
+clean-go:
+	rm -f homeautomation-go/homeautomation
+	rm -f homeautomation-go/coverage.out

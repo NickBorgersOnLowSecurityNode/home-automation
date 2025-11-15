@@ -1,0 +1,31 @@
+# Git files
+.git
+.gitignore
+
+# Environment files (secrets should never be in the image)
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+homeautomation
+*.exe
+*.so
+*.dylib
+
+# Test files
+*_test.go
+coverage.out
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+
+# Documentation (unless needed at runtime)
+README.md
+*.md
+
+# CI/CD
+.github
