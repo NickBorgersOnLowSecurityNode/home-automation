@@ -2,9 +2,19 @@ name: PR Tests
 
 on:
   pull_request:
-    branches: [ '*' ]
+    branches:
+      - main
+      - master
+      - '**'
   push:
-    branches: [ '*' ]
+    branches:
+      - main
+      - master
+      - 'claude/**'
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   go-tests:
