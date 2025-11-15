@@ -15,7 +15,18 @@ This repository contains a home automation system that is migrating from Node-RE
 │   │   ├── pr-tests.yml        # PR test requirements (NEW)
 │   │   ├── docker-build-push.yml # Docker build + tests
 │   │   └── [other workflows]
-│   └── BRANCH_PROTECTION.md    # PR requirements guide (NEW)
+├── docs/
+│   ├── architecture/           # Architecture documentation
+│   │   ├── IMPLEMENTATION_PLAN.md
+│   │   └── GOLANG_DESIGN.md
+│   ├── development/            # Development guides
+│   │   ├── BRANCH_PROTECTION.md
+│   │   └── CONCURRENCY_LESSONS.md
+│   ├── migration/              # Migration documentation
+│   │   └── migration_mapping.md
+│   ├── deployment/             # Deployment guides
+│   │   └── DOCKER.md
+│   └── REVIEW.md               # Code review notes
 ├── homeautomation-go/          # Golang implementation
 │   ├── cmd/main.go             # Demo application
 │   ├── internal/ha/            # Home Assistant WebSocket client
@@ -23,10 +34,8 @@ This repository contains a home automation system that is migrating from Node-RE
 │   ├── test/integration/       # Integration test suite
 │   ├── go.mod                  # Go module definition
 │   └── README.md               # Go project documentation
-├── IMPLEMENTATION_PLAN.md      # Architecture and design decisions
-├── HA_SYNC_README.md          # HA synchronization documentation
-├── CONCURRENCY_LESSONS.md     # Concurrency patterns and lessons learned
-├── AGENTS.md                   # This file
+├── CLAUDE.md                   # Claude Code project instructions
+├── AGENTS.md                   # This file - development guide
 └── [Node-RED files]           # Legacy implementation
 
 ```
@@ -34,12 +43,12 @@ This repository contains a home automation system that is migrating from Node-RE
 ## Key Documentation
 
 ### Required Reading
-1. **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** - Complete architecture, design decisions, and migration strategy
+1. **[docs/architecture/IMPLEMENTATION_PLAN.md](./docs/architecture/IMPLEMENTATION_PLAN.md)** - Complete architecture, design decisions, and migration strategy
 2. **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation user guide
 3. **[HA_SYNC_README.md](./HA_SYNC_README.md)** - Home Assistant synchronization details
 4. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide
-5. **[CONCURRENCY_LESSONS.md](./CONCURRENCY_LESSONS.md)** - Concurrency patterns and lessons learned
-6. **[.github/BRANCH_PROTECTION.md](./.github/BRANCH_PROTECTION.md)** - PR requirements and branch protection setup (NEW)
+5. **[docs/development/CONCURRENCY_LESSONS.md](./docs/development/CONCURRENCY_LESSONS.md)** - Concurrency patterns and lessons learned
+6. **[docs/development/BRANCH_PROTECTION.md](./docs/development/BRANCH_PROTECTION.md)** - PR requirements and branch protection setup (NEW)
 
 ### External Documentation
 - [Go Documentation](https://go.dev/doc/)
@@ -66,7 +75,7 @@ This command runs:
 
 ---
 
-### Update IMPLEMENTATION_PLAN.md
+### Update docs/architecture/IMPLEMENTATION_PLAN.md
 As you complete tasks, update the implementation plan with progress, and add additional work items as additional problems to solve are identified.
 
 ### Go Code Standards
@@ -289,7 +298,7 @@ cd homeautomation-go && go build ./... && go test ./... && echo "✅ Ready to pu
 
 ## Critical Bugs Found by Integration Tests
 
-The integration test suite discovered and helped fix production-critical bugs. See [CONCURRENCY_LESSONS.md](./CONCURRENCY_LESSONS.md) for concurrency patterns and lessons learned.
+The integration test suite discovered and helped fix production-critical bugs. See [docs/development/CONCURRENCY_LESSONS.md](./docs/development/CONCURRENCY_LESSONS.md) for concurrency patterns and lessons learned.
 
 ### Fixed Bugs ✅
 1. **Concurrent WebSocket Writes** - Would cause panics under load
@@ -506,7 +515,7 @@ dlv debug ./cmd/main.go         # Debug with delve (if installed)
 - **Do not add new features to Node-RED**
 
 ### Migration Strategy
-See IMPLEMENTATION_PLAN.md for complete migration roadmap.
+See docs/architecture/IMPLEMENTATION_PLAN.md for complete migration roadmap.
 
 **Current Phase**: MVP Complete + Integration Testing ✅
 - Go implementation is ready for parallel testing
@@ -525,11 +534,11 @@ See IMPLEMENTATION_PLAN.md for complete migration roadmap.
 ## Getting Help
 
 ### Internal Resources
-- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) - Architecture decisions
+- [docs/architecture/IMPLEMENTATION_PLAN.md](./docs/architecture/IMPLEMENTATION_PLAN.md) - Architecture decisions
 - [homeautomation-go/README.md](./homeautomation-go/README.md) - User guide
 - [HA_SYNC_README.md](./HA_SYNC_README.md) - Sync details
 - [test/integration/README.md](./homeautomation-go/test/integration/README.md) - Integration testing
-- [CONCURRENCY_LESSONS.md](./CONCURRENCY_LESSONS.md) - Concurrency patterns and lessons
+- [docs/development/CONCURRENCY_LESSONS.md](./docs/development/CONCURRENCY_LESSONS.md) - Concurrency patterns and lessons
 
 ### External Resources
 - [Go Documentation](https://go.dev/doc/)
@@ -539,7 +548,7 @@ See IMPLEMENTATION_PLAN.md for complete migration roadmap.
 ### Common Questions
 
 **Q: Why Go instead of Node-RED?**
-A: Type safety, better testing, easier maintenance, no NPM dependency hell. See IMPLEMENTATION_PLAN.md.
+A: Type safety, better testing, easier maintenance, no NPM dependency hell. See docs/architecture/IMPLEMENTATION_PLAN.md.
 
 **Q: Can I run both implementations simultaneously?**
 A: Yes! Use READ_ONLY=true in Go implementation to safely run in parallel.

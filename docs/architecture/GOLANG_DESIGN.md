@@ -161,7 +161,7 @@ type StateManager interface {
 ```
 
 **State Variables (33 total):**
-- See `migration_mapping.md` for complete list
+- See `../migration/migration_mapping.md` for complete list
 - Boolean: 18 variables (presence, sleep states, device states)
 - Number: 3 variables (alarm time, solar generation)
 - Text: 6 variables (day phase, energy levels, music mode)
@@ -712,7 +712,7 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **State Variable Mapping:**
 
-See `migration_mapping.md` for complete mapping. Summary:
+See `../migration/migration_mapping.md` for complete mapping. Summary:
 
 | Category | Count | Examples |
 |----------|-------|----------|
@@ -1272,7 +1272,7 @@ require (
 
 ### A. State Variable Reference
 
-See `migration_mapping.md` for complete mapping of all 33 variables.
+See `../migration/migration_mapping.md` for complete mapping of all 33 variables.
 
 ### B. Config File Schemas
 
@@ -1609,11 +1609,11 @@ This design was created by analyzing the following resources from the existing N
 
 ### Primary Documentation
 
-1. **migration_mapping.md**
+1. **docs/migration/migration_mapping.md**
    - Complete mapping of 33 state variables from Node-RED to Home Assistant
    - Entity types, names, and data structures
    - Classification of active vs. disabled flow variables
-   - Location: `/Users/nborgers/code/node-red/migration_mapping.md`
+   - Location: Repository root in docs/migration/ folder
 
 2. **HA_SYNC_README.md**
    - Documentation of current bidirectional sync between Node-RED and HA
@@ -1711,7 +1711,7 @@ You can access the running Node Red with your MCP server at: https://node-red.fe
 **For Implementation Details:**
 1. Start with the screenshot for the flow you're implementing
 2. Cross-reference with flows.json for exact node configurations
-3. Check migration_mapping.md for state variables used
+3. Check docs/migration/migration_mapping.md for state variables used
 4. Review config YAMLs for data structures
 5. Test against live Node-RED instance for behavior verification
 
