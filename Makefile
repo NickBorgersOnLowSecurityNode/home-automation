@@ -124,3 +124,24 @@ docker-push-go: docker-build-go
 clean-go:
 	rm -f homeautomation-go/homeautomation
 	rm -f homeautomation-go/coverage.out
+
+#pre-commit: @ Run all pre-commit checks (format, lint, build, tests)
+pre-commit:
+	@echo "🔍 Running pre-commit checks..."
+	@echo "📝 Step 1/4: Formatting code..."
+	cd homeautomation-go && gofmt -w .
+	@echo "✅ Code formatted"
+	@echo ""
+	@echo "🔎 Step 2/4: Running static analysis (go vet)..."
+	cd homeautomation-go && go vet ./...
+	@echo "✅ Static analysis passed"
+	@echo ""
+	@echo "🔨 Step 3/4: Building all packages..."
+	cd homeautomation-go && go build ./...
+	@echo "✅ Build successful"
+	@echo ""
+	@echo "🧪 Step 4/4: Running all tests with race detector..."
+	cd homeautomation-go && go test -race ./...
+	@echo "✅ All tests passed (including integration tests)"
+	@echo ""
+	@echo "🎉 All pre-commit checks passed! Ready to commit."

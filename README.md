@@ -117,3 +117,30 @@ This also includes the doorbell notification driven from Scrypted. And most rece
 
 ![Security](https://nickborgers.github.io/node-red/Security.png)
 
+## Contributing
+
+### Pull Request Requirements
+
+**All pull requests require passing tests before merge.** This repository uses automated CI/CD testing to ensure code quality.
+
+When you submit a PR:
+- ✅ GitHub Actions automatically runs tests
+- ✅ Go unit tests (with race detector)
+- ✅ Integration tests
+- ✅ Config validation (YAML files)
+- ✅ Coverage check (≥70%)
+
+**The PR merge button is blocked until all required tests pass.**
+
+For detailed information:
+- **[docs/development/BRANCH_PROTECTION.md](./docs/development/BRANCH_PROTECTION.md)** - Complete guide to PR requirements and branch protection
+- **[AGENTS.md](./AGENTS.md)** - Development standards and testing guide
+- **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation documentation
+
+### Golang Migration
+
+This repository is migrating from Node-RED to Golang for improved type safety, testability, and maintainability. The new Go implementation is in the `homeautomation-go/` directory.
+
+**Current Status**: MVP complete, running in parallel with Node-RED for validation
+
+See [AGENTS.md](./AGENTS.md) for complete development guide.

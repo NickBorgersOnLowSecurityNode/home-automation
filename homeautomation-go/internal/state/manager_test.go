@@ -1,6 +1,8 @@
 package state
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -250,13 +252,16 @@ func TestManager_Subscribe(t *testing.T) {
 	manager.SyncFromHA()
 
 	t.Run("state change notification", func(t *testing.T) {
-		changeCount := 0
+		var changeCount int32
+		var mu sync.Mutex
 		var receivedOld, receivedNew interface{}
 
 		sub, err := manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
-			changeCount++
+			atomic.AddInt32(&changeCount, 1)
+			mu.Lock()
 			receivedOld = oldValue
 			receivedNew = newValue
+			mu.Unlock()
 		})
 		require.NoError(t, err)
 		defer sub.Unsubscribe()
@@ -264,45 +269,47 @@ func TestManager_Subscribe(t *testing.T) {
 		// Simulate state change from HA
 		mockClient.SimulateStateChange("input_boolean.nick_home", "on")
 
-		assert.Equal(t, 1, changeCount)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&changeCount))
+		mu.Lock()
 		assert.Equal(t, false, receivedOld)
 		assert.Equal(t, true, receivedNew)
+		mu.Unlock()
 	})
 
 	t.Run("multiple subscribers", func(t *testing.T) {
-		count1, count2 := 0, 0
+		var count1, count2 int32
 
 		sub1, _ := manager.Subscribe("isCarolineHome", func(key string, oldValue, newValue interface{}) {
-			count1++
+			atomic.AddInt32(&count1, 1)
 		})
 		sub2, _ := manager.Subscribe("isCarolineHome", func(key string, oldValue, newValue interface{}) {
-			count2++
+			atomic.AddInt32(&count2, 1)
 		})
 
 		mockClient.SimulateStateChange("input_boolean.caroline_home", "on")
 
-		assert.Equal(t, 1, count1)
-		assert.Equal(t, 1, count2)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&count1))
+		assert.Equal(t, int32(1), atomic.LoadInt32(&count2))
 
 		sub1.Unsubscribe()
 		sub2.Unsubscribe()
 	})
 
 	t.Run("unsubscribe", func(t *testing.T) {
-		changeCount := 0
+		var changeCount int32
 
 		sub, err := manager.Subscribe("isToriHere", func(key string, oldValue, newValue interface{}) {
-			changeCount++
+			atomic.AddInt32(&changeCount, 1)
 		})
 		require.NoError(t, err)
 
 		mockClient.SimulateStateChange("input_boolean.tori_here", "on")
-		assert.Equal(t, 1, changeCount)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&changeCount))
 
 		sub.Unsubscribe()
 
 		mockClient.SimulateStateChange("input_boolean.tori_here", "off")
-		assert.Equal(t, 1, changeCount) // Should not increment
+		assert.Equal(t, int32(1), atomic.LoadInt32(&changeCount)) // Should not increment
 	})
 
 	t.Run("invalid key", func(t *testing.T) {

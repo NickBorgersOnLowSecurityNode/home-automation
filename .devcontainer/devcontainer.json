@@ -19,7 +19,7 @@
       ]
     }
   },
-  "postCreateCommand": "go mod tidy && go mod download && mkdir -p build",
+  "postCreateCommand": "cd homeautomation-go && go mod tidy && go mod download && cd .. && mkdir -p build && bash .githooks/install-hooks.sh",
   "forwardPorts": [],
   "portsAttributes": {},
   "mounts": [],

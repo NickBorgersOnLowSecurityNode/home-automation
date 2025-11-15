@@ -2,7 +2,7 @@
 
 A robust Golang client for managing Home Assistant state variables with type-safe operations, automatic synchronization, and real-time event subscriptions.
 
-> **Implementation Details**: This project was implemented based on the design documented in [../IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md), which outlines the architecture, design decisions, and migration strategy from the existing Node-RED implementation.
+> **Implementation Details**: This project was implemented based on the design documented in [../docs/architecture/IMPLEMENTATION_PLAN.md](../docs/architecture/IMPLEMENTATION_PLAN.md), which outlines the architecture, design decisions, and migration strategy from the existing Node-RED implementation.
 
 ## Features
 
@@ -44,7 +44,7 @@ The system manages 28 state variables across 3 types (27 synced with HA + 1 loca
 
 ## Prerequisites
 
-- Go 1.21 or higher
+- Go 1.23 or higher
 - Home Assistant instance with WebSocket API enabled
 - Long-lived access token from Home Assistant
 
@@ -216,7 +216,7 @@ services:
 - `make docker-run-go` - Build and run container
 - `make docker-push-go` - Push to GHCR
 
-For detailed Docker documentation, see [DOCKER.md](./DOCKER.md).
+For detailed Docker documentation, see [../docs/deployment/DOCKER.md](../docs/deployment/DOCKER.md).
 
 ## Testing
 
