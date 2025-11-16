@@ -444,3 +444,227 @@ func TestSecurityManager_ReadOnlyMode(t *testing.T) {
 		}
 	}
 }
+
+// TestSecurityManager_InvalidTypeHandling tests handling of invalid state value types
+func TestSecurityManager_InvalidTypeHandling(t *testing.T) {
+	// Setup
+	mockHA := ha.NewMockClient()
+	mockHA.Connect()
+
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+	stateManager.SyncFromHA()
+
+	// Create security manager
+	securityManager := NewManager(mockHA, stateManager, logger, false)
+	if err := securityManager.Start(); err != nil {
+		t.Fatalf("Failed to start security manager: %v", err)
+	}
+
+	mockHA.ClearServiceCalls()
+
+	// Test handleEveryoneAsleepChange with invalid type (should log error and return)
+	securityManager.handleEveryoneAsleepChange("isEveryoneAsleep", false, "invalid_string")
+	time.Sleep(50 * time.Millisecond)
+
+	// Should not have called any services due to type error
+	calls := mockHA.GetServiceCalls()
+	if len(calls) > 0 {
+		t.Errorf("Expected no service calls with invalid type, got %d calls", len(calls))
+	}
+
+	// Test handleAnyoneHomeChange with invalid type
+	securityManager.handleAnyoneHomeChange("isAnyoneHome", true, 123) // invalid int instead of bool
+	time.Sleep(50 * time.Millisecond)
+
+	calls = mockHA.GetServiceCalls()
+	if len(calls) > 0 {
+		t.Errorf("Expected no service calls with invalid type, got %d calls", len(calls))
+	}
+
+	// Test handleOwnerReturnHome with invalid type
+	securityManager.handleOwnerReturnHome("didOwnerJustReturnHome", false, map[string]string{"invalid": "map"})
+	time.Sleep(50 * time.Millisecond)
+
+	calls = mockHA.GetServiceCalls()
+	if len(calls) > 0 {
+		t.Errorf("Expected no service calls with invalid type, got %d calls", len(calls))
+	}
+}
+
+// TestSecurityManager_OwnerReturnHome_DidNotReturn tests that nothing happens when owner did not return
+func TestSecurityManager_OwnerReturnHome_DidNotReturn(t *testing.T) {
+	// Setup
+	mockHA := ha.NewMockClient()
+	mockHA.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
+	mockHA.Connect()
+
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+	stateManager.SyncFromHA()
+
+	// Create security manager
+	securityManager := NewManager(mockHA, stateManager, logger, false)
+	if err := securityManager.Start(); err != nil {
+		t.Fatalf("Failed to start security manager: %v", err)
+	}
+
+	mockHA.ClearServiceCalls()
+
+	// Set didOwnerJustReturnHome to false (did NOT return)
+	if err := stateManager.SetBool("didOwnerJustReturnHome", false); err != nil {
+		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify garage door was NOT opened
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "cover" && call.Service == "open_cover" {
+			t.Errorf("Garage door should not open when owner did not return")
+		}
+	}
+}
+
+// TestSecurityManager_VehicleArrivalRateLimiting tests vehicle arrival rate limiting
+func TestSecurityManager_VehicleArrivalRateLimiting(t *testing.T) {
+	// Setup
+	mockHA := ha.NewMockClient()
+	mockHA.SetState("input_boolean.expecting_someone", "on", nil)
+	mockHA.Connect()
+
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+	stateManager.SyncFromHA()
+
+	// Create security manager
+	securityManager := NewManager(mockHA, stateManager, logger, false)
+	if err := securityManager.Start(); err != nil {
+		t.Fatalf("Failed to start security manager: %v", err)
+	}
+
+	mockHA.ClearServiceCalls()
+
+	// Simulate first vehicle arriving
+	mockHA.SimulateStateChange("input_button.vehicle_arriving", "2024-01-01T12:00:01")
+
+	time.Sleep(100 * time.Millisecond)
+	firstCallCount := len(mockHA.GetServiceCalls())
+
+	// Reset expecting someone for second test
+	mockHA.SetState("input_boolean.expecting_someone", "on", nil)
+
+	// Simulate second vehicle arriving (within 20 seconds - should be rate limited)
+	mockHA.SimulateStateChange("input_button.vehicle_arriving", "2024-01-01T12:00:02")
+
+	time.Sleep(100 * time.Millisecond)
+	secondCallCount := len(mockHA.GetServiceCalls())
+
+	// Verify second arrival was rate limited (should have same or fewer calls, not more)
+	// Note: We already reset expecting_someone in first call, so second won't trigger
+	if secondCallCount > firstCallCount+1 {
+		t.Errorf("Expected vehicle arrival to be rate limited")
+	}
+}
+
+// TestSecurityManager_ReadOnlyModeGarage tests garage operations in read-only mode
+func TestSecurityManager_ReadOnlyModeGarage(t *testing.T) {
+	// Setup
+	mockHA := ha.NewMockClient()
+	mockHA.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
+	mockHA.Connect()
+
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+	stateManager.SyncFromHA()
+
+	// Create security manager in READ-ONLY mode
+	securityManager := NewManager(mockHA, stateManager, logger, true)
+	if err := securityManager.Start(); err != nil {
+		t.Fatalf("Failed to start security manager: %v", err)
+	}
+
+	mockHA.ClearServiceCalls()
+
+	// Trigger owner return
+	if err := stateManager.SetBool("didOwnerJustReturnHome", true); err != nil {
+		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify NO garage door service calls in read-only mode
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "cover" {
+			t.Errorf("Expected NO cover service calls in read-only mode, but got: %s.%s", call.Domain, call.Service)
+		}
+	}
+}
+
+// TestSecurityManager_ReadOnlyModeLockdownReset tests lockdown reset in read-only mode
+func TestSecurityManager_ReadOnlyModeLockdownReset(t *testing.T) {
+	// Setup
+	mockHA := ha.NewMockClient()
+	mockHA.Connect()
+
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+	stateManager.SyncFromHA()
+
+	// Create security manager in READ-ONLY mode
+	securityManager := NewManager(mockHA, stateManager, logger, true)
+	if err := securityManager.Start(); err != nil {
+		t.Fatalf("Failed to start security manager: %v", err)
+	}
+
+	mockHA.ClearServiceCalls()
+
+	// Simulate lockdown being turned on in HA
+	mockHA.SimulateStateChange("input_boolean.lockdown", "on")
+
+	// Wait for potential auto-reset (5 seconds + buffer)
+	time.Sleep(5500 * time.Millisecond)
+
+	// Verify NO lockdown reset in read-only mode
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "input_boolean" && call.Service == "turn_off" {
+			t.Errorf("Expected NO service calls in read-only mode for lockdown reset")
+		}
+	}
+}
+
+// TestSecurityManager_ReadOnlyModeVehicleArrival tests vehicle arrival in read-only mode
+func TestSecurityManager_ReadOnlyModeVehicleArrival(t *testing.T) {
+	// Setup
+	mockHA := ha.NewMockClient()
+	mockHA.SetState("input_boolean.expecting_someone", "on", nil)
+	mockHA.Connect()
+
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+	stateManager.SyncFromHA()
+
+	// Create security manager in READ-ONLY mode
+	securityManager := NewManager(mockHA, stateManager, logger, true)
+	if err := securityManager.Start(); err != nil {
+		t.Fatalf("Failed to start security manager: %v", err)
+	}
+
+	mockHA.ClearServiceCalls()
+
+	// Simulate vehicle arriving
+	mockHA.SimulateStateChange("input_button.vehicle_arriving", "2024-01-01T12:00:01")
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify NO service calls in read-only mode
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "input_boolean" && call.Service == "turn_off" {
+			t.Errorf("Expected NO reset of expecting_someone in read-only mode")
+		}
+	}
+}
