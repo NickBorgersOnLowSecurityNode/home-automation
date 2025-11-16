@@ -536,7 +536,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_NoGuests(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(stateMgr, logger)
+	manager := NewManager(mockHA, stateMgr, logger, false)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -593,7 +593,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_WithGuests(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(stateMgr, logger)
+	manager := NewManager(mockHA, stateMgr, logger, false)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -640,7 +640,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_GuestsLeave(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(stateMgr, logger)
+	manager := NewManager(mockHA, stateMgr, logger, false)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -688,7 +688,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_InitialSync(t *testing.T) {
 	}
 
 	// Create and start manager - should auto-sync immediately
-	manager := NewManager(stateMgr, logger)
+	manager := NewManager(mockHA, stateMgr, logger, false)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
