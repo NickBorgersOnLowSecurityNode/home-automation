@@ -22,9 +22,9 @@ type Manager struct {
 	readOnly     bool
 
 	// Control channels
-	stopChan     chan struct{}
-	stoppedChan  chan struct{}
-	sunStopChan  chan struct{}
+	stopChan    chan struct{}
+	stoppedChan chan struct{}
+	sunStopChan chan struct{}
 
 	// Subscriptions for cleanup
 	subscriptions []state.Subscription
