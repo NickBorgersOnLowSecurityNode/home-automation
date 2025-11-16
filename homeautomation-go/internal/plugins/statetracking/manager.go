@@ -367,9 +367,9 @@ func (m *Manager) announceArrival(person, message string, mediaPlayers []string)
 		zap.Strings("media_players", mediaPlayers))
 
 	err = m.haClient.CallService("tts", "speak", map[string]interface{}{
-		"entity_id":             "tts.google_translate_en_com",
-		"message":               message,
-		"cache":                 true,
+		"entity_id":              "tts.google_translate_en_com",
+		"message":                message,
+		"cache":                  true,
 		"media_player_entity_id": mediaPlayers,
 	})
 
