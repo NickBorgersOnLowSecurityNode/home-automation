@@ -138,11 +138,11 @@ check-coverage:
 	  fi && \
 	  echo "✅ Test coverage $${coverage}% meets requirement"
 
-#pre-commit: @ Run all pre-commit checks (style, format, lint, build, tests)
+#pre-commit: @ Run fast pre-commit checks (style, format, lint, build)
 pre-commit:
-	@echo "🔍 Running pre-commit checks..."
+	@echo "🔍 Running pre-commit checks (fast mode)..."
 	@echo ""
-	@echo "📝 Step 1/8: Checking gofmt formatting..."
+	@echo "📝 Step 1/5: Checking gofmt formatting..."
 	@cd homeautomation-go && \
 	  unformatted=$$(gofmt -l .) && \
 	  if [ -n "$$unformatted" ]; then \
@@ -154,7 +154,7 @@ pre-commit:
 	  fi
 	@echo "✅ gofmt formatting check passed"
 	@echo ""
-	@echo "📦 Step 2/8: Checking goimports formatting..."
+	@echo "📦 Step 2/5: Checking goimports formatting..."
 	@cd homeautomation-go && \
 	  if ! command -v goimports >/dev/null 2>&1; then \
 	    echo "⚠️  goimports not installed. Installing..."; \
@@ -171,11 +171,11 @@ pre-commit:
 	  fi
 	@echo "✅ goimports formatting check passed"
 	@echo ""
-	@echo "🔎 Step 3/8: Running go vet static analysis..."
+	@echo "🔎 Step 3/5: Running go vet static analysis..."
 	@cd homeautomation-go && go vet ./...
 	@echo "✅ go vet passed"
 	@echo ""
-	@echo "🔬 Step 4/8: Running staticcheck linting..."
+	@echo "🔬 Step 4/5: Running staticcheck linting..."
 	@cd homeautomation-go && \
 	  if ! command -v staticcheck >/dev/null 2>&1; then \
 	    echo "⚠️  staticcheck not installed. Installing..."; \
@@ -185,31 +185,15 @@ pre-commit:
 	  $$STATICCHECK ./...
 	@echo "✅ staticcheck passed"
 	@echo ""
-	@echo "🔨 Step 5/8: Building all packages..."
+	@echo "🔨 Step 5/5: Building all packages..."
 	@cd homeautomation-go && go build ./...
 	@echo "✅ Build successful"
 	@echo ""
-	@echo "🧪 Step 6/8: Running all tests..."
-	@cd homeautomation-go && go test ./...
-	@echo "✅ All tests passed"
-	@echo ""
-	@echo "🏁 Step 7/8: Running tests with race detector..."
-	@cd homeautomation-go && go test -race ./...
-	@echo "✅ Race detector passed (including integration tests)"
-	@echo ""
-	@echo "📊 Step 8/8: Checking test coverage (≥70%)..."
-	@cd homeautomation-go && \
-	  go test ./... -coverprofile=coverage.out -covermode=atomic > /dev/null 2>&1 && \
-	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
-	  echo "Total coverage: $${coverage}%" && \
-	  if [ "$$(echo "$$coverage < 70" | bc -l)" = "1" ]; then \
-	    echo "❌ ERROR: Test coverage $${coverage}% is below required 70%"; \
-	    exit 1; \
-	  fi && \
-	  echo "✅ Test coverage $${coverage}% meets requirement"
-	@echo ""
 	@echo "════════════════════════════════════════════════════════════════════"
-	@echo "🎉 All pre-commit checks passed! Your code is ready to commit."
+	@echo "🎉 Pre-commit checks passed!"
+	@echo ""
+	@echo "ℹ️  Note: Full test suite (tests, race detector, coverage) will run"
+	@echo "   automatically on git push via the pre-push hook."
 	@echo "════════════════════════════════════════════════════════════════════"
 
 #format-go: @ Format Go code with gofmt and goimports
