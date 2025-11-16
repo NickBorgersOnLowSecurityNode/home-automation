@@ -8,11 +8,13 @@ import (
 	"syscall"
 	"time"
 
+	"homeautomation/internal/config"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/loadshedding"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/music"
+	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/state"
 
 	"github.com/joho/godotenv"
@@ -40,6 +42,19 @@ func main() {
 	if haURL == "" || haToken == "" {
 		logger.Fatal("HA_URL and HA_TOKEN environment variables must be set")
 	}
+
+	// Load timezone (default to UTC if not set)
+	timezoneName := os.Getenv("TIMEZONE")
+	if timezoneName == "" {
+		timezoneName = "UTC"
+	}
+	timezone, err := time.LoadLocation(timezoneName)
+	if err != nil {
+		logger.Fatal("Failed to load timezone",
+			zap.String("timezone", timezoneName),
+			zap.Error(err))
+	}
+	logger.Info("Using timezone", zap.String("timezone", timezoneName))
 
 	// Determine config directory path
 	// Priority: CONFIG_DIR env var > ./configs (container) > ../configs (local dev)
@@ -84,7 +99,7 @@ func main() {
 	subscribeToChanges(stateManager, logger)
 
 	// Start Energy State Manager
-	energyManager, err := startEnergyManager(client, stateManager, logger, readOnly, configDir)
+	energyManager, err := startEnergyManager(client, stateManager, logger, readOnly, configDir, timezone)
 	if err != nil {
 		logger.Fatal("Failed to start Energy State Manager", zap.Error(err))
 	}
@@ -103,6 +118,13 @@ func main() {
 		logger.Fatal("Failed to start Lighting Manager", zap.Error(err))
 	}
 	defer lightingManager.Stop()
+
+	// Start Sleep Hygiene Manager
+	sleepHygieneManager, err := startSleepHygieneManager(client, stateManager, logger, readOnly, configDir)
+	if err != nil {
+		logger.Fatal("Failed to start Sleep Hygiene Manager", zap.Error(err))
+	}
+	defer sleepHygieneManager.Stop()
 
 	// Start Load Shedding controller
 	loadSheddingController := loadshedding.NewManager(stateManager, client, logger)
@@ -252,7 +274,7 @@ func demonstrateStateChanges(manager *state.Manager, logger *zap.Logger) {
 	logger.Info("===================================")
 }
 
-func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*energy.Manager, error) {
+func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, timezone *time.Location) (*energy.Manager, error) {
 	// Load energy configuration
 	configPath := filepath.Join(configDir, "energy_config.yaml")
 	energyConfig, err := energy.LoadConfig(configPath)
@@ -266,7 +288,7 @@ func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger 
 		zap.String("free_energy_end", energyConfig.Energy.FreeEnergyTime.End))
 
 	// Create and start energy manager
-	energyManager := energy.NewManager(client, stateManager, energyConfig, logger, readOnly)
+	energyManager := energy.NewManager(client, stateManager, energyConfig, logger, readOnly, timezone)
 	if err := energyManager.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start energy manager: %w", err)
 	}
@@ -315,4 +337,23 @@ func startLightingManager(client ha.HAClient, stateManager *state.Manager, logge
 
 	logger.Info("Lighting Manager started successfully")
 	return lightingManager, nil
+}
+
+func startSleepHygieneManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*sleephygiene.Manager, error) {
+	// Load schedule configuration
+	configLoader := config.NewLoader(configDir, logger)
+	if err := configLoader.LoadScheduleConfig(); err != nil {
+		return nil, fmt.Errorf("failed to load schedule config: %w", err)
+	}
+
+	logger.Info("Loaded schedule configuration for Sleep Hygiene")
+
+	// Create and start sleep hygiene manager
+	sleepHygieneManager := sleephygiene.NewManager(client, stateManager, configLoader, logger, readOnly, nil)
+	if err := sleepHygieneManager.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start sleep hygiene manager: %w", err)
+	}
+
+	logger.Info("Sleep Hygiene Manager started successfully")
+	return sleepHygieneManager, nil
 }

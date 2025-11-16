@@ -487,49 +487,85 @@ See `.env.example` for template.
 
 ### Required Tools
 ```bash
-# Install tools
+# Install tools (or run 'make pre-commit' which auto-installs them)
 go install golang.org/x/tools/cmd/goimports@latest
-go install golang.org/x/lint/golint@latest
 go install honnef.co/go/tools/cmd/staticcheck@latest
 
-# Run checks
+# Format code automatically
+make format-go
+# OR manually:
 gofmt -w .                      # Format code
 goimports -w .                  # Fix imports
+
+# Run linters
+make lint-go
+# OR manually:
 go vet ./...                    # Static analysis
-golint ./...                    # Linting
-staticcheck ./...               # Advanced static analysis
+staticcheck ./...               # Advanced linting
 ```
+
+**Note**: `golint` is deprecated. Use `staticcheck` for comprehensive linting.
 
 ### Pre-commit Checks
 
 **MANDATORY** before every commit. These checks mirror what CI/CD will run:
 
 ```bash
-# 1. Format code
-gofmt -w .
+# RECOMMENDED: Use the automated pre-commit hook
+make pre-commit
 
-# 2. Static analysis
-go vet ./...
+# This runs all the checks below automatically:
+# 1. gofmt formatting check
+# 2. goimports formatting check
+# 3. go vet static analysis
+# 4. staticcheck linting
+# 5. Build check (go build ./...)
+# 6. All tests (go test ./...)
+# 7. Race detector (go test -race ./...)
+```
 
-# 3. Ensure everything compiles (including tests!)
-go build ./...
+**Manual checks** (if you need to run them individually):
 
-# 4. Run ALL tests (this is what CI runs!)
-go test ./...
+```bash
+# Style and formatting
+cd homeautomation-go
+gofmt -l .                       # Check formatting (should return nothing)
+goimports -l .                   # Check imports (should return nothing)
+go vet ./...                     # Static analysis
+staticcheck ./...                # Advanced linting
 
-# 5. Run with race detector
-go test -race ./...
-
-# 6. Run integration tests explicitly (for visibility)
-go test -v -race ./test/integration/...
+# Build and tests
+go build ./...                   # Compile everything (including tests)
+go test ./...                    # Run all tests
+go test -race ./...              # Run with race detector
+go test -v -race ./test/integration/...  # Integration tests explicitly
 ```
 
 **If ANY of these fail, CI will fail. Fix locally first!**
 
-#### Quick Pre-Push Validation
+#### Quick Commands
+
 ```bash
+# Format code automatically:
+make format-go
+
+# Run linters only:
+make lint-go
+
+# Run all pre-commit checks:
+make pre-commit
+
 # One-liner to catch most issues:
 cd homeautomation-go && go build ./... && go test ./... && echo "✅ Ready to push"
+```
+
+#### Required Tools
+
+Install these tools if not already present (the Makefile will auto-install them):
+
+```bash
+go install golang.org/x/tools/cmd/goimports@latest
+go install honnef.co/go/tools/cmd/staticcheck@latest
 ```
 
 ## Critical Bugs Found by Integration Tests

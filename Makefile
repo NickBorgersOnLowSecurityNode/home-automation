@@ -125,23 +125,113 @@ clean-go:
 	rm -f homeautomation-go/homeautomation
 	rm -f homeautomation-go/coverage.out
 
-#pre-commit: @ Run all pre-commit checks (format, lint, build, tests)
+#check-coverage: @ Check that test coverage meets minimum requirement (≥70%)
+check-coverage:
+	@echo "📊 Checking test coverage..."
+	@cd homeautomation-go && \
+	  go test ./... -coverprofile=coverage.out -covermode=atomic > /dev/null 2>&1 && \
+	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
+	  echo "Total coverage: $${coverage}%" && \
+	  if [ "$$(echo "$$coverage < 70" | bc -l)" = "1" ]; then \
+	    echo "❌ ERROR: Test coverage $${coverage}% is below required 70%"; \
+	    exit 1; \
+	  fi && \
+	  echo "✅ Test coverage $${coverage}% meets requirement"
+
+#pre-commit: @ Run all pre-commit checks (style, format, lint, build, tests)
 pre-commit:
 	@echo "🔍 Running pre-commit checks..."
-	@echo "📝 Step 1/4: Formatting code..."
-	cd homeautomation-go && gofmt -w .
-	@echo "✅ Code formatted"
 	@echo ""
-	@echo "🔎 Step 2/4: Running static analysis (go vet)..."
-	cd homeautomation-go && go vet ./...
-	@echo "✅ Static analysis passed"
+	@echo "📝 Step 1/8: Checking gofmt formatting..."
+	@cd homeautomation-go && \
+	  unformatted=$$(gofmt -l .) && \
+	  if [ -n "$$unformatted" ]; then \
+	    echo "❌ ERROR: The following files are not formatted with gofmt:"; \
+	    echo "$$unformatted"; \
+	    echo ""; \
+	    echo "Run 'make format-go' or 'cd homeautomation-go && gofmt -w .' to fix"; \
+	    exit 1; \
+	  fi
+	@echo "✅ gofmt formatting check passed"
 	@echo ""
-	@echo "🔨 Step 3/4: Building all packages..."
-	cd homeautomation-go && go build ./...
+	@echo "📦 Step 2/8: Checking goimports formatting..."
+	@cd homeautomation-go && \
+	  if ! command -v goimports >/dev/null 2>&1; then \
+	    echo "⚠️  goimports not installed. Installing..."; \
+	    go install golang.org/x/tools/cmd/goimports@latest; \
+	  fi && \
+	  GOIMPORTS=$$(command -v goimports 2>/dev/null || echo "$(HOME)/go/bin/goimports") && \
+	  unformatted=$$($$GOIMPORTS -l .) && \
+	  if [ -n "$$unformatted" ]; then \
+	    echo "❌ ERROR: The following files have import formatting issues:"; \
+	    echo "$$unformatted"; \
+	    echo ""; \
+	    echo "Run 'cd homeautomation-go && goimports -w .' to fix"; \
+	    exit 1; \
+	  fi
+	@echo "✅ goimports formatting check passed"
+	@echo ""
+	@echo "🔎 Step 3/8: Running go vet static analysis..."
+	@cd homeautomation-go && go vet ./...
+	@echo "✅ go vet passed"
+	@echo ""
+	@echo "🔬 Step 4/8: Running staticcheck linting..."
+	@cd homeautomation-go && \
+	  if ! command -v staticcheck >/dev/null 2>&1; then \
+	    echo "⚠️  staticcheck not installed. Installing..."; \
+	    go install honnef.co/go/tools/cmd/staticcheck@latest; \
+	  fi && \
+	  STATICCHECK=$$(command -v staticcheck 2>/dev/null || echo "$(HOME)/go/bin/staticcheck") && \
+	  $$STATICCHECK ./...
+	@echo "✅ staticcheck passed"
+	@echo ""
+	@echo "🔨 Step 5/8: Building all packages..."
+	@cd homeautomation-go && go build ./...
 	@echo "✅ Build successful"
 	@echo ""
-	@echo "🧪 Step 4/4: Running all tests with race detector..."
-	cd homeautomation-go && go test -race ./...
-	@echo "✅ All tests passed (including integration tests)"
+	@echo "🧪 Step 6/8: Running all tests..."
+	@cd homeautomation-go && go test ./...
+	@echo "✅ All tests passed"
 	@echo ""
-	@echo "🎉 All pre-commit checks passed! Ready to commit."
+	@echo "🏁 Step 7/8: Running tests with race detector..."
+	@cd homeautomation-go && go test -race ./...
+	@echo "✅ Race detector passed (including integration tests)"
+	@echo ""
+	@echo "📊 Step 8/8: Checking test coverage (≥70%)..."
+	@cd homeautomation-go && \
+	  go test ./... -coverprofile=coverage.out -covermode=atomic > /dev/null 2>&1 && \
+	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
+	  echo "Total coverage: $${coverage}%" && \
+	  if [ "$$(echo "$$coverage < 70" | bc -l)" = "1" ]; then \
+	    echo "❌ ERROR: Test coverage $${coverage}% is below required 70%"; \
+	    exit 1; \
+	  fi && \
+	  echo "✅ Test coverage $${coverage}% meets requirement"
+	@echo ""
+	@echo "════════════════════════════════════════════════════════════════════"
+	@echo "🎉 All pre-commit checks passed! Your code is ready to commit."
+	@echo "════════════════════════════════════════════════════════════════════"
+
+#format-go: @ Format Go code with gofmt and goimports
+format-go:
+	@echo "🎨 Formatting Go code..."
+	@cd homeautomation-go && gofmt -w .
+	@cd homeautomation-go && \
+	  if ! command -v goimports >/dev/null 2>&1; then \
+	    echo "⚠️  goimports not installed. Installing..."; \
+	    go install golang.org/x/tools/cmd/goimports@latest; \
+	  fi && \
+	  (command -v goimports >/dev/null 2>&1 && goimports -w . || $(HOME)/go/bin/goimports -w .)
+	@echo "✅ Code formatted successfully"
+
+#lint-go: @ Run all Go linters (go vet, staticcheck)
+lint-go:
+	@echo "🔬 Running Go linters..."
+	@cd homeautomation-go && go vet ./...
+	@cd homeautomation-go && \
+	  if ! command -v staticcheck >/dev/null 2>&1; then \
+	    echo "⚠️  staticcheck not installed. Installing..."; \
+	    go install honnef.co/go/tools/cmd/staticcheck@latest; \
+	  fi && \
+	  (command -v staticcheck >/dev/null 2>&1 && staticcheck ./... || $(HOME)/go/bin/staticcheck ./...)
+	@echo "✅ All linters passed"

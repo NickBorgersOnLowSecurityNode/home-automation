@@ -62,7 +62,6 @@ type Loader struct {
 	musicConfig    *MusicConfig
 	hueConfig      *HueConfig
 	scheduleConfig *ScheduleConfig
-	reloadTicker   *time.Ticker
 	stopChan       chan struct{}
 }
 

@@ -14,6 +14,19 @@ A robust Golang client for managing Home Assistant state variables with type-saf
 - **Atomic Operations**: CompareAndSwap for race-free boolean updates
 - **Auto-Reconnection**: Automatic reconnection with exponential backoff
 - **Comprehensive Testing**: >80% test coverage with mock client for testing
+- **Automation Plugins**: Extensible plugin system for implementing home automation logic
+
+## Automation Plugins
+
+The system includes several automation plugins that implement intelligent home automation logic:
+
+- **Energy State Manager**: Monitors battery levels, solar generation, and grid availability
+- **Lighting Control Manager**: Activates scenes based on day phase, presence, and sleep status
+- **Music Manager**: Selects appropriate music modes based on time of day and occupancy
+- **TV Monitoring Manager**: Tracks TV and Apple TV playback states
+- **Sleep Hygiene Manager**: Manages wake-up sequences, sleep music fade-out, and bedtime reminders
+- **Load Shedding Manager**: Controls thermostat based on energy availability
+- **Security Manager**: Handles lockdown and garage automation
 
 ## State Variables
 
@@ -70,6 +83,7 @@ The system manages 28 state variables across 3 types (27 synced with HA + 1 loca
    HA_URL=wss://your-homeassistant/api/websocket
    HA_TOKEN=your_long_lived_access_token
    READ_ONLY=true
+   TIMEZONE=America/New_York
    ```
 
    **Configuration Options:**
@@ -80,6 +94,11 @@ The system manages 28 state variables across 3 types (27 synced with HA + 1 loca
    - `READ_ONLY`: Set to `true` for read-only mode (recommended for parallel testing)
      - `true`: Only reads and monitors state, makes NO changes to Home Assistant
      - `false`: Can read and write state changes
+   - `TIMEZONE` (Optional): Timezone for time-based automations (e.g., free energy windows)
+     - Default: `UTC`
+     - Examples: `America/New_York`, `America/Chicago`, `America/Los_Angeles`, `Europe/London`
+     - See [IANA Time Zone Database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for all valid values
+     - This ensures automations trigger at the correct local time, not UTC
 
    **Read-Only Mode** is perfect for:
    - Running alongside your existing Node-RED setup
