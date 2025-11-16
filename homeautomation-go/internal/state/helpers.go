@@ -27,12 +27,12 @@ func NewDerivedStateHelper(manager *Manager, logger *zap.Logger) *DerivedStateHe
 func (h *DerivedStateHelper) Start() error {
 	h.logger.Info("Starting derived state helper")
 
-	// Subscribe to presence changes to update isAnyoneHome
+	// Subscribe to presence changes to update isAnyOwnerHome and isAnyoneHome
 	if err := h.setupPresenceTracking(); err != nil {
 		return err
 	}
 
-	// Subscribe to sleep state changes to update isEveryoneAsleep
+	// Subscribe to sleep state changes to update isAnyoneAsleep and isEveryoneAsleep
 	if err := h.setupSleepTracking(); err != nil {
 		return err
 	}
@@ -43,7 +43,9 @@ func (h *DerivedStateHelper) Start() error {
 	}
 
 	// Initialize derived states immediately
+	h.updateIsAnyOwnerHome()
 	h.updateIsAnyoneHome()
+	h.updateIsAnyoneAsleep()
 	h.updateIsEveryoneAsleep()
 
 	h.logger.Info("Derived state helper started")
@@ -59,11 +61,12 @@ func (h *DerivedStateHelper) Stop() {
 	h.subs = nil
 }
 
-// setupPresenceTracking subscribes to presence changes and updates isAnyoneHome
+// setupPresenceTracking subscribes to presence changes and updates isAnyOwnerHome and isAnyoneHome
 func (h *DerivedStateHelper) setupPresenceTracking() error {
 	// Subscribe to Nick's presence
 	sub1, err := h.manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
 		h.logger.Debug("Nick's presence changed", zap.Any("old", oldValue), zap.Any("new", newValue))
+		h.updateIsAnyOwnerHome()
 		h.updateIsAnyoneHome()
 	})
 	if err != nil {
@@ -74,6 +77,7 @@ func (h *DerivedStateHelper) setupPresenceTracking() error {
 	// Subscribe to Caroline's presence
 	sub2, err := h.manager.Subscribe("isCarolineHome", func(key string, oldValue, newValue interface{}) {
 		h.logger.Debug("Caroline's presence changed", zap.Any("old", oldValue), zap.Any("new", newValue))
+		h.updateIsAnyOwnerHome()
 		h.updateIsAnyoneHome()
 	})
 	if err != nil {
@@ -81,14 +85,25 @@ func (h *DerivedStateHelper) setupPresenceTracking() error {
 	}
 	h.subs = append(h.subs, sub2)
 
+	// Subscribe to Tori's presence
+	sub3, err := h.manager.Subscribe("isToriHere", func(key string, oldValue, newValue interface{}) {
+		h.logger.Debug("Tori's presence changed", zap.Any("old", oldValue), zap.Any("new", newValue))
+		h.updateIsAnyoneHome()
+	})
+	if err != nil {
+		return err
+	}
+	h.subs = append(h.subs, sub3)
+
 	return nil
 }
 
-// setupSleepTracking subscribes to sleep state changes and updates isEveryoneAsleep
+// setupSleepTracking subscribes to sleep state changes and updates isAnyoneAsleep and isEveryoneAsleep
 func (h *DerivedStateHelper) setupSleepTracking() error {
 	// Subscribe to master bedroom sleep state
 	sub1, err := h.manager.Subscribe("isMasterAsleep", func(key string, oldValue, newValue interface{}) {
 		h.logger.Debug("Master sleep state changed", zap.Any("old", oldValue), zap.Any("new", newValue))
+		h.updateIsAnyoneAsleep()
 		h.updateIsEveryoneAsleep()
 	})
 	if err != nil {
@@ -99,6 +114,7 @@ func (h *DerivedStateHelper) setupSleepTracking() error {
 	// Subscribe to guest bedroom sleep state
 	sub2, err := h.manager.Subscribe("isGuestAsleep", func(key string, oldValue, newValue interface{}) {
 		h.logger.Debug("Guest sleep state changed", zap.Any("old", oldValue), zap.Any("new", newValue))
+		h.updateIsAnyoneAsleep()
 		h.updateIsEveryoneAsleep()
 	})
 	if err != nil {
@@ -136,10 +152,41 @@ func (h *DerivedStateHelper) setupAutoSleepDetection() error {
 	return nil
 }
 
-// updateIsAnyoneHome computes: isAnyoneHome = isNickHome OR isCarolineHome
-func (h *DerivedStateHelper) updateIsAnyoneHome() {
+// updateIsAnyOwnerHome computes: isAnyOwnerHome = isNickHome OR isCarolineHome
+func (h *DerivedStateHelper) updateIsAnyOwnerHome() {
 	isNickHome, err1 := h.manager.GetBool("isNickHome")
 	isCarolineHome, err2 := h.manager.GetBool("isCarolineHome")
+
+	if err1 != nil || err2 != nil {
+		h.logger.Error("Failed to get owner presence states",
+			zap.Error(err1),
+			zap.Error(err2))
+		return
+	}
+
+	isAnyOwnerHome := isNickHome || isCarolineHome
+
+	// Get current value to check if it changed
+	currentValue, _ := h.manager.GetBool("isAnyOwnerHome")
+	if currentValue == isAnyOwnerHome {
+		return // No change
+	}
+
+	if err := h.manager.SetBool("isAnyOwnerHome", isAnyOwnerHome); err != nil {
+		h.logger.Error("Failed to update isAnyOwnerHome", zap.Error(err))
+		return
+	}
+
+	h.logger.Info("Updated isAnyOwnerHome",
+		zap.Bool("isNickHome", isNickHome),
+		zap.Bool("isCarolineHome", isCarolineHome),
+		zap.Bool("isAnyOwnerHome", isAnyOwnerHome))
+}
+
+// updateIsAnyoneHome computes: isAnyoneHome = isAnyOwnerHome OR isToriHere
+func (h *DerivedStateHelper) updateIsAnyoneHome() {
+	isAnyOwnerHome, err1 := h.manager.GetBool("isAnyOwnerHome")
+	isToriHere, err2 := h.manager.GetBool("isToriHere")
 
 	if err1 != nil || err2 != nil {
 		h.logger.Error("Failed to get presence states",
@@ -148,7 +195,7 @@ func (h *DerivedStateHelper) updateIsAnyoneHome() {
 		return
 	}
 
-	isAnyoneHome := isNickHome || isCarolineHome
+	isAnyoneHome := isAnyOwnerHome || isToriHere
 
 	// Get current value to check if it changed
 	currentValue, _ := h.manager.GetBool("isAnyoneHome")
@@ -162,9 +209,40 @@ func (h *DerivedStateHelper) updateIsAnyoneHome() {
 	}
 
 	h.logger.Info("Updated isAnyoneHome",
-		zap.Bool("isNickHome", isNickHome),
-		zap.Bool("isCarolineHome", isCarolineHome),
+		zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
+		zap.Bool("isToriHere", isToriHere),
 		zap.Bool("isAnyoneHome", isAnyoneHome))
+}
+
+// updateIsAnyoneAsleep computes: isAnyoneAsleep = isMasterAsleep OR isGuestAsleep
+func (h *DerivedStateHelper) updateIsAnyoneAsleep() {
+	isMasterAsleep, err1 := h.manager.GetBool("isMasterAsleep")
+	isGuestAsleep, err2 := h.manager.GetBool("isGuestAsleep")
+
+	if err1 != nil || err2 != nil {
+		h.logger.Error("Failed to get sleep states for isAnyoneAsleep",
+			zap.Error(err1),
+			zap.Error(err2))
+		return
+	}
+
+	isAnyoneAsleep := isMasterAsleep || isGuestAsleep
+
+	// Get current value to check if it changed
+	currentValue, _ := h.manager.GetBool("isAnyoneAsleep")
+	if currentValue == isAnyoneAsleep {
+		return // No change
+	}
+
+	if err := h.manager.SetBool("isAnyoneAsleep", isAnyoneAsleep); err != nil {
+		h.logger.Error("Failed to update isAnyoneAsleep", zap.Error(err))
+		return
+	}
+
+	h.logger.Info("Updated isAnyoneAsleep",
+		zap.Bool("isMasterAsleep", isMasterAsleep),
+		zap.Bool("isGuestAsleep", isGuestAsleep),
+		zap.Bool("isAnyoneAsleep", isAnyoneAsleep))
 }
 
 // updateIsEveryoneAsleep computes: isEveryoneAsleep = isMasterAsleep AND isGuestAsleep
