@@ -396,3 +396,18 @@ func (h *DerivedStateHelper) syncGuestAsleepIfNoGuests() {
 		zap.Bool("isMasterAsleep", isMasterAsleep),
 		zap.Bool("isGuestAsleep", isMasterAsleep))
 }
+
+// Recalculate forces re-computation of all derived states
+// Used during system reset to ensure all derived states are correct
+func (h *DerivedStateHelper) Recalculate() error {
+	h.logger.Info("Recalculating all derived states")
+
+	h.updateIsAnyOwnerHome()
+	h.updateIsAnyoneHome()
+	h.updateIsAnyoneAsleep()
+	h.updateIsEveryoneAsleep()
+	h.syncGuestAsleepIfNoGuests()
+
+	h.logger.Info("Recalculation complete")
+	return nil
+}

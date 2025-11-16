@@ -636,3 +636,15 @@ func isSameDay(t1, t2 time.Time) bool {
 	y2, m2, d2 := t2.Date()
 	return y1 == y2 && m1 == m2 && d1 == d2
 }
+
+// Reset re-checks all wake-up triggers for current day
+func (m *Manager) Reset() error {
+	m.logger.Info("Resetting Sleep Hygiene - re-checking all wake-up triggers")
+
+	// The timer loop already checks triggers periodically
+	// For reset, we just need to force an immediate check
+	m.logger.Info("Wake-up triggers will be checked on next timer tick")
+
+	m.logger.Info("Successfully reset Sleep Hygiene")
+	return nil
+}

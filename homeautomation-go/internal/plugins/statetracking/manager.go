@@ -236,3 +236,19 @@ func (m *Manager) detectMasterAwake() {
 		}
 	}
 }
+
+// Reset re-computes all derived states
+func (m *Manager) Reset() error {
+	m.logger.Info("Resetting State Tracking - re-computing all derived states")
+
+	if m.helper != nil {
+		// The helper automatically re-computes all derived states on initialization
+		// and whenever source states change, so we just need to trigger a recalculation
+		if err := m.helper.Recalculate(); err != nil {
+			return fmt.Errorf("failed to recalculate derived states: %w", err)
+		}
+		m.logger.Info("Successfully re-computed all derived states")
+	}
+
+	return nil
+}

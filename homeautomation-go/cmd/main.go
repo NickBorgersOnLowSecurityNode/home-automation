@@ -17,6 +17,7 @@ import (
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/loadshedding"
 	"homeautomation/internal/plugins/music"
+	"homeautomation/internal/plugins/reset"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/state"
@@ -180,6 +181,21 @@ func main() {
 	}
 	defer loadSheddingManager.Stop()
 	logger.Info("Load Shedding Manager started successfully")
+
+	// Start Reset Coordinator (must be last - after all plugins are started)
+	resetCoordinator := reset.NewCoordinator(stateManager, logger, readOnly, []reset.PluginWithName{
+		{Name: "State Tracking", Plugin: stateTrackingManager},
+		{Name: "Day Phase", Plugin: dayPhaseManager},
+		{Name: "Energy", Plugin: energyManager},
+		{Name: "Load Shedding", Plugin: loadSheddingManager},
+		{Name: "Lighting", Plugin: lightingManager},
+		{Name: "Music", Plugin: musicManager},
+		{Name: "Sleep Hygiene", Plugin: sleepHygieneManager},
+	})
+	if err := resetCoordinator.Start(); err != nil {
+		logger.Fatal("Failed to start Reset Coordinator", zap.Error(err))
+	}
+	defer resetCoordinator.Stop()
 
 	// Demonstrate setting values (only in read-write mode)
 	if !readOnly {

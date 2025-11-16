@@ -575,3 +575,17 @@ func (m *Manager) isFreeEnergyTime(isGridAvailable bool) bool {
 
 	return false
 }
+
+// Reset re-calculates overall energy level
+func (m *Manager) Reset() error {
+	m.logger.Info("Resetting Energy State - re-calculating overall energy level")
+
+	// Re-check free energy availability
+	m.checkFreeEnergy()
+
+	// Recalculate overall energy level based on current battery and solar levels
+	m.recalculateOverallEnergyLevel()
+
+	m.logger.Info("Successfully reset Energy State")
+	return nil
+}
