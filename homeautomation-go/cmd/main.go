@@ -43,6 +43,19 @@ func main() {
 		logger.Fatal("HA_URL and HA_TOKEN environment variables must be set")
 	}
 
+	// Load timezone (default to UTC if not set)
+	timezoneName := os.Getenv("TIMEZONE")
+	if timezoneName == "" {
+		timezoneName = "UTC"
+	}
+	timezone, err := time.LoadLocation(timezoneName)
+	if err != nil {
+		logger.Fatal("Failed to load timezone",
+			zap.String("timezone", timezoneName),
+			zap.Error(err))
+	}
+	logger.Info("Using timezone", zap.String("timezone", timezoneName))
+
 	// Determine config directory path
 	// Priority: CONFIG_DIR env var > ./configs (container) > ../configs (local dev)
 	configDir := os.Getenv("CONFIG_DIR")
@@ -86,7 +99,7 @@ func main() {
 	subscribeToChanges(stateManager, logger)
 
 	// Start Energy State Manager
-	energyManager, err := startEnergyManager(client, stateManager, logger, readOnly, configDir)
+	energyManager, err := startEnergyManager(client, stateManager, logger, readOnly, configDir, timezone)
 	if err != nil {
 		logger.Fatal("Failed to start Energy State Manager", zap.Error(err))
 	}
@@ -261,7 +274,7 @@ func demonstrateStateChanges(manager *state.Manager, logger *zap.Logger) {
 	logger.Info("===================================")
 }
 
-func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*energy.Manager, error) {
+func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, timezone *time.Location) (*energy.Manager, error) {
 	// Load energy configuration
 	configPath := filepath.Join(configDir, "energy_config.yaml")
 	energyConfig, err := energy.LoadConfig(configPath)
@@ -275,7 +288,7 @@ func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger 
 		zap.String("free_energy_end", energyConfig.Energy.FreeEnergyTime.End))
 
 	// Create and start energy manager
-	energyManager := energy.NewManager(client, stateManager, energyConfig, logger, readOnly)
+	energyManager := energy.NewManager(client, stateManager, energyConfig, logger, readOnly, timezone)
 	if err := energyManager.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start energy manager: %w", err)
 	}
