@@ -366,6 +366,13 @@ func (m *Manager) stopPlayback() {
 	m.currentlyPlaying = nil
 	m.mu.Unlock()
 
+	// Clear the currently playing music URI in Home Assistant
+	if err := m.stateManager.SetString("currentlyPlayingMusicUri", ""); err != nil {
+		if !errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Error("Failed to clear currently playing music URI", zap.Error(err))
+		}
+	}
+
 	if m.readOnly {
 		m.logger.Debug("Skipping playback stop in read-only mode")
 		return
@@ -408,6 +415,18 @@ func (m *Manager) orchestratePlayback(musicType string) error {
 		zap.Int("playlist_index", playlistIndex),
 		zap.String("uri", playbackOption.URI),
 		zap.Float64("volume_multiplier", playbackOption.VolumeMultiplier))
+
+	// Set the currently playing music URI in Home Assistant
+	if err := m.stateManager.SetString("currentlyPlayingMusicUri", playbackOption.URI); err != nil {
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping URI update in read-only mode",
+				zap.String("uri", playbackOption.URI))
+		} else {
+			m.logger.Error("Failed to set currently playing music URI",
+				zap.String("uri", playbackOption.URI),
+				zap.Error(err))
+		}
+	}
 
 	// Build participants with calculated volumes
 	participants := make([]ParticipantWithVolume, 0, len(mode.Participants))

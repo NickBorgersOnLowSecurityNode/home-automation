@@ -20,7 +20,7 @@ type StateVariable struct {
 	LocalOnly bool        // If true, only exists in memory, not synced with HA
 }
 
-// AllVariables contains all 29 state variables (27 synced with HA + 2 local-only)
+// AllVariables contains all 30 state variables (28 synced with HA + 2 local-only)
 var AllVariables = []StateVariable{
 	// Booleans (18)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},
@@ -47,10 +47,11 @@ var AllVariables = []StateVariable{
 	{Key: "remainingSolarGeneration", EntityID: "input_number.remaining_solar_generation", Type: TypeNumber, Default: 0.0},
 	{Key: "thisHourSolarGeneration", EntityID: "input_number.this_hour_solar_generation", Type: TypeNumber, Default: 0.0},
 
-	// Text (6)
+	// Text (7)
 	{Key: "dayPhase", EntityID: "input_text.day_phase", Type: TypeString, Default: ""},
 	{Key: "sunevent", EntityID: "input_text.sun_event", Type: TypeString, Default: ""},
 	{Key: "musicPlaybackType", EntityID: "input_text.music_playback_type", Type: TypeString, Default: ""},
+	{Key: "currentlyPlayingMusicUri", EntityID: "input_text.currently_playing_music_uri", Type: TypeString, Default: ""},
 	{Key: "batteryEnergyLevel", EntityID: "input_text.battery_energy_level", Type: TypeString, Default: ""},
 	{Key: "currentEnergyLevel", EntityID: "input_text.current_energy_level", Type: TypeString, Default: ""},
 	{Key: "solarProductionEnergyLevel", EntityID: "input_text.solar_production_energy_level", Type: TypeString, Default: ""},

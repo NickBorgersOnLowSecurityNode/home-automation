@@ -7,7 +7,7 @@ A robust Golang client for managing Home Assistant state variables with type-saf
 ## Features
 
 - **WebSocket Client**: Full Home Assistant WebSocket API implementation
-- **Type-Safe State Management**: Strongly-typed getters/setters for 28 state variables (27 synced + 1 local-only)
+- **Type-Safe State Management**: Strongly-typed getters/setters for 30 state variables (28 synced + 2 local-only)
 - **Auto-Synchronization**: Bidirectional state sync between Golang and Home Assistant
 - **Real-Time Updates**: Subscribe to state changes with callback handlers
 - **Thread-Safe**: Concurrent access protection with mutexes
@@ -30,7 +30,7 @@ The system includes several automation plugins that implement intelligent home a
 
 ## State Variables
 
-The system manages 28 state variables across 3 types (27 synced with HA + 1 local-only):
+The system manages 30 state variables across 3 types (28 synced with HA + 2 local-only):
 
 ### Booleans (18) - Synced with HA
 - Home presence: `isNickHome`, `isCarolineHome`, `isToriHere`, `isAnyOwnerHome`, `isAnyoneHome`
@@ -44,16 +44,18 @@ The system manages 28 state variables across 3 types (27 synced with HA + 1 loca
 - `remainingSolarGeneration`
 - `thisHourSolarGeneration`
 
-### Strings (6) - Synced with HA
+### Strings (7) - Synced with HA
 - `dayPhase`
 - `sunevent`
 - `musicPlaybackType`
+- `currentlyPlayingMusicUri` - URI of currently playing music (Spotify/HTTP)
 - `batteryEnergyLevel`
 - `currentEnergyLevel`
 - `solarProductionEnergyLevel`
 
-### JSON (1) - Local Only (In-Memory)
-- `currentlyPlayingMusic` - Too large to store in HA, exists only in Go app memory
+### Local-Only (2) - In-Memory
+- `didOwnerJustReturnHome` (Boolean) - Transient state for return-home detection
+- `currentlyPlayingMusic` (JSON) - Full music playback details, too large to store in HA
 
 ## Prerequisites
 
@@ -128,7 +130,7 @@ go run cmd/main.go
 
 **What the application does:**
 1. Connects to Home Assistant
-2. Syncs all 27 state variables
+2. Syncs all 28 state variables
 3. Displays current state
 4. Subscribes to state changes
 5. **If READ_ONLY=false**: Demonstrates setting values (temporarily toggles isExpectingSomeone and isFadeOutInProgress, then restores)
@@ -275,7 +277,7 @@ homeautomation-go/
 │   │   └── client_test.go   # Client tests
 │   └── state/               # State manager
 │       ├── manager.go       # State management logic
-│       ├── variables.go     # 27 state variable definitions
+│       ├── variables.go     # 30 state variable definitions
 │       └── manager_test.go  # State manager tests
 ├── go.mod                   # Go module definition
 ├── go.sum                   # Dependency checksums
