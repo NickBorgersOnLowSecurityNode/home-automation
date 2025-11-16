@@ -1,0 +1,339 @@
+package loadshedding
+
+import (
+	"fmt"
+	"sync"
+	"time"
+
+	"homeautomation/internal/ha"
+	"homeautomation/internal/state"
+
+	"go.uber.org/zap"
+)
+
+const (
+	// Rate limiting: minimum time between actions
+	minActionInterval = 1 * time.Hour
+
+	// Energy states
+	energyStateRed   = "red"
+	energyStateBlack = "black"
+	energyStateGreen = "green"
+	energyStateWhite = "white"
+
+	// Thermostat entities
+	thermostatHoldHouse = "switch.most_of_house_thermostat_hold"
+	thermostatHoldSuite = "switch.primary_suite_thermostat_hold"
+	climateHouse        = "climate.most_of_house_thermostat"
+	climateSuite        = "climate.primary_suite_thermostat"
+
+	// Temperature ranges
+	tempLowRestricted  = 65.0
+	tempHighRestricted = 80.0
+)
+
+// Manager manages thermostat control based on energy state
+type Manager struct {
+	haClient       ha.HAClient
+	stateManager   *state.Manager
+	logger         *zap.Logger
+	readOnly       bool
+	lastAction     time.Time
+	lastActionMu   sync.Mutex
+	subscription   state.Subscription
+	enabled        bool
+	loadSheddingOn bool
+	stateMu        sync.Mutex
+}
+
+// NewManager creates a new Load Shedding manager
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) *Manager {
+	return &Manager{
+		haClient:     haClient,
+		stateManager: stateManager,
+		logger:       logger.Named("loadshedding"),
+		readOnly:     readOnly,
+		enabled:      false,
+	}
+}
+
+// Start begins monitoring energy state and controlling thermostats
+func (m *Manager) Start() error {
+	if m.enabled {
+		return fmt.Errorf("load shedding already started")
+	}
+
+	m.logger.Info("Starting Load Shedding Manager")
+
+	// Subscribe to energy level changes
+	sub, err := m.stateManager.Subscribe("currentEnergyLevel", m.handleEnergyChange)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to energy level: %w", err)
+	}
+	m.subscription = sub
+
+	// Process initial state
+	currentLevel, err := m.stateManager.GetString("currentEnergyLevel")
+	if err != nil {
+		m.logger.Warn("Failed to get initial energy level", zap.Error(err))
+	} else {
+		m.logger.Info("Initial energy level", zap.String("level", currentLevel))
+		m.handleEnergyChange("currentEnergyLevel", "", currentLevel)
+	}
+
+	m.enabled = true
+	m.logger.Info("Load Shedding Manager started successfully")
+	return nil
+}
+
+// Stop stops the Load Shedding Manager and cleans up subscriptions
+func (m *Manager) Stop() {
+	if !m.enabled {
+		return
+	}
+
+	m.logger.Info("Stopping Load Shedding Manager")
+	if m.subscription != nil {
+		m.subscription.Unsubscribe()
+		m.subscription = nil
+	}
+	m.enabled = false
+	m.logger.Info("Load Shedding Manager stopped")
+}
+
+// handleEnergyChange is called when currentEnergyLevel changes
+func (m *Manager) handleEnergyChange(key string, oldValue, newValue interface{}) {
+	// Convert values to strings
+	oldLevel := ""
+	if oldValue != nil {
+		if s, ok := oldValue.(string); ok {
+			oldLevel = s
+		}
+	}
+
+	newLevel := ""
+	if newValue != nil {
+		if s, ok := newValue.(string); ok {
+			newLevel = s
+		}
+	}
+
+	m.logger.Info("Energy level changed",
+		zap.String("old_level", oldLevel),
+		zap.String("new_level", newLevel))
+
+	// Determine action based on new state
+	switch newLevel {
+	case energyStateRed, energyStateBlack:
+		m.enableLoadShedding(newLevel)
+	case energyStateGreen, energyStateWhite:
+		m.disableLoadShedding(newLevel)
+	default:
+		m.logger.Warn("Unknown energy state",
+			zap.String("state", newLevel))
+	}
+}
+
+// enableLoadShedding activates load shedding (energy state red/black)
+func (m *Manager) enableLoadShedding(energyLevel string) {
+	m.logger.Info("=== LOAD SHEDDING DECISION: ENABLE ===",
+		zap.String("energy_level", energyLevel),
+		zap.String("reason", "Energy state is "+energyLevel+" (low battery)"))
+
+	// Check if load shedding is already enabled
+	m.stateMu.Lock()
+	alreadyEnabled := m.loadSheddingOn
+	m.stateMu.Unlock()
+
+	if alreadyEnabled {
+		m.logger.Info("⏭  Action skipped: Load shedding already enabled",
+			zap.String("reason", "Preventing unnecessary thermostat changes"))
+		return
+	}
+
+	// Check current thermostat hold state
+	holdOn, err := m.checkThermostatHoldState()
+	if err != nil {
+		m.logger.Warn("Failed to check thermostat hold state, proceeding with action",
+			zap.Error(err))
+	} else if holdOn {
+		m.logger.Info("⏭  Action skipped: Thermostat holds already enabled",
+			zap.String("reason", "Thermostats already in desired state"))
+		// Update our state tracking to match reality
+		m.stateMu.Lock()
+		m.loadSheddingOn = true
+		m.stateMu.Unlock()
+		return
+	}
+
+	// Check rate limiting
+	if !m.checkRateLimit() {
+		return
+	}
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would enable thermostat hold mode",
+			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+		return
+	}
+
+	// Turn on thermostat hold mode
+	m.logger.Info("Executing: Enable thermostat hold mode",
+		zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+
+	if err := m.haClient.CallService("switch", "turn_on", map[string]interface{}{
+		"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
+	}); err != nil {
+		m.logger.Error("Failed to enable thermostat hold mode",
+			zap.Error(err))
+		return
+	}
+
+	m.logger.Info("✓ Successfully enabled thermostat hold mode")
+
+	// Set wider temperature range
+	m.logger.Info("Executing: Set wider temperature range",
+		zap.Float64("temp_low", tempLowRestricted),
+		zap.Float64("temp_high", tempHighRestricted),
+		zap.Strings("entities", []string{climateHouse, climateSuite}))
+
+	if err := m.haClient.CallService("climate", "set_temperature", map[string]interface{}{
+		"entity_id":        []string{climateHouse, climateSuite},
+		"target_temp_low":  tempLowRestricted,
+		"target_temp_high": tempHighRestricted,
+	}); err != nil {
+		m.logger.Error("Failed to set thermostat temperature range",
+			zap.Error(err))
+		return
+	}
+
+	m.logger.Info("✓ Successfully set wider temperature range")
+	m.logger.Info("=== LOAD SHEDDING ACTIVATED ===",
+		zap.String("action", "HVAC restricted to conserve battery"))
+
+	// Update state tracking and last action time
+	m.stateMu.Lock()
+	m.loadSheddingOn = true
+	m.stateMu.Unlock()
+
+	m.lastActionMu.Lock()
+	m.lastAction = time.Now()
+	m.lastActionMu.Unlock()
+}
+
+// disableLoadShedding deactivates load shedding (energy state green/white)
+func (m *Manager) disableLoadShedding(energyLevel string) {
+	m.logger.Info("=== LOAD SHEDDING DECISION: DISABLE ===",
+		zap.String("energy_level", energyLevel),
+		zap.String("reason", "Energy state is "+energyLevel+" (battery restored)"))
+
+	// Check if load shedding is already disabled
+	m.stateMu.Lock()
+	alreadyDisabled := !m.loadSheddingOn
+	m.stateMu.Unlock()
+
+	if alreadyDisabled {
+		m.logger.Info("⏭  Action skipped: Load shedding already disabled",
+			zap.String("reason", "Preventing unnecessary thermostat changes"))
+		return
+	}
+
+	// Check current thermostat hold state
+	holdOn, err := m.checkThermostatHoldState()
+	if err != nil {
+		m.logger.Warn("Failed to check thermostat hold state, proceeding with action",
+			zap.Error(err))
+	} else if !holdOn {
+		m.logger.Info("⏭  Action skipped: Thermostat holds already disabled",
+			zap.String("reason", "Thermostats already in desired state"))
+		// Update our state tracking to match reality
+		m.stateMu.Lock()
+		m.loadSheddingOn = false
+		m.stateMu.Unlock()
+		return
+	}
+
+	// Check rate limiting
+	if !m.checkRateLimit() {
+		return
+	}
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would disable thermostat hold mode (restore schedule)",
+			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+		return
+	}
+
+	// Turn off thermostat hold mode (return to schedule)
+	m.logger.Info("Executing: Disable thermostat hold mode (restore schedule)",
+		zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+
+	if err := m.haClient.CallService("switch", "turn_off", map[string]interface{}{
+		"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
+	}); err != nil {
+		m.logger.Error("Failed to disable thermostat hold mode",
+			zap.Error(err))
+		return
+	}
+
+	m.logger.Info("✓ Successfully disabled thermostat hold mode")
+	m.logger.Info("=== LOAD SHEDDING DEACTIVATED ===",
+		zap.String("action", "HVAC returned to normal schedule"))
+
+	// Update state tracking and last action time
+	m.stateMu.Lock()
+	m.loadSheddingOn = false
+	m.stateMu.Unlock()
+
+	m.lastActionMu.Lock()
+	m.lastAction = time.Now()
+	m.lastActionMu.Unlock()
+}
+
+// checkRateLimit ensures we don't take actions too frequently
+func (m *Manager) checkRateLimit() bool {
+	m.lastActionMu.Lock()
+	defer m.lastActionMu.Unlock()
+
+	now := time.Now()
+	timeSinceLastAction := now.Sub(m.lastAction)
+
+	if !m.lastAction.IsZero() && timeSinceLastAction < minActionInterval {
+		timeRemaining := minActionInterval - timeSinceLastAction
+		m.logger.Info("⏱  RATE LIMIT: Action skipped",
+			zap.Duration("time_since_last_action", timeSinceLastAction),
+			zap.Duration("min_interval", minActionInterval),
+			zap.Duration("time_remaining", timeRemaining),
+			zap.String("reason", "Preventing rapid thermostat toggling"))
+		return false
+	}
+
+	m.logger.Info("✓ Rate limit check passed",
+		zap.Duration("time_since_last_action", timeSinceLastAction))
+	return true
+}
+
+// checkThermostatHoldState checks if thermostat holds are currently enabled
+// Returns true if at least one hold is on, false otherwise
+func (m *Manager) checkThermostatHoldState() (bool, error) {
+	// Get state of both thermostat hold switches
+	houseState, err := m.haClient.GetState(thermostatHoldHouse)
+	if err != nil {
+		return false, fmt.Errorf("failed to get house thermostat hold state: %w", err)
+	}
+
+	suiteState, err := m.haClient.GetState(thermostatHoldSuite)
+	if err != nil {
+		return false, fmt.Errorf("failed to get suite thermostat hold state: %w", err)
+	}
+
+	// Check if either hold is on
+	houseOn := houseState.State == "on"
+	suiteOn := suiteState.State == "on"
+
+	m.logger.Debug("Current thermostat hold states",
+		zap.Bool("house_hold", houseOn),
+		zap.Bool("suite_hold", suiteOn))
+
+	return houseOn || suiteOn, nil
+}

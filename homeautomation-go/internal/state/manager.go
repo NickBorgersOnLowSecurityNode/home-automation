@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -12,6 +13,9 @@ import (
 
 	"go.uber.org/zap"
 )
+
+// ErrReadOnlyMode is returned when attempting to modify state in read-only mode
+var ErrReadOnlyMode = errors.New("state manager is in read-only mode")
 
 // StateChangeHandler is called when a state variable changes
 type StateChangeHandler func(key string, oldValue, newValue interface{})
@@ -255,7 +259,7 @@ func (m *Manager) ensureWritable(variable StateVariable) error {
 		return fmt.Errorf("variable %s is read-only", variable.Key)
 	}
 	if m.readOnly && !variable.LocalOnly {
-		return fmt.Errorf("state manager is in read-only mode")
+		return ErrReadOnlyMode
 	}
 	return nil
 }
