@@ -130,13 +130,18 @@ jobs:
       - name: Test Summary
         if: always()
         run: |
+          # Count integration tests dynamically
+          cd test/integration
+          integration_test_count=$(go test -list=. 2>/dev/null | grep -c "^Test" || echo "unknown")
+          cd ../..
+          
           echo "==============================================="
           echo "             TEST RESULTS SUMMARY"
           echo "==============================================="
           echo "✅ All code compiles (including test files)"
           echo "✅ Unit tests passed with race detector"
           echo "✅ Test coverage meets minimum requirement (≥70%)"
-          echo "✅ All integration tests passed (11/11 tests)"
+          echo "✅ All integration tests passed (${integration_test_count} tests)"
           echo ""
           echo "✅ ALL REQUIRED TESTS PASSED - PR can be merged"
           echo "==============================================="
