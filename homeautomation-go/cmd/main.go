@@ -18,6 +18,7 @@ import (
 	"homeautomation/internal/plugins/loadshedding"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/sleephygiene"
+	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/state"
 
 	"github.com/joho/godotenv"
@@ -125,6 +126,14 @@ func main() {
 
 	// Subscribe to interesting state changes
 	subscribeToChanges(stateManager, logger)
+
+	// Start State Tracking Manager (MUST start before other plugins that depend on derived states)
+	stateTrackingManager := statetracking.NewManager(stateManager, logger)
+	if err := stateTrackingManager.Start(); err != nil {
+		logger.Fatal("Failed to start State Tracking Manager", zap.Error(err))
+	}
+	defer stateTrackingManager.Stop()
+	logger.Info("State Tracking Manager started - computing derived states")
 
 	// Create day phase calculator
 	dayPhaseCalc := dayphaselib.NewCalculator(latitude, longitude, logger)
