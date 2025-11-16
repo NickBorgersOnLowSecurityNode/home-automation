@@ -16,16 +16,20 @@ type Manager struct {
 	config       *HueConfig
 	logger       *zap.Logger
 	readOnly     bool
+
+	// Subscriptions for cleanup
+	subscriptions []state.Subscription
 }
 
 // NewManager creates a new Lighting Control manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueConfig, logger *zap.Logger, readOnly bool) *Manager {
 	return &Manager{
-		haClient:     haClient,
-		stateManager: stateManager,
-		config:       config,
-		logger:       logger.Named("lighting"),
-		readOnly:     readOnly,
+		haClient:      haClient,
+		stateManager:  stateManager,
+		config:        config,
+		logger:        logger.Named("lighting"),
+		readOnly:      readOnly,
+		subscriptions: make([]state.Subscription, 0),
 	}
 }
 
@@ -34,41 +38,68 @@ func (m *Manager) Start() error {
 	m.logger.Info("Starting Lighting Control Manager")
 
 	// Subscribe to day phase changes
-	if _, err := m.stateManager.Subscribe("dayPhase", m.handleDayPhaseChange); err != nil {
+	sub, err := m.stateManager.Subscribe("dayPhase", m.handleDayPhaseChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to dayPhase: %w", err)
 	}
+	m.subscriptions = append(m.subscriptions, sub)
 
 	// Subscribe to sun event changes
-	if _, err := m.stateManager.Subscribe("sunevent", m.handleSunEventChange); err != nil {
+	sub, err = m.stateManager.Subscribe("sunevent", m.handleSunEventChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to sunevent: %w", err)
 	}
+	m.subscriptions = append(m.subscriptions, sub)
 
 	// Subscribe to presence changes that might affect lighting
-	if _, err := m.stateManager.Subscribe("isAnyoneHome", m.handlePresenceChange); err != nil {
+	sub, err = m.stateManager.Subscribe("isAnyoneHome", m.handlePresenceChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
 	}
+	m.subscriptions = append(m.subscriptions, sub)
 
 	// Subscribe to TV state for brightness adjustments
-	if _, err := m.stateManager.Subscribe("isTVPlaying", m.handleTVStateChange); err != nil {
+	sub, err = m.stateManager.Subscribe("isTVPlaying", m.handleTVStateChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to isTVPlaying: %w", err)
 	}
+	m.subscriptions = append(m.subscriptions, sub)
 
 	// Subscribe to sleep state changes
-	if _, err := m.stateManager.Subscribe("isEveryoneAsleep", m.handleSleepStateChange); err != nil {
+	sub, err = m.stateManager.Subscribe("isEveryoneAsleep", m.handleSleepStateChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to isEveryoneAsleep: %w", err)
 	}
+	m.subscriptions = append(m.subscriptions, sub)
 
-	if _, err := m.stateManager.Subscribe("isMasterAsleep", m.handleSleepStateChange); err != nil {
+	sub, err = m.stateManager.Subscribe("isMasterAsleep", m.handleSleepStateChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to isMasterAsleep: %w", err)
 	}
+	m.subscriptions = append(m.subscriptions, sub)
 
 	// Subscribe to guest presence
-	if _, err := m.stateManager.Subscribe("isHaveGuests", m.handlePresenceChange); err != nil {
+	sub, err = m.stateManager.Subscribe("isHaveGuests", m.handlePresenceChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to isHaveGuests: %w", err)
 	}
+	m.subscriptions = append(m.subscriptions, sub)
 
 	m.logger.Info("Lighting Control Manager started successfully")
 	return nil
+}
+
+// Stop stops the Lighting Control Manager and cleans up subscriptions
+func (m *Manager) Stop() {
+	m.logger.Info("Stopping Lighting Control Manager")
+
+	// Unsubscribe from all subscriptions
+	for _, sub := range m.subscriptions {
+		sub.Unsubscribe()
+	}
+	m.subscriptions = nil
+
+	m.logger.Info("Lighting Control Manager stopped")
 }
 
 // handleDayPhaseChange processes day phase changes and activates scenes

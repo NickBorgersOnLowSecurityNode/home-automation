@@ -295,6 +295,58 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 	}
 }
 
+func TestMusicManager_Stop(t *testing.T) {
+	// Create mock HA client and state manager
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Create music config
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning":  {},
+			"day":      {},
+			"evening":  {},
+			"winddown": {},
+			"sleep":    {},
+			"sex":      {},
+			"wakeup":   {},
+		},
+	}
+
+	// Create manager
+	manager := NewManager(mockHA, stateMgr, config, logger, true, nil)
+
+	// Set initial state
+	if err := stateMgr.SetBool("isAnyoneHome", true); err != nil {
+		t.Fatalf("Failed to set isAnyoneHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isAnyoneAsleep", false); err != nil {
+		t.Fatalf("Failed to set isAnyoneAsleep: %v", err)
+	}
+	if err := stateMgr.SetString("dayPhase", "day"); err != nil {
+		t.Fatalf("Failed to set dayPhase: %v", err)
+	}
+
+	// Start manager
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+
+	// Verify subscriptions were created
+	if len(manager.subscriptions) != 3 {
+		t.Errorf("Expected 3 subscriptions, got %d", len(manager.subscriptions))
+	}
+
+	// Stop manager
+	manager.Stop()
+
+	// Verify subscriptions were cleaned up
+	if manager.subscriptions != nil {
+		t.Errorf("Expected subscriptions to be nil after Stop(), got %v", manager.subscriptions)
+	}
+}
+
 // findRepoRoot finds the repository root by looking for go.mod
 func findRepoRoot(t *testing.T) string {
 	t.Helper()

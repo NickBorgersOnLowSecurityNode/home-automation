@@ -19,16 +19,26 @@ type Manager struct {
 	config       *EnergyConfig
 	logger       *zap.Logger
 	readOnly     bool
+
+	// Subscriptions for cleanup
+	haSubscriptions    []ha.Subscription
+	stateSubscriptions []state.Subscription
+
+	// Control for free energy checker
+	stopChecker chan struct{}
 }
 
 // NewManager creates a new Energy State manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *EnergyConfig, logger *zap.Logger, readOnly bool) *Manager {
 	return &Manager{
-		haClient:     haClient,
-		stateManager: stateManager,
-		config:       config,
-		logger:       logger.Named("energy"),
-		readOnly:     readOnly,
+		haClient:           haClient,
+		stateManager:       stateManager,
+		config:             config,
+		logger:             logger.Named("energy"),
+		readOnly:           readOnly,
+		haSubscriptions:    make([]ha.Subscription, 0),
+		stateSubscriptions: make([]state.Subscription, 0),
+		stopChecker:        make(chan struct{}),
 	}
 }
 
@@ -52,22 +62,30 @@ func (m *Manager) Start() error {
 	}
 
 	// Subscribe to grid availability changes
-	if _, err := m.stateManager.Subscribe("isGridAvailable", m.handleGridAvailabilityChange); err != nil {
+	sub, err := m.stateManager.Subscribe("isGridAvailable", m.handleGridAvailabilityChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to grid availability: %w", err)
 	}
+	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
 	// Subscribe to battery and solar energy level changes to recalculate overall level
-	if _, err := m.stateManager.Subscribe("batteryEnergyLevel", m.handleIntermediateLevelChange); err != nil {
+	sub, err = m.stateManager.Subscribe("batteryEnergyLevel", m.handleIntermediateLevelChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to battery energy level: %w", err)
 	}
+	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
-	if _, err := m.stateManager.Subscribe("solarProductionEnergyLevel", m.handleIntermediateLevelChange); err != nil {
+	sub, err = m.stateManager.Subscribe("solarProductionEnergyLevel", m.handleIntermediateLevelChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to solar production energy level: %w", err)
 	}
+	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
-	if _, err := m.stateManager.Subscribe("isFreeEnergyAvailable", m.handleIntermediateLevelChange); err != nil {
+	sub, err = m.stateManager.Subscribe("isFreeEnergyAvailable", m.handleIntermediateLevelChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to free energy available: %w", err)
 	}
+	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
 	// Start free energy check timer (check every minute)
 	go m.runFreeEnergyChecker()
@@ -76,9 +94,31 @@ func (m *Manager) Start() error {
 	return nil
 }
 
+// Stop stops the Energy State Manager and cleans up subscriptions
+func (m *Manager) Stop() {
+	m.logger.Info("Stopping Energy State Manager")
+
+	// Stop the free energy checker goroutine
+	close(m.stopChecker)
+
+	// Unsubscribe from all HA subscriptions
+	for _, sub := range m.haSubscriptions {
+		sub.Unsubscribe()
+	}
+	m.haSubscriptions = nil
+
+	// Unsubscribe from all state subscriptions
+	for _, sub := range m.stateSubscriptions {
+		sub.Unsubscribe()
+	}
+	m.stateSubscriptions = nil
+
+	m.logger.Info("Energy State Manager stopped")
+}
+
 // subscribeToSensor subscribes to a Home Assistant sensor
 func (m *Manager) subscribeToSensor(entityID string, callback func(state float64)) error {
-	_, err := m.haClient.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
+	sub, err := m.haClient.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
 		// Try to convert to float64
 		var val float64
 
@@ -93,6 +133,9 @@ func (m *Manager) subscribeToSensor(entityID string, callback func(state float64
 
 		callback(val)
 	})
+	if err == nil {
+		m.haSubscriptions = append(m.haSubscriptions, sub)
+	}
 	return err
 }
 
@@ -398,8 +441,14 @@ func (m *Manager) runFreeEnergyChecker() {
 	// Check immediately on start
 	m.checkFreeEnergy()
 
-	for range ticker.C {
-		m.checkFreeEnergy()
+	for {
+		select {
+		case <-ticker.C:
+			m.checkFreeEnergy()
+		case <-m.stopChecker:
+			m.logger.Info("Stopping free energy checker")
+			return
+		}
 	}
 }
 

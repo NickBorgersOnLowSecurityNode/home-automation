@@ -425,3 +425,34 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 		assert.False(t, result)
 	})
 }
+
+// TestEnergyManager_Stop tests the Stop method and subscription cleanup
+func TestEnergyManager_Stop(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	manager := NewManager(mockClient, stateManager, config, logger, false)
+
+	// Initialize required state variables
+	_ = stateManager.SetBool("isGridAvailable", true)
+	_ = stateManager.SetString("batteryEnergyLevel", "green")
+	_ = stateManager.SetString("solarProductionEnergyLevel", "green")
+	_ = stateManager.SetBool("isFreeEnergyAvailable", false)
+
+	// Start manager (creates subscriptions and goroutine)
+	err := manager.Start()
+	assert.NoError(t, err)
+
+	// Verify subscriptions were created
+	assert.Equal(t, 3, len(manager.haSubscriptions), "Should have 3 HA subscriptions")
+	assert.Equal(t, 4, len(manager.stateSubscriptions), "Should have 4 state subscriptions")
+
+	// Stop manager
+	manager.Stop()
+
+	// Verify subscriptions were cleaned up
+	assert.Nil(t, manager.haSubscriptions, "HA subscriptions should be nil after Stop")
+	assert.Nil(t, manager.stateSubscriptions, "State subscriptions should be nil after Stop")
+}
