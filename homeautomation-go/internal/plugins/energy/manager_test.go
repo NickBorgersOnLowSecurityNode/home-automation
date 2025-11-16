@@ -65,7 +65,7 @@ func TestDetermineBatteryEnergyLevel(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	tests := []struct {
 		name       string
@@ -98,7 +98,7 @@ func TestDetermineSolarEnergyLevel(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	tests := []struct {
 		name         string
@@ -129,7 +129,7 @@ func TestDetermineOverallEnergyLevel(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	tests := []struct {
 		name         string
@@ -173,7 +173,7 @@ func TestIsFreeEnergyTime(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	// Note: This test is time-dependent and may need adjustment
 	// For now, we test the logic with different scenarios
@@ -227,7 +227,7 @@ func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	// Test that the logic handles times that span midnight
 	// Start: 21:00, End: 07:00
@@ -277,7 +277,7 @@ func TestManagerStartAndHandlers(t *testing.T) {
 	stateManager.SetNumber("thisHourSolarGeneration", 0.0)
 	stateManager.SetNumber("remainingSolarGeneration", 0.0)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	// Test Start method
 	err = manager.Start()
@@ -362,7 +362,7 @@ func TestDetermineOverallEnergyLevel_EdgeCases(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	t.Run("invalid_battery_level", func(t *testing.T) {
 		result := manager.determineOverallEnergyLevel("invalid", "green")
@@ -401,7 +401,7 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 			},
 		}
 
-		manager := NewManager(mockClient, stateManager, config, logger, false)
+		manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 		result := manager.isFreeEnergyTime(true)
 		assert.False(t, result)
 	})
@@ -420,7 +420,7 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 			},
 		}
 
-		manager := NewManager(mockClient, stateManager, config, logger, false)
+		manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 		result := manager.isFreeEnergyTime(true)
 		assert.False(t, result)
 	})
@@ -433,7 +433,7 @@ func TestEnergyManager_Stop(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	config := createTestConfig()
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	// Initialize required state variables
 	_ = stateManager.SetBool("isGridAvailable", true)
@@ -455,4 +455,59 @@ func TestEnergyManager_Stop(t *testing.T) {
 	// Verify subscriptions were cleaned up
 	assert.Nil(t, manager.haSubscriptions, "HA subscriptions should be nil after Stop")
 	assert.Nil(t, manager.stateSubscriptions, "State subscriptions should be nil after Stop")
+}
+
+// TestTimezoneHandling tests that timezone configuration works correctly
+func TestTimezoneHandling(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+
+	t.Run("default_timezone_is_utc", func(t *testing.T) {
+		manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+		assert.Equal(t, time.UTC, manager.timezone)
+	})
+
+	t.Run("custom_timezone_is_respected", func(t *testing.T) {
+		estLocation, err := time.LoadLocation("America/New_York")
+		assert.NoError(t, err)
+
+		manager := NewManager(mockClient, stateManager, config, logger, false, estLocation)
+		assert.Equal(t, estLocation, manager.timezone)
+	})
+
+	t.Run("timezone_affects_free_energy_calculation", func(t *testing.T) {
+		// Create a config with a specific free energy window
+		// Let's use 02:00 to 03:00 for easier testing
+		testConfig := &EnergyConfig{
+			Energy: struct {
+				FreeEnergyTime FreeEnergyTime `yaml:"free_energy_time"`
+				EnergyStates   []EnergyState  `yaml:"energy_states"`
+			}{
+				FreeEnergyTime: FreeEnergyTime{
+					Start: "02:00",
+					End:   "03:00",
+				},
+				EnergyStates: []EnergyState{
+					{ConditionName: "black"},
+				},
+			},
+		}
+
+		// Test with UTC timezone
+		utcManager := NewManager(mockClient, stateManager, testConfig, logger, false, time.UTC)
+		assert.Equal(t, time.UTC, utcManager.timezone)
+
+		// Test with different timezone
+		estLocation, err := time.LoadLocation("America/New_York")
+		assert.NoError(t, err)
+		estManager := NewManager(mockClient, stateManager, testConfig, logger, false, estLocation)
+		assert.Equal(t, estLocation, estManager.timezone)
+
+		// Both managers should use their configured timezone for calculations
+		// We can't easily test the exact behavior without mocking time.Now(),
+		// but we've verified the timezone is set correctly
+	})
 }

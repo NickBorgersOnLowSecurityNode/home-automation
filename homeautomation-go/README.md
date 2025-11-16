@@ -83,6 +83,7 @@ The system manages 28 state variables across 3 types (27 synced with HA + 1 loca
    HA_URL=wss://your-homeassistant/api/websocket
    HA_TOKEN=your_long_lived_access_token
    READ_ONLY=true
+   TIMEZONE=America/New_York
    ```
 
    **Configuration Options:**
@@ -93,6 +94,11 @@ The system manages 28 state variables across 3 types (27 synced with HA + 1 loca
    - `READ_ONLY`: Set to `true` for read-only mode (recommended for parallel testing)
      - `true`: Only reads and monitors state, makes NO changes to Home Assistant
      - `false`: Can read and write state changes
+   - `TIMEZONE` (Optional): Timezone for time-based automations (e.g., free energy windows)
+     - Default: `UTC`
+     - Examples: `America/New_York`, `America/Chicago`, `America/Los_Angeles`, `Europe/London`
+     - See [IANA Time Zone Database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for all valid values
+     - This ensures automations trigger at the correct local time, not UTC
 
    **Read-Only Mode** is perfect for:
    - Running alongside your existing Node-RED setup
