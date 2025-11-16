@@ -134,8 +134,13 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 				},
 			}
 
+			// Use a fixed time provider with a Monday (not Sunday) for testing
+			// This ensures tests are independent of what day they run on
+			fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday, January 6, 2025
+			timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+
 			// Create manager
-			manager := NewManager(mockHA, stateMgr, config, logger, true)
+			manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider)
 
 			// Set up initial state
 			if err := stateMgr.SetBool("isAnyoneHome", tt.isAnyoneHome); err != nil {
@@ -173,7 +178,12 @@ func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	config := &MusicConfig{}
-	manager := NewManager(mockHA, stateMgr, config, logger, true)
+
+	// Use a fixed time provider with a Monday (not Sunday) for testing
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday, January 6, 2025
+	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider)
 
 	tests := []struct {
 		dayPhase          string
@@ -192,11 +202,6 @@ func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.dayPhase+"_"+tt.currentMusicType, func(t *testing.T) {
-			// Skip Sunday test for morning (handled separately)
-			if tt.dayPhase == "morning" && time.Now().Weekday() == time.Sunday {
-				t.Skip("Skipping morning test on Sunday")
-			}
-
 			result := manager.determineMusicModeFromDayPhase(tt.dayPhase, tt.currentMusicType)
 			if result != tt.expectedMusicMode {
 				t.Errorf("For dayPhase=%s, currentMusicType=%s: expected %s, got %s",
@@ -223,7 +228,11 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockHA, stateMgr, config, logger, true)
+	// Use a fixed time provider with a Monday (not Sunday) for testing
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday, January 6, 2025
+	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider)
 
 	// Set initial state
 	if err := stateMgr.SetBool("isAnyoneHome", true); err != nil {
