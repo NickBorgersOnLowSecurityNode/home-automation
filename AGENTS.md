@@ -533,19 +533,22 @@ make pre-commit
 **Runs automatically before every push.** This is the main quality gate:
 
 ```bash
-# Automatically runs via git hook (cannot run manually)
-# This runs comprehensive validation:
+# Automatically runs via git hook, or manually:
+make pre-push
+
+# This runs comprehensive validation (matches CI exactly):
 # 1. Build check (go build ./...)
-# 2. All tests (go test ./...)
-# 3. Race detector (go test -race ./...)
-# 4. Coverage check (≥70%)
+# 2. All tests with race detector (go test -race ./...)
+# 3. Coverage check (≥70%)
 ```
 
 **Your push will be blocked if tests fail.**
 
+**The `make pre-push` target uses the exact same coverage check as CI**, ensuring local validation matches what will run in GitHub Actions. This prevents surprises when your PR is tested.
+
 #### Manual Testing
 
-If you want to run the full test suite before committing:
+If you want to run individual test commands:
 
 ```bash
 cd homeautomation-go
@@ -568,8 +571,11 @@ make lint-go
 # Run all pre-commit checks:
 make pre-commit
 
+# Run all pre-push checks (same as CI):
+make pre-push
+
 # One-liner to catch most issues:
-cd homeautomation-go && go build ./... && go test ./... && echo "✅ Ready to push"
+make pre-push
 ```
 
 #### Required Tools
