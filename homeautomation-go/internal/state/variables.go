@@ -20,7 +20,7 @@ type StateVariable struct {
 	LocalOnly bool        // If true, only exists in memory, not synced with HA
 }
 
-// AllVariables contains all 30 state variables (28 synced with HA + 2 local-only)
+// AllVariables contains all 31 state variables (29 synced with HA + 2 local-only)
 var AllVariables = []StateVariable{
 	// Booleans (19)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},
@@ -28,6 +28,7 @@ var AllVariables = []StateVariable{
 	{Key: "isToriHere", EntityID: "input_boolean.tori_here", Type: TypeBool, Default: false},
 	{Key: "isAnyOwnerHome", EntityID: "input_boolean.any_owner_home", Type: TypeBool, Default: false},
 	{Key: "isAnyoneHome", EntityID: "input_boolean.anyone_home", Type: TypeBool, Default: false},
+	{Key: "isAnyoneHomeAndAwake", EntityID: "input_boolean.anyone_home_and_awake", Type: TypeBool, Default: false},
 	{Key: "isMasterAsleep", EntityID: "input_boolean.master_asleep", Type: TypeBool, Default: false},
 	{Key: "isGuestAsleep", EntityID: "input_boolean.guest_asleep", Type: TypeBool, Default: false},
 	{Key: "isAnyoneAsleep", EntityID: "input_boolean.anyone_asleep", Type: TypeBool, Default: false},
