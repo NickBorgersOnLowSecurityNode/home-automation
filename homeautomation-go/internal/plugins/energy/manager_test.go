@@ -198,7 +198,7 @@ func TestIsFreeEnergyTime(t *testing.T) {
 	}
 }
 
-func TestLoadConfig(t *testing.T) {
+func TestLoadConfigFromRepoFile(t *testing.T) {
 	// Test loading the actual config file
 	// Skip this test if config file doesn't exist (e.g., in CI)
 	configPath := "../../../../configs/energy_config.yaml"

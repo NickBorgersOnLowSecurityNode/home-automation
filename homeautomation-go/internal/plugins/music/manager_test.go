@@ -321,7 +321,7 @@ func TestLoadMusicConfig(t *testing.T) {
 	configPath := filepath.Join(repoRoot, "configs", "music_config.yaml")
 
 	// Test with the actual config file
-	config, err := LoadMusicConfig(configPath)
+	config, err := LoadConfig(configPath)
 	if err != nil {
 		t.Fatalf("Failed to load music config: %v", err)
 	}

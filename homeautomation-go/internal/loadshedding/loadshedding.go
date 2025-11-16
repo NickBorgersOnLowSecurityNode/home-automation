@@ -43,8 +43,8 @@ type LoadShedding struct {
 	enabled      bool
 }
 
-// New creates a new LoadShedding controller
-func New(stateManager *state.Manager, client ha.HAClient, logger *zap.Logger) *LoadShedding {
+// NewManager creates a new LoadShedding controller
+func NewManager(stateManager *state.Manager, client ha.HAClient, logger *zap.Logger) *LoadShedding {
 	return &LoadShedding{
 		state:   stateManager,
 		client:  client,
