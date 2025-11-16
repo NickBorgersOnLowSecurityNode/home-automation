@@ -86,6 +86,7 @@ The system manages 30 state variables across 3 types (28 synced with HA + 2 loca
    HA_TOKEN=your_long_lived_access_token
    READ_ONLY=true
    TIMEZONE=America/New_York
+   HTTP_PORT=8080
    ```
 
    **Configuration Options:**
@@ -101,6 +102,9 @@ The system manages 30 state variables across 3 types (28 synced with HA + 2 loca
      - Examples: `America/New_York`, `America/Chicago`, `America/Los_Angeles`, `Europe/London`
      - See [IANA Time Zone Database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for all valid values
      - This ensures automations trigger at the correct local time, not UTC
+   - `HTTP_PORT` (Optional): Port for the HTTP API server
+     - Default: `8080`
+     - The API provides endpoints for querying state (see HTTP API section below)
 
    **Read-Only Mode** is perfect for:
    - Running alongside your existing Node-RED setup
@@ -181,6 +185,101 @@ func main() {
     swapped, _ := manager.CompareAndSwapBool("isFadeOutInProgress", false, true)
 }
 ```
+
+## HTTP API
+
+The application includes an HTTP API server for querying the current state of all variables. This is useful for:
+- Monitoring state from external tools
+- Building dashboards
+- Debugging and development
+- Integration with other services
+
+### API Endpoints
+
+#### `GET /api/state`
+
+Returns the current state of all variables in JSON format.
+
+**Response Format:**
+```json
+{
+  "booleans": {
+    "isNickHome": true,
+    "isCarolineHome": false,
+    "isAnyoneHome": true,
+    ...
+  },
+  "numbers": {
+    "alarmTime": 7.5,
+    "remainingSolarGeneration": 1234.56,
+    "thisHourSolarGeneration": 500.0
+  },
+  "strings": {
+    "dayPhase": "morning",
+    "sunevent": "sunrise",
+    "musicPlaybackType": "default",
+    "batteryEnergyLevel": "high",
+    "currentEnergyLevel": "medium",
+    "solarProductionEnergyLevel": "high"
+  },
+  "jsons": {
+    "currentlyPlayingMusic": {
+      "uri": "spotify:track:...",
+      "name": "Song Title",
+      "artist": "Artist Name"
+    }
+  }
+}
+```
+
+#### `GET /health`
+
+Simple health check endpoint that returns `{"status": "ok"}`.
+
+### Configuration
+
+The HTTP API server is configured via environment variables:
+
+```env
+# Optional: HTTP API server port
+# Default: 8080
+HTTP_PORT=8080
+```
+
+### Usage Examples
+
+**Using curl:**
+```bash
+# Get all state
+curl http://localhost:8080/api/state
+
+# Pretty print with jq
+curl http://localhost:8080/api/state | jq .
+
+# Get just booleans
+curl http://localhost:8080/api/state | jq .booleans
+
+# Check a specific variable
+curl http://localhost:8080/api/state | jq .booleans.isNickHome
+
+# Health check
+curl http://localhost:8080/health
+```
+
+**From a web browser:**
+```
+http://localhost:8080/api/state
+```
+
+**From another application:**
+```go
+resp, _ := http.Get("http://localhost:8080/api/state")
+var state StateResponse
+json.NewDecoder(resp.Body).Decode(&state)
+fmt.Printf("Is anyone home? %v\n", state.Booleans["isAnyoneHome"])
+```
+
+**Note:** The API server starts automatically when the application runs. No additional setup is required.
 
 ## Docker
 
