@@ -344,4 +344,3 @@ func startSleepHygieneManager(client ha.HAClient, stateManager *state.Manager, l
 	logger.Info("Sleep Hygiene Manager started successfully")
 	return sleepHygieneManager, nil
 }
-

@@ -1,0 +1,59 @@
+name: Style Check
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - '**'
+  push:
+    branches:
+      - 'claude/**'  # Test development branches
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  go-style-and-tests:
+    name: Go Style Check & Tests (via make pre-commit)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: homeautomation-go/go.sum
+
+      - name: Run make pre-commit
+        run: |
+          echo "════════════════════════════════════════════════════════════════════"
+          echo "Running 'make pre-commit' - Same checks as git pre-commit hook"
+          echo "════════════════════════════════════════════════════════════════════"
+          echo ""
+          make pre-commit
+
+      - name: Overall Summary
+        if: always()
+        run: |
+          echo ""
+          echo "════════════════════════════════════════════════════════════════════"
+          echo "                   CI VALIDATION COMPLETE"
+          echo "════════════════════════════════════════════════════════════════════"
+          echo ""
+          echo "This workflow runs 'make pre-commit' which executes:"
+          echo "  • gofmt formatting check"
+          echo "  • goimports import organization check"
+          echo "  • go vet static analysis"
+          echo "  • staticcheck linting"
+          echo "  • Build verification (go build ./...)"
+          echo "  • All unit and integration tests"
+          echo "  • Race detector (go test -race ./...)"
+          echo ""
+          echo "These are the SAME checks enforced by the git pre-commit hook."
+          echo "To run locally: make pre-commit"
+          echo "════════════════════════════════════════════════════════════════════"
