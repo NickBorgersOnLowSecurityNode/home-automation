@@ -99,6 +99,12 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("already connected")
 	}
 
+	// Reset message ID counter for new connection
+	// Each WebSocket session expects message IDs to start from 1
+	c.msgIDMu.Lock()
+	c.msgID = 0
+	c.msgIDMu.Unlock()
+
 	// Connect to WebSocket
 	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
 	if err != nil {
