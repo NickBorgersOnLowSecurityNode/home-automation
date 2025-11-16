@@ -410,3 +410,44 @@ func TestStart(t *testing.T) {
 	calls := mockClient.GetServiceCalls()
 	assert.Greater(t, len(calls), 0, "Expected service calls after day phase change")
 }
+
+// TestLightingManager_Stop tests the Stop method and subscription cleanup
+func TestLightingManager_Stop(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create minimal config
+	config := &HueConfig{
+		Rooms: []RoomConfig{
+			{
+				HueGroup:   "Living Room",
+				HASSAreaID: "living_room",
+			},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, false)
+
+	// Initialize required state variables
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetString("sunevent", "sunrise")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isEveryoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isHaveGuests", false)
+
+	// Start manager (creates subscriptions)
+	err := manager.Start()
+	assert.NoError(t, err)
+
+	// Verify subscriptions were created (7 subscriptions)
+	assert.Equal(t, 7, len(manager.subscriptions), "Should have 7 subscriptions")
+
+	// Stop manager
+	manager.Stop()
+
+	// Verify subscriptions were cleaned up
+	assert.Nil(t, manager.subscriptions, "Subscriptions should be nil after Stop")
+}
