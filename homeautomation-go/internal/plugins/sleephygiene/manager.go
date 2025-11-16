@@ -36,15 +36,16 @@ func (f FixedTimeProvider) Now() time.Time {
 
 // Manager handles sleep hygiene automations including wake-up sequences
 type Manager struct {
-	haClient      ha.HAClient
-	stateManager  *state.Manager
-	configLoader  *config.Loader
-	logger        *zap.Logger
-	readOnly      bool
-	timeProvider  TimeProvider
-	stopChan      chan struct{}
-	ticker        *time.Ticker
-	subscriptions []state.Subscription
+	haClient        ha.HAClient
+	stateManager    *state.Manager
+	configLoader    *config.Loader
+	logger          *zap.Logger
+	readOnly        bool
+	timeProvider    TimeProvider
+	stopChan        chan struct{}
+	ticker          *time.Ticker
+	subscriptions   []state.Subscription
+	haSubscriptions []ha.Subscription
 
 	// Track which triggers have been fired today
 	triggeredToday map[string]time.Time
@@ -57,15 +58,16 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader 
 		timeProvider = RealTimeProvider{}
 	}
 	return &Manager{
-		haClient:       haClient,
-		stateManager:   stateManager,
-		configLoader:   configLoader,
-		logger:         logger.Named("sleephygiene"),
-		readOnly:       readOnly,
-		timeProvider:   timeProvider,
-		stopChan:       make(chan struct{}),
-		subscriptions:  make([]state.Subscription, 0),
-		triggeredToday: make(map[string]time.Time),
+		haClient:        haClient,
+		stateManager:    stateManager,
+		configLoader:    configLoader,
+		logger:          logger.Named("sleephygiene"),
+		readOnly:        readOnly,
+		timeProvider:    timeProvider,
+		stopChan:        make(chan struct{}),
+		subscriptions:   make([]state.Subscription, 0),
+		haSubscriptions: make([]ha.Subscription, 0),
+		triggeredToday:  make(map[string]time.Time),
 	}
 }
 
@@ -79,6 +81,13 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to alarmTime: %w", err)
 	}
 	m.subscriptions = append(m.subscriptions, sub)
+
+	// Subscribe to bedroom lights state changes (for cancel auto-wake logic)
+	lightSub, err := m.haClient.SubscribeStateChanges("light.primary_suite", m.handleBedroomLightsChange)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to bedroom lights: %w", err)
+	}
+	m.haSubscriptions = append(m.haSubscriptions, lightSub)
 
 	// Start ticker to check time triggers every minute
 	m.ticker = time.NewTicker(1 * time.Minute)
@@ -103,11 +112,19 @@ func (m *Manager) Stop() {
 	// Signal stop
 	close(m.stopChan)
 
-	// Unsubscribe from all subscriptions
+	// Unsubscribe from all state subscriptions
 	for _, sub := range m.subscriptions {
 		sub.Unsubscribe()
 	}
 	m.subscriptions = nil
+
+	// Unsubscribe from all HA subscriptions
+	for _, sub := range m.haSubscriptions {
+		if err := sub.Unsubscribe(); err != nil {
+			m.logger.Warn("Failed to unsubscribe from HA subscription", zap.Error(err))
+		}
+	}
+	m.haSubscriptions = nil
 
 	m.logger.Info("Sleep Hygiene Manager stopped")
 }
@@ -124,6 +141,26 @@ func (m *Manager) handleAlarmTimeChange(key string, oldValue, newValue interface
 
 	// Check if we should trigger now
 	m.checkTimeTriggers()
+}
+
+// handleBedroomLightsChange processes bedroom lights state changes from Home Assistant
+func (m *Manager) handleBedroomLightsChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	m.logger.Debug("Bedroom lights state changed",
+		zap.String("entity_id", entityID),
+		zap.String("new_state", newState.State),
+		zap.String("old_state", func() string {
+			if oldState != nil {
+				return oldState.State
+			}
+			return "unknown"
+		}()))
+
+	// Handle the state change
+	m.handleBedroomLightsOff(newState.State)
 }
 
 // runTimerLoop runs the main timer loop that checks for time triggers
@@ -506,10 +543,7 @@ func (m *Manager) handleWake() {
 		// 1. Turn on master bedroom lights slowly (30 minute transition)
 		m.turnOnMasterBedroomLights()
 
-		// 2. Flash lights in common areas
-		m.flashCommonAreaLights()
-
-		// 3. Check if both owners can cuddle and announce
+		// 2. Check if both owners can cuddle and announce
 		m.checkAndAnnounceCuddle()
 	} else {
 		m.logger.Info("READ-ONLY: Would execute wake sequence (lights + cuddle)")
@@ -543,11 +577,31 @@ func (m *Manager) handleStopScreens() {
 	}
 }
 
-// handleGoToBed handles the go_to_bed trigger
+// handleGoToBed handles the go_to_bed trigger (flash lights as bedtime reminder)
 func (m *Manager) handleGoToBed() {
 	m.logger.Info("Handling go_to_bed trigger")
-	// Note: The Node-RED implementation doesn't have logic for this trigger yet
-	// This is a placeholder for future implementation
+
+	// Check conditions: anyone home and not everyone asleep
+	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
+	if err != nil || !isAnyoneHome {
+		m.logger.Debug("Skipping go_to_bed: no one home")
+		return
+	}
+
+	isEveryoneAsleep, err := m.stateManager.GetBool("isEveryoneAsleep")
+	if err != nil || isEveryoneAsleep {
+		m.logger.Debug("Skipping go_to_bed: everyone is asleep")
+		return
+	}
+
+	// Conditions met - flash lights
+	m.logger.Info("Conditions met for go_to_bed, flashing lights")
+
+	if !m.readOnly {
+		m.flashCommonAreaLights()
+	} else {
+		m.logger.Info("READ-ONLY: Would flash common area lights")
+	}
 }
 
 // turnOnMasterBedroomLights turns on master bedroom lights with a slow 30-minute transition
@@ -627,6 +681,53 @@ func (m *Manager) checkAndAnnounceCuddle() {
 		m.logger.Debug("Only one owner home, skipping cuddle announcement",
 			zap.Bool("nick_home", isNickHome),
 			zap.Bool("caroline_home", isCarolineHome))
+	}
+}
+
+// turnOffBathroomLights turns off primary bathroom lights
+func (m *Manager) turnOffBathroomLights() {
+	m.logger.Info("Turning off primary bathroom lights")
+
+	if err := m.haClient.CallService("light", "turn_off", map[string]interface{}{
+		"entity_id": "light.primary_bathroom_main_lights",
+	}); err != nil {
+		m.logger.Error("Failed to turn off bathroom lights", zap.Error(err))
+	}
+}
+
+// handleBedroomLightsOff handles bedroom lights turning off during wake sequence
+// This implements the "cancel auto-wake" logic from Node-RED
+func (m *Manager) handleBedroomLightsOff(state string) {
+	if state != "off" {
+		return
+	}
+
+	m.logger.Debug("Bedroom lights turned off, checking if wake sequence should be cancelled")
+
+	// Check if wake-up music is playing
+	musicPlaybackType, err := m.stateManager.GetString("musicPlaybackType")
+	if err != nil {
+		m.logger.Debug("Failed to get musicPlaybackType", zap.Error(err))
+		return
+	}
+
+	if musicPlaybackType == "wakeup" {
+		m.logger.Info("Bedroom lights turned off during wake sequence - cancelling wake and reverting to sleep music")
+
+		if !m.readOnly {
+			// Revert music back to sleep mode
+			if err := m.stateManager.SetString("musicPlaybackType", "sleep"); err != nil {
+				m.logger.Error("Failed to set musicPlaybackType to sleep", zap.Error(err))
+			}
+
+			// Turn off bathroom lights
+			m.turnOffBathroomLights()
+		} else {
+			m.logger.Info("READ-ONLY: Would revert to sleep music and turn off bathroom lights")
+		}
+	} else {
+		m.logger.Debug("Bedroom lights turned off but not during wake sequence, no action needed",
+			zap.String("current_music_type", musicPlaybackType))
 	}
 }
 

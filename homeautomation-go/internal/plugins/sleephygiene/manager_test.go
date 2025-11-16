@@ -211,10 +211,10 @@ func TestWake_AllConditionsMet(t *testing.T) {
 
 	// Should have:
 	// - 2 calls for master bedroom lights (initial + transition)
-	// - 2 calls for common area lights flash
 	// - 1 call for TTS cuddle announcement
-	if len(calls) < 5 {
-		t.Errorf("Expected at least 5 service calls, got %d", len(calls))
+	// Note: Flash lights removed from wake sequence (moved to bedtime triggers)
+	if len(calls) < 3 {
+		t.Errorf("Expected at least 3 service calls, got %d", len(calls))
 	}
 
 	// Check that light service was called for master bedroom
