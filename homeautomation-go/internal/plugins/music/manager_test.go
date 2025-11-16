@@ -41,13 +41,13 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 			description:       "Sleep mode has highest priority",
 		},
 		{
-			name:              "Morning - morning mode",
+			name:              "Morning - day mode (no wake-up event)",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    false,
 			dayPhase:          "morning",
 			currentMusicType:  "",
-			expectedMusicType: "morning",
-			description:       "Morning phase triggers morning music",
+			expectedMusicType: "day",
+			description:       "Morning phase without wake-up event triggers day music",
 		},
 		{
 			name:              "Day - day mode",
@@ -190,7 +190,7 @@ func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
 		currentMusicType  string
 		expectedMusicMode string
 	}{
-		{"morning", "", "morning"},
+		{"morning", "", "day"},         // Morning without wake-up event = day music
 		{"day", "", "day"},
 		{"sunset", "", "evening"},
 		{"dusk", "", "evening"},
@@ -202,7 +202,7 @@ func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.dayPhase+"_"+tt.currentMusicType, func(t *testing.T) {
-			result := manager.determineMusicModeFromDayPhase(tt.dayPhase, tt.currentMusicType)
+			result := manager.determineMusicModeFromDayPhase(tt.dayPhase, tt.currentMusicType, "", false)
 			if result != tt.expectedMusicMode {
 				t.Errorf("For dayPhase=%s, currentMusicType=%s: expected %s, got %s",
 					tt.dayPhase, tt.currentMusicType, tt.expectedMusicMode, result)
