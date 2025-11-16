@@ -1080,3 +1080,170 @@ func TestManagerReset(t *testing.T) {
 		t.Fatalf("Reset() failed: %v", err)
 	}
 }
+
+// TestCurrentlyPlayingMusicUri_SetOnPlayback tests that currentlyPlayingMusicUri
+// is set when playback starts
+func TestCurrentlyPlayingMusicUri_SetOnPlayback(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	testURI := "spotify:playlist:37i9dQZF1DX4dyzvuaRJ0n"
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: testURI, MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+
+	// Orchestrate playback
+	err := manager.orchestratePlayback("day")
+	if err != nil {
+		t.Fatalf("orchestratePlayback() failed: %v", err)
+	}
+
+	// Verify currentlyPlayingMusicUri was set
+	currentURI, err := stateManager.GetString("currentlyPlayingMusicUri")
+	if err != nil {
+		t.Fatalf("Failed to get currentlyPlayingMusicUri: %v", err)
+	}
+
+	if currentURI != testURI {
+		t.Errorf("Expected currentlyPlayingMusicUri = %q, got %q", testURI, currentURI)
+	}
+}
+
+// TestCurrentlyPlayingMusicUri_ClearOnStop tests that currentlyPlayingMusicUri
+// is cleared when playback stops
+func TestCurrentlyPlayingMusicUri_ClearOnStop(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	testURI := "spotify:playlist:37i9dQZF1DX4dyzvuaRJ0n"
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: testURI, MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up currently playing music and URI
+	manager.currentlyPlaying = &CurrentlyPlayingMusic{
+		Type: "day",
+		URI:  testURI,
+	}
+	_ = stateManager.SetString("currentlyPlayingMusicUri", testURI)
+
+	// Verify URI is set before stopping
+	currentURI, err := stateManager.GetString("currentlyPlayingMusicUri")
+	if err != nil {
+		t.Fatalf("Failed to get currentlyPlayingMusicUri before stop: %v", err)
+	}
+	if currentURI != testURI {
+		t.Errorf("Before stop: expected currentlyPlayingMusicUri = %q, got %q", testURI, currentURI)
+	}
+
+	// Stop playback
+	manager.stopPlayback()
+
+	// Verify currentlyPlayingMusicUri was cleared
+	currentURI, err = stateManager.GetString("currentlyPlayingMusicUri")
+	if err != nil {
+		t.Fatalf("Failed to get currentlyPlayingMusicUri after stop: %v", err)
+	}
+
+	if currentURI != "" {
+		t.Errorf("Expected currentlyPlayingMusicUri to be empty after stop, got %q", currentURI)
+	}
+}
+
+// TestCurrentlyPlayingMusicUri_UpdateOnModeChange tests that currentlyPlayingMusicUri
+// is updated when music mode changes
+func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	dayURI := "spotify:playlist:day-playlist"
+	eveningURI := "spotify:playlist:evening-playlist"
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: dayURI, MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+			"evening": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: eveningURI, MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	// Use a fixed time for testing (to avoid rate limiting)
+	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider)
+
+	// Start with day music
+	err := manager.orchestratePlayback("day")
+	if err != nil {
+		t.Fatalf("orchestratePlayback(day) failed: %v", err)
+	}
+
+	// Verify day URI is set
+	currentURI, err := stateManager.GetString("currentlyPlayingMusicUri")
+	if err != nil {
+		t.Fatalf("Failed to get currentlyPlayingMusicUri for day: %v", err)
+	}
+	if currentURI != dayURI {
+		t.Errorf("Expected currentlyPlayingMusicUri = %q for day, got %q", dayURI, currentURI)
+	}
+
+	// Update time to avoid rate limiting
+	timeProvider.FixedTime = fixedTime.Add(11 * time.Second)
+	manager.timeProvider = timeProvider
+
+	// Switch to evening music
+	err = manager.orchestratePlayback("evening")
+	if err != nil {
+		t.Fatalf("orchestratePlayback(evening) failed: %v", err)
+	}
+
+	// Verify evening URI is set
+	currentURI, err = stateManager.GetString("currentlyPlayingMusicUri")
+	if err != nil {
+		t.Fatalf("Failed to get currentlyPlayingMusicUri for evening: %v", err)
+	}
+	if currentURI != eveningURI {
+		t.Errorf("Expected currentlyPlayingMusicUri = %q for evening, got %q", eveningURI, currentURI)
+	}
+}
