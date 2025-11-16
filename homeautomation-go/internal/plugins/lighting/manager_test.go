@@ -264,10 +264,10 @@ func TestActivateScene(t *testing.T) {
 	assert.Equal(t, 1, len(calls))
 
 	call := calls[0]
-	assert.Equal(t, "hue", call.Domain)
-	assert.Equal(t, "hue_activate_scene", call.Service)
-	assert.Equal(t, "Living Room", call.Data["group_name"])
-	assert.Equal(t, "Morning", call.Data["scene_name"])
+	assert.Equal(t, "scene", call.Domain)
+	assert.Equal(t, "turn_on", call.Service)
+	assert.Equal(t, "scene.living_room_morning", call.Data["entity_id"])
+	assert.Equal(t, "living_room_2", call.Data["area_id"])
 	assert.Equal(t, 30, call.Data["transition"])
 }
 
@@ -330,7 +330,11 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 		{
 			name: "Room should turn off",
 			setupState: func() {
+				// Set OFF condition to true
 				_ = stateManager.SetBool("isEveryoneAsleep", true)
+				// Make sure ON conditions are false
+				_ = stateManager.SetBool("isAnyoneHome", false)
+				_ = stateManager.SetBool("isTVPlaying", true) // OnIfFalse should be false
 			},
 			roomIndex:         0,
 			dayPhase:          "Night",
@@ -346,8 +350,8 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 			},
 			roomIndex:         0,
 			dayPhase:          "Morning",
-			expectedService:   "hue_activate_scene",
-			expectedDomain:    "hue",
+			expectedService:   "turn_on",
+			expectedDomain:    "scene",
 			shouldCallService: true,
 		},
 	}
@@ -359,7 +363,7 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 
 			tt.setupState()
 			room := &config.Rooms[tt.roomIndex]
-			manager.evaluateAndActivateRoom(room, tt.dayPhase)
+			manager.evaluateAndActivateRoom(room, tt.dayPhase, "")
 
 			calls := mockClient.GetServiceCalls()
 			if tt.shouldCallService {
