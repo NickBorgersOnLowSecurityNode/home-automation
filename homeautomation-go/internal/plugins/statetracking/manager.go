@@ -276,13 +276,27 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
 
-		// Run announcement asynchronously to avoid deadlocks
-		go m.announceArrival("Nick", "Nick is home", []string{
-			"media_player.kitchen",
-			"media_player.dining_room",
-			"media_player.soundbar",
-			"media_player.kids_bathroom",
-		})
+		// Check if anyone else was already home (Caroline or Tori)
+		// We check the OLD value of isAnyoneHome before Nick arrived
+		wasAnyoneHome := false
+		if isCarolineHome, err := m.stateManager.GetBool("isCarolineHome"); err == nil && isCarolineHome {
+			wasAnyoneHome = true
+		}
+		if isToriHere, err := m.stateManager.GetBool("isToriHere"); err == nil && isToriHere {
+			wasAnyoneHome = true
+		}
+
+		if wasAnyoneHome {
+			// Run announcement asynchronously to avoid deadlocks
+			go m.announceArrivalDirect("Nick", "Nick is home", []string{
+				"media_player.kitchen",
+				"media_player.dining_room",
+				"media_player.soundbar",
+				"media_player.kids_bathroom",
+			})
+		} else {
+			m.logger.Debug("Nobody else was home, not announcing Nick's arrival")
+		}
 	}
 }
 
@@ -299,14 +313,27 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
 
-		// Run announcement asynchronously to avoid deadlocks
-		go m.announceArrival("Caroline", "Caroline is home", []string{
-			"media_player.kitchen",
-			"media_player.dining_room",
-			"media_player.kids_bathroom",
-			"media_player.soundbar",
-			"media_player.office",
-		})
+		// Check if anyone else was already home (Nick or Tori)
+		wasAnyoneHome := false
+		if isNickHome, err := m.stateManager.GetBool("isNickHome"); err == nil && isNickHome {
+			wasAnyoneHome = true
+		}
+		if isToriHere, err := m.stateManager.GetBool("isToriHere"); err == nil && isToriHere {
+			wasAnyoneHome = true
+		}
+
+		if wasAnyoneHome {
+			// Run announcement asynchronously to avoid deadlocks
+			go m.announceArrivalDirect("Caroline", "Caroline is home", []string{
+				"media_player.kitchen",
+				"media_player.dining_room",
+				"media_player.kids_bathroom",
+				"media_player.soundbar",
+				"media_player.office",
+			})
+		} else {
+			m.logger.Debug("Nobody else was home, not announcing Caroline's arrival")
+		}
 	}
 }
 
@@ -323,34 +350,32 @@ func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.S
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
 
-		// Run announcement asynchronously to avoid deadlocks
-		go m.announceArrival("Tori", "Tori is here", []string{
-			"media_player.kitchen",
-			"media_player.dining_room",
-			"media_player.kids_bathroom",
-			"media_player.soundbar",
-			"media_player.office",
-		})
+		// Check if anyone else was already home (Nick or Caroline)
+		wasAnyoneHome := false
+		if isNickHome, err := m.stateManager.GetBool("isNickHome"); err == nil && isNickHome {
+			wasAnyoneHome = true
+		}
+		if isCarolineHome, err := m.stateManager.GetBool("isCarolineHome"); err == nil && isCarolineHome {
+			wasAnyoneHome = true
+		}
+
+		if wasAnyoneHome {
+			// Run announcement asynchronously to avoid deadlocks
+			go m.announceArrivalDirect("Tori", "Tori is here", []string{
+				"media_player.kitchen",
+				"media_player.dining_room",
+				"media_player.kids_bathroom",
+				"media_player.soundbar",
+				"media_player.office",
+			})
+		} else {
+			m.logger.Debug("Nobody else was home, not announcing Tori's arrival")
+		}
 	}
 }
 
-// announceArrival makes a TTS announcement if someone is already home
-func (m *Manager) announceArrival(person, message string, mediaPlayers []string) {
-	// Check if anyone is already home
-	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
-	if err != nil {
-		m.logger.Error("Failed to get isAnyoneHome for arrival announcement",
-			zap.String("person", person),
-			zap.Error(err))
-		return
-	}
-
-	if !isAnyoneHome {
-		m.logger.Debug("Nobody home yet, not announcing arrival",
-			zap.String("person", person))
-		return
-	}
-
+// announceArrivalDirect makes a TTS announcement (caller has already checked if someone is home)
+func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []string) {
 	// Skip TTS in read-only mode
 	if m.readOnly {
 		m.logger.Info("Would announce arrival (read-only mode)",
@@ -366,7 +391,7 @@ func (m *Manager) announceArrival(person, message string, mediaPlayers []string)
 		zap.String("message", message),
 		zap.Strings("media_players", mediaPlayers))
 
-	err = m.haClient.CallService("tts", "speak", map[string]interface{}{
+	err := m.haClient.CallService("tts", "speak", map[string]interface{}{
 		"entity_id":              "tts.google_translate_en_com",
 		"message":                message,
 		"cache":                  true,
