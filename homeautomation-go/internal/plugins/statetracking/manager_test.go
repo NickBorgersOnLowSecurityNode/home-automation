@@ -226,6 +226,11 @@ func TestStateTrackingManager_IsAnyoneAsleep(t *testing.T) {
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
 
+			// Set isHaveGuests to true to test independent sleep states
+			if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
+				t.Fatalf("Failed to set isHaveGuests: %v", err)
+			}
+
 			// Set up initial state
 			if err := stateMgr.SetBool("isMasterAsleep", tt.isMasterAsleep); err != nil {
 				t.Fatalf("Failed to set isMasterAsleep: %v", err)
@@ -299,6 +304,11 @@ func TestStateTrackingManager_IsEveryoneAsleep(t *testing.T) {
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
+
+			// Set isHaveGuests to true to test independent sleep states
+			if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
+				t.Fatalf("Failed to set isHaveGuests: %v", err)
+			}
 
 			// Set up initial state
 			if err := stateMgr.SetBool("isMasterAsleep", tt.isMasterAsleep); err != nil {
@@ -401,6 +411,11 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
+	// Set isHaveGuests to true to test independent sleep states
+	if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
+		t.Fatalf("Failed to set isHaveGuests: %v", err)
+	}
+
 	// Set up initial state - everyone awake
 	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
 		t.Fatalf("Failed to set isMasterAsleep: %v", err)
@@ -501,4 +516,193 @@ func TestStateTrackingManager_StopCleansUpSubscriptions(t *testing.T) {
 	// state helper will have already unsubscribed, so we can't easily
 	// verify this without accessing internal state. The main goal is
 	// to ensure Stop() doesn't panic and properly calls helper.Stop())
+}
+
+func TestStateTrackingManager_GuestAsleepAutoSync_NoGuests(t *testing.T) {
+	// Test that guest asleep auto-syncs with master when no guests
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: No guests, master awake, guest awake
+	if err := stateMgr.SetBool("isHaveGuests", false); err != nil {
+		t.Fatalf("Failed to set isHaveGuests: %v", err)
+	}
+	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
+		t.Fatalf("Failed to set isGuestAsleep: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(stateMgr, logger)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Test 1: Master goes to sleep, guest should auto-sync
+	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
+		t.Fatalf("Failed to update isMasterAsleep: %v", err)
+	}
+
+	guestAsleep, _ := stateMgr.GetBool("isGuestAsleep")
+	if guestAsleep != true {
+		t.Errorf("Expected isGuestAsleep=true after master sleeps (no guests), got %v", guestAsleep)
+	}
+
+	// Verify derived states are correct
+	isEveryoneAsleep, _ := stateMgr.GetBool("isEveryoneAsleep")
+	if isEveryoneAsleep != true {
+		t.Errorf("Expected isEveryoneAsleep=true after auto-sync, got %v", isEveryoneAsleep)
+	}
+
+	// Test 2: Master wakes up, guest should auto-sync
+	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
+		t.Fatalf("Failed to update isMasterAsleep: %v", err)
+	}
+
+	guestAsleep, _ = stateMgr.GetBool("isGuestAsleep")
+	if guestAsleep != false {
+		t.Errorf("Expected isGuestAsleep=false after master wakes (no guests), got %v", guestAsleep)
+	}
+
+	// Verify derived states updated
+	isEveryoneAsleep, _ = stateMgr.GetBool("isEveryoneAsleep")
+	if isEveryoneAsleep != false {
+		t.Errorf("Expected isEveryoneAsleep=false after auto-sync, got %v", isEveryoneAsleep)
+	}
+}
+
+func TestStateTrackingManager_GuestAsleepAutoSync_WithGuests(t *testing.T) {
+	// Test that guest asleep does NOT auto-sync when guests are present
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: Have guests, master awake, guest asleep
+	if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
+		t.Fatalf("Failed to set isHaveGuests: %v", err)
+	}
+	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+	if err := stateMgr.SetBool("isGuestAsleep", true); err != nil {
+		t.Fatalf("Failed to set isGuestAsleep: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(stateMgr, logger)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Master goes to sleep
+	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
+		t.Fatalf("Failed to update isMasterAsleep: %v", err)
+	}
+
+	// Guest asleep should remain true (independent when guests present)
+	guestAsleep, _ := stateMgr.GetBool("isGuestAsleep")
+	if guestAsleep != true {
+		t.Errorf("Expected isGuestAsleep=true (independent when guests present), got %v", guestAsleep)
+	}
+
+	// Master wakes up
+	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
+		t.Fatalf("Failed to update isMasterAsleep: %v", err)
+	}
+
+	// Guest asleep should STILL be true (not synced)
+	guestAsleep, _ = stateMgr.GetBool("isGuestAsleep")
+	if guestAsleep != true {
+		t.Errorf("Expected isGuestAsleep=true (independent when guests present), got %v", guestAsleep)
+	}
+}
+
+func TestStateTrackingManager_GuestAsleepAutoSync_GuestsLeave(t *testing.T) {
+	// Test that auto-sync kicks in when isHaveGuests changes from true to false
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: Have guests, master asleep, guest awake
+	if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
+		t.Fatalf("Failed to set isHaveGuests: %v", err)
+	}
+	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
+		t.Fatalf("Failed to set isGuestAsleep: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(stateMgr, logger)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify guest asleep is independent (false) while guests present
+	guestAsleep, _ := stateMgr.GetBool("isGuestAsleep")
+	if guestAsleep != false {
+		t.Errorf("Expected isGuestAsleep=false (independent), got %v", guestAsleep)
+	}
+
+	// Guests leave (isHaveGuests changes to false)
+	if err := stateMgr.SetBool("isHaveGuests", false); err != nil {
+		t.Fatalf("Failed to update isHaveGuests: %v", err)
+	}
+
+	// Guest asleep should now auto-sync to master (true)
+	guestAsleep, _ = stateMgr.GetBool("isGuestAsleep")
+	if guestAsleep != true {
+		t.Errorf("Expected isGuestAsleep=true (synced with master after guests leave), got %v", guestAsleep)
+	}
+
+	// Verify derived state is correct
+	isEveryoneAsleep, _ := stateMgr.GetBool("isEveryoneAsleep")
+	if isEveryoneAsleep != true {
+		t.Errorf("Expected isEveryoneAsleep=true after auto-sync, got %v", isEveryoneAsleep)
+	}
+}
+
+func TestStateTrackingManager_GuestAsleepAutoSync_InitialSync(t *testing.T) {
+	// Test that auto-sync happens on startup if needed
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: No guests, master asleep, guest awake (out of sync)
+	if err := stateMgr.SetBool("isHaveGuests", false); err != nil {
+		t.Fatalf("Failed to set isHaveGuests: %v", err)
+	}
+	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
+		t.Fatalf("Failed to set isGuestAsleep: %v", err)
+	}
+
+	// Create and start manager - should auto-sync immediately
+	manager := NewManager(stateMgr, logger)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Guest asleep should be synced to master on startup
+	guestAsleep, _ := stateMgr.GetBool("isGuestAsleep")
+	if guestAsleep != true {
+		t.Errorf("Expected isGuestAsleep=true (synced on startup), got %v", guestAsleep)
+	}
+
+	// Verify derived state is correct
+	isEveryoneAsleep, _ := stateMgr.GetBool("isEveryoneAsleep")
+	if isEveryoneAsleep != true {
+		t.Errorf("Expected isEveryoneAsleep=true after initial sync, got %v", isEveryoneAsleep)
+	}
 }

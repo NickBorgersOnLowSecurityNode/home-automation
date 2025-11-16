@@ -65,7 +65,8 @@ func TestDerivedStateHelper_IsEveryoneAsleep(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	manager := NewManager(mockClient, logger, false)
 
-	// Initialize state
+	// Initialize state - set isHaveGuests to true to test independent sleep states
+	manager.SetBool("isHaveGuests", true)
 	manager.SetBool("isMasterAsleep", false)
 	manager.SetBool("isGuestAsleep", false)
 	manager.SetBool("isEveryoneAsleep", false)
