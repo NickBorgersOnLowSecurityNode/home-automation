@@ -353,8 +353,10 @@ func (c *Client) handleEvent(msg *Message) {
 	entries := append([]subscriberEntry(nil), c.subscribers[eventData.EntityID]...)
 	c.subsMu.RUnlock()
 
+	// Call handlers in separate goroutines to avoid blocking receiveMessages
+	// This prevents deadlocks when handlers try to send messages back to HA
 	for _, entry := range entries {
-		entry.handler(eventData.EntityID, eventData.OldState, eventData.NewState)
+		go entry.handler(eventData.EntityID, eventData.OldState, eventData.NewState)
 	}
 }
 
