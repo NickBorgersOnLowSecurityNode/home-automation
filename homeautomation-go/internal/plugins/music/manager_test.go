@@ -190,7 +190,7 @@ func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
 		currentMusicType  string
 		expectedMusicMode string
 	}{
-		{"morning", "", "day"},         // Morning without wake-up event = day music
+		{"morning", "", "day"}, // Morning without wake-up event = day music
 		{"day", "", "day"},
 		{"sunset", "", "evening"},
 		{"dusk", "", "evening"},
