@@ -434,3 +434,39 @@ func TestLoadMusicConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestMusicManager_ReadOnlyMode(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	// Create state manager in read-only mode
+	stateManager := state.NewManager(mockClient, logger, true)
+
+	// Initialize required state variables (can set because they're LocalOnly or initial sync)
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetString("musicPlaybackType", "")
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day":   {},
+			"sleep": {},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+
+	// Test selecting music mode in read-only mode - should handle gracefully
+	manager.selectAppropriateMusicMode()
+
+	// Test with sleep scenario
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	manager.selectAppropriateMusicMode()
+
+	// Test with no one home
+	_ = stateManager.SetBool("isAnyoneHome", false)
+	manager.selectAppropriateMusicMode()
+
+	// If we get here without panicking, the read-only mode handling worked correctly
+	// The actual verification is that no errors are thrown, just debug logs
+}
