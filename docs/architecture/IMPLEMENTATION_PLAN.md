@@ -6,6 +6,21 @@
 **Phase:** ✅ MVP COMPLETE - Ready for Parallel Testing
 **Location:** `/home/user/home-automation/homeautomation-go/`
 
+## Visual Documentation
+
+📊 **NEW:** Comprehensive Mermaid diagrams now available!
+
+- **[Visual Architecture Guide](./VISUAL_ARCHITECTURE.md)** - System diagrams, plugin flows, and dependency graphs
+- **[Diagram Generation Rules](./DIAGRAM_GENERATION_RULES.md)** - Strategy for automated diagram generation
+
+**Available Diagrams:**
+- System architecture and data flow
+- Plugin architecture and interactions
+- Music Manager logic flow (matches Node-RED Music flow)
+- Lighting Control logic flow (matches Node-RED Lighting Control flow)
+- Energy State logic flow (matches Node-RED Energy State flow)
+- State variable dependency graph
+
 ### What's Been Completed
 
 ✅ **Phase 1-5: MVP Implementation (COMPLETE)**
