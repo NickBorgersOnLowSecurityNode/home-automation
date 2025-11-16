@@ -509,3 +509,106 @@ func TestVariablesByEntityID(t *testing.T) {
 	assert.Equal(t, "isNickHome", nickHome.Key)
 	assert.Equal(t, TypeBool, nickHome.Type)
 }
+
+func TestManager_ReadOnlyMode(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
+	mockClient.SetState("input_text.battery_energy_level", "green", map[string]interface{}{})
+	mockClient.Connect()
+
+	// Create manager in read-only mode
+	manager := NewManager(mockClient, logger, true)
+	manager.SyncFromHA()
+
+	t.Run("regular variable write blocked in read-only mode", func(t *testing.T) {
+		err := manager.SetBool("isExpectingSomeone", true)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrReadOnlyMode)
+
+		// Value should not have changed
+		value, _ := manager.GetBool("isExpectingSomeone")
+		assert.False(t, value)
+
+		// Verify no service call was made
+		mockClient.ClearServiceCalls()
+		calls := mockClient.GetServiceCalls()
+		assert.Empty(t, calls)
+	})
+
+	t.Run("computed output variable write allowed in read-only mode", func(t *testing.T) {
+		mockClient.ClearServiceCalls()
+
+		// batteryEnergyLevel is marked as ComputedOutput: true
+		err := manager.SetString("batteryEnergyLevel", "yellow")
+		assert.NoError(t, err)
+
+		// Value should have changed
+		value, _ := manager.GetString("batteryEnergyLevel")
+		assert.Equal(t, "yellow", value)
+
+		// Verify service call was made to HA
+		calls := mockClient.GetServiceCalls()
+		assert.NotEmpty(t, calls)
+		lastCall := calls[len(calls)-1]
+		assert.Equal(t, "input_text", lastCall.Domain)
+		assert.Equal(t, "set_value", lastCall.Service)
+		assert.Equal(t, "yellow", lastCall.Data["value"])
+	})
+
+	t.Run("all energy variables writable in read-only mode", func(t *testing.T) {
+		mockClient.ClearServiceCalls()
+
+		// Test all three energy variables
+		err := manager.SetString("batteryEnergyLevel", "red")
+		assert.NoError(t, err)
+
+		err = manager.SetString("currentEnergyLevel", "green")
+		assert.NoError(t, err)
+
+		err = manager.SetString("solarProductionEnergyLevel", "yellow")
+		assert.NoError(t, err)
+
+		// Verify all three service calls were made
+		calls := mockClient.GetServiceCalls()
+		assert.Len(t, calls, 3)
+	})
+
+	t.Run("local-only variable write allowed in read-only mode", func(t *testing.T) {
+		// didOwnerJustReturnHome is LocalOnly: true
+		err := manager.SetBool("didOwnerJustReturnHome", true)
+		assert.NoError(t, err)
+
+		value, _ := manager.GetBool("didOwnerJustReturnHome")
+		assert.True(t, value)
+	})
+
+	t.Run("read operations work in read-only mode", func(t *testing.T) {
+		// Reading should always work
+		value, err := manager.GetBool("isExpectingSomeone")
+		assert.NoError(t, err)
+		assert.False(t, value)
+
+		strValue, err := manager.GetString("batteryEnergyLevel")
+		assert.NoError(t, err)
+		assert.Equal(t, "red", strValue) // From previous test
+	})
+}
+
+func TestManager_ComputedOutputFlagVerification(t *testing.T) {
+	// Verify that energy variables have ComputedOutput: true
+	vars := VariablesByKey()
+
+	batteryVar := vars["batteryEnergyLevel"]
+	assert.True(t, batteryVar.ComputedOutput, "batteryEnergyLevel should have ComputedOutput: true")
+
+	currentVar := vars["currentEnergyLevel"]
+	assert.True(t, currentVar.ComputedOutput, "currentEnergyLevel should have ComputedOutput: true")
+
+	solarVar := vars["solarProductionEnergyLevel"]
+	assert.True(t, solarVar.ComputedOutput, "solarProductionEnergyLevel should have ComputedOutput: true")
+
+	// Verify other variables don't have this flag
+	nickHomeVar := vars["isNickHome"]
+	assert.False(t, nickHomeVar.ComputedOutput, "isNickHome should not have ComputedOutput flag")
+}
