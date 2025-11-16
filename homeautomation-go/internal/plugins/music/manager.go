@@ -10,6 +10,28 @@ import (
 	"go.uber.org/zap"
 )
 
+// TimeProvider is an interface for getting the current time
+// This allows tests to inject a fixed time instead of using time.Now()
+type TimeProvider interface {
+	Now() time.Time
+}
+
+// RealTimeProvider returns the actual current time
+type RealTimeProvider struct{}
+
+func (r RealTimeProvider) Now() time.Time {
+	return time.Now()
+}
+
+// FixedTimeProvider returns a fixed time (for testing)
+type FixedTimeProvider struct {
+	FixedTime time.Time
+}
+
+func (f FixedTimeProvider) Now() time.Time {
+	return f.FixedTime
+}
+
 // Manager handles music mode selection and playback coordination
 type Manager struct {
 	haClient     ha.HAClient
@@ -17,16 +39,22 @@ type Manager struct {
 	config       *MusicConfig
 	logger       *zap.Logger
 	readOnly     bool
+	timeProvider TimeProvider
 }
 
 // NewManager creates a new Music manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *MusicConfig, logger *zap.Logger, readOnly bool) *Manager {
+// If timeProvider is nil, it defaults to RealTimeProvider
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *MusicConfig, logger *zap.Logger, readOnly bool, timeProvider TimeProvider) *Manager {
+	if timeProvider == nil {
+		timeProvider = RealTimeProvider{}
+	}
 	return &Manager{
 		haClient:     haClient,
 		stateManager: stateManager,
 		config:       config,
 		logger:       logger.Named("music"),
 		readOnly:     readOnly,
+		timeProvider: timeProvider,
 	}
 }
 
@@ -135,7 +163,7 @@ func (m *Manager) determineMusicModeFromDayPhase(dayPhase string, currentMusicTy
 	switch dayPhase {
 	case "morning":
 		// Check if it's Sunday (no morning music on Sundays)
-		if time.Now().Weekday() == time.Sunday {
+		if m.timeProvider.Now().Weekday() == time.Sunday {
 			m.logger.Debug("Sunday detected, using day mode instead of morning")
 			return "day"
 		}
