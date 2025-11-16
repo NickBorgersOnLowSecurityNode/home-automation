@@ -1,0 +1,34 @@
+---
+# Minimal energy config for testing
+energy:
+  free_energy_time:
+    start: "21:00"
+    end: "07:00"
+  energy_states:
+    - condition_name: red
+      battery_minimum_percentage: 20
+      energy_production_minimum_kw: 0
+      remaining_energy_production_minimum_kwh: 0
+      light_config:
+        red: 255
+        green: 0
+        blue: 0
+        brightness_pct: 30
+    - condition_name: yellow
+      battery_minimum_percentage: 50
+      energy_production_minimum_kw: 0
+      remaining_energy_production_minimum_kwh: 0
+      light_config:
+        red: 255
+        green: 255
+        blue: 0
+        brightness_pct: 30
+    - condition_name: green
+      battery_minimum_percentage: 80
+      energy_production_minimum_kw: 0
+      remaining_energy_production_minimum_kwh: 10
+      light_config:
+        red: 0
+        green: 255
+        blue: 0
+        brightness_pct: 60
