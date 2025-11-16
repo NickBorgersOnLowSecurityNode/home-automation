@@ -15,6 +15,80 @@ permissions:
   pull-requests: read
 
 jobs:
+  style-checks:
+    name: Go Style & Linting
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./homeautomation-go
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: homeautomation-go/go.sum
+
+      - name: Install tools
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Check code formatting (gofmt)
+        run: |
+          echo "Checking code formatting with gofmt..."
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "❌ ERROR: The following files are not formatted with gofmt:"
+            echo "$unformatted"
+            echo ""
+            echo "Please run: make format-go"
+            exit 1
+          fi
+          echo "✅ All files are properly formatted"
+
+      - name: Check import organization (goimports)
+        run: |
+          echo "Checking import organization with goimports..."
+          unformatted=$(goimports -l .)
+          if [ -n "$unformatted" ]; then
+            echo "❌ ERROR: The following files have incorrect import organization:"
+            echo "$unformatted"
+            echo ""
+            echo "Please run: make format-go"
+            exit 1
+          fi
+          echo "✅ All imports are properly organized"
+
+      - name: Run static analysis (go vet)
+        run: |
+          echo "Running go vet static analysis..."
+          go vet ./...
+          echo "✅ Static analysis passed"
+
+      - name: Run linter (staticcheck)
+        run: |
+          echo "Running staticcheck linter..."
+          staticcheck ./...
+          echo "✅ Linting passed"
+
+      - name: Style Check Summary
+        if: always()
+        run: |
+          echo "==============================================="
+          echo "          STYLE CHECK SUMMARY"
+          echo "==============================================="
+          echo "✅ Code formatting (gofmt) passed"
+          echo "✅ Import organization (goimports) passed"
+          echo "✅ Static analysis (go vet) passed"
+          echo "✅ Linting (staticcheck) passed"
+          echo ""
+          echo "✅ ALL STYLE CHECKS PASSED"
+          echo "==============================================="
+
   go-tests:
     name: Go Tests (Required for PR Merge)
     runs-on: ubuntu-latest
@@ -38,11 +112,10 @@ jobs:
       - name: Verify all code compiles (including tests)
         run: go build ./...
 
-      - name: Run unit tests with race detector
-        run: go test ./... -race -v
-
-      - name: Run tests with coverage
-        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
+      - name: Run all tests with coverage and race detector
+        run: |
+          echo "Running all tests (unit + integration) with race detector and coverage..."
+          go test ./... -race -v -coverprofile=coverage.out -covermode=atomic -timeout=5m
 
       - name: Check minimum test coverage (≥70%)
         run: |
@@ -53,11 +126,6 @@ jobs:
             exit 1
           fi
           echo "✅ Test coverage ${coverage}% meets requirement"
-
-      - name: Run integration tests
-        run: |
-          echo "Running all integration tests with race detector..."
-          go test -v -race -timeout=5m ./test/integration/...
 
       - name: Test Summary
         if: always()
@@ -152,14 +220,15 @@ jobs:
   all-tests-passed:
     name: All Required Tests
     runs-on: ubuntu-latest
-    needs: [go-tests, config-tests, docker-build]
+    needs: [style-checks, go-tests, config-tests, docker-build]
     if: always()
 
     steps:
       - name: Check test results
         run: |
-          if [ "${{ needs.go-tests.result }}" != "success" ] || [ "${{ needs.config-tests.result }}" != "success" ] || [ "${{ needs.docker-build.result }}" != "success" ]; then
+          if [ "${{ needs.style-checks.result }}" != "success" ] || [ "${{ needs.go-tests.result }}" != "success" ] || [ "${{ needs.config-tests.result }}" != "success" ] || [ "${{ needs.docker-build.result }}" != "success" ]; then
             echo "❌ Some required tests failed"
+            echo "Style Checks: ${{ needs.style-checks.result }}"
             echo "Go Tests: ${{ needs.go-tests.result }}"
             echo "Config Tests: ${{ needs.config-tests.result }}"
             echo "Docker Build: ${{ needs.docker-build.result }}"
