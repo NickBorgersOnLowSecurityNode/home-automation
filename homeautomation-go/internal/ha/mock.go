@@ -8,16 +8,18 @@ import (
 
 // MockClient implements HAClient interface for testing
 type MockClient struct {
-	states       map[string]*State
-	statesMu     sync.RWMutex
-	subscribers  map[string][]subscriberEntry
-	subsMu       sync.RWMutex
-	nextSubID    int
-	nextSubIDMu  sync.Mutex
-	connected    bool
-	connMu       sync.RWMutex
-	serviceCalls []ServiceCall
-	callsMu      sync.Mutex
+	states         map[string]*State
+	statesMu       sync.RWMutex
+	subscribers    map[string][]subscriberEntry
+	subsMu         sync.RWMutex
+	nextSubID      int
+	nextSubIDMu    sync.Mutex
+	connected      bool
+	connMu         sync.RWMutex
+	serviceCalls   []ServiceCall
+	callsMu        sync.Mutex
+	getStateCalls  map[string]int // Track GetState calls per entity
+	getStateCallMu sync.Mutex
 }
 
 func (m *MockClient) clearSubscribers() {
@@ -49,10 +51,11 @@ func (s *mockSubscription) Unsubscribe() error {
 // NewMockClient creates a new mock HA client
 func NewMockClient() *MockClient {
 	return &MockClient{
-		states:       make(map[string]*State),
-		subscribers:  make(map[string][]subscriberEntry),
-		serviceCalls: make([]ServiceCall, 0),
-		connected:    false,
+		states:        make(map[string]*State),
+		subscribers:   make(map[string][]subscriberEntry),
+		serviceCalls:  make([]ServiceCall, 0),
+		getStateCalls: make(map[string]int),
+		connected:     false,
 	}
 }
 
@@ -88,6 +91,11 @@ func (m *MockClient) IsConnected() bool {
 
 // GetState retrieves a mock state
 func (m *MockClient) GetState(entityID string) (*State, error) {
+	// Track the GetState call
+	m.getStateCallMu.Lock()
+	m.getStateCalls[entityID]++
+	m.getStateCallMu.Unlock()
+
 	m.statesMu.RLock()
 	defer m.statesMu.RUnlock()
 
@@ -336,4 +344,37 @@ func (m *MockClient) notifySubscribers(entityID string, oldState, newState *Stat
 	for _, entry := range entries {
 		entry.handler(entityID, oldState, newState)
 	}
+}
+
+// SetMockState is a convenience method for tests to set state with explicit State struct
+func (m *MockClient) SetMockState(entityID string, state *State) {
+	m.statesMu.Lock()
+	defer m.statesMu.Unlock()
+
+	m.states[entityID] = state
+}
+
+// WasGetStateCalled returns true if GetState was called for the given entity
+func (m *MockClient) WasGetStateCalled(entityID string) bool {
+	m.getStateCallMu.Lock()
+	defer m.getStateCallMu.Unlock()
+
+	count, ok := m.getStateCalls[entityID]
+	return ok && count > 0
+}
+
+// GetStateCallCount returns the number of times GetState was called for the given entity
+func (m *MockClient) GetStateCallCount(entityID string) int {
+	m.getStateCallMu.Lock()
+	defer m.getStateCallMu.Unlock()
+
+	return m.getStateCalls[entityID]
+}
+
+// ClearGetStateCalls clears the GetState call tracking
+func (m *MockClient) ClearGetStateCalls() {
+	m.getStateCallMu.Lock()
+	defer m.getStateCallMu.Unlock()
+
+	m.getStateCalls = make(map[string]int)
 }

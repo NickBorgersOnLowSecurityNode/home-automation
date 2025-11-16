@@ -757,3 +757,630 @@ func TestRunTimerLoop_MidnightRollover(t *testing.T) {
 		t.Error("Trigger should be reset after midnight")
 	}
 }
+
+// TestFadeOutBedroomSpeaker_Complete tests fade out runs and makes volume calls
+// Note: We test a partial fade-out since a complete fade-out from 60 to 0 would take 30+ minutes
+func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions for fade out
+	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Start fade out in goroutine
+	done := make(chan bool)
+	go func() {
+		manager.fadeOutBedroomSpeaker()
+		done <- true
+	}()
+
+	// Wait for several volume changes (5 seconds should allow for a few iterations)
+	time.Sleep(5 * time.Second)
+
+	// Abort the fade out to complete the test quickly
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Wait for goroutine to complete
+	select {
+	case <-done:
+		// Fade out completed
+	case <-time.After(10 * time.Second):
+		t.Fatal("Fade out did not stop within timeout")
+	}
+
+	// Verify volume_set calls were made
+	calls := mockHA.GetServiceCalls()
+	volumeSetCalls := 0
+	lastVolume := 0.0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			volumeSetCalls++
+			// Verify entity_id is correct
+			if entityID, ok := call.Data["entity_id"].(string); !ok || entityID != "media_player.bedroom" {
+				t.Errorf("Expected entity_id to be media_player.bedroom, got %v", call.Data["entity_id"])
+			}
+			// Track last volume
+			if volumeLevel, ok := call.Data["volume_level"].(float64); ok {
+				lastVolume = volumeLevel
+			}
+		}
+	}
+
+	// Should have made multiple volume set calls
+	if volumeSetCalls < 3 {
+		t.Errorf("Expected at least 3 volume_set calls, got %d", volumeSetCalls)
+	}
+
+	// Last volume should be less than initial (59/100)
+	if lastVolume >= 0.59 {
+		t.Errorf("Expected volume to decrease from initial 0.59, last volume was %.2f", lastVolume)
+	}
+
+	// Verify isFadeOutInProgress was NOT reset (we aborted externally)
+	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+	if fadeOut {
+		t.Error("isFadeOutInProgress should be false (we set it to abort)")
+	}
+}
+
+// TestFadeOutBedroomSpeaker_AbortedByFlag tests fade out aborted when flag is set to false
+func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions for fade out
+	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Start fade out in goroutine
+	done := make(chan bool)
+	go func() {
+		manager.fadeOutBedroomSpeaker()
+		done <- true
+	}()
+
+	// Wait a bit for fade out to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Abort the fade out
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Wait for completion
+	select {
+	case <-done:
+		// Fade out aborted
+	case <-time.After(10 * time.Second):
+		t.Fatal("Fade out did not abort within timeout")
+	}
+
+	// Verify volume_set calls were made but not all 60
+	calls := mockHA.GetServiceCalls()
+	volumeSetCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			volumeSetCalls++
+		}
+	}
+
+	// Should have fewer than 60 calls since we aborted early
+	if volumeSetCalls >= 60 {
+		t.Errorf("Expected fewer than 60 volume_set calls after abort, got %d", volumeSetCalls)
+	}
+
+	// Should have at least 1 call (fade out started)
+	if volumeSetCalls < 1 {
+		t.Error("Expected at least 1 volume_set call before abort")
+	}
+}
+
+// TestFadeOutBedroomSpeaker_CancelledByMusicType tests fade out cancelled when music type changes
+func TestFadeOutBedroomSpeaker_CancelledByMusicType(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions for fade out
+	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Start fade out in goroutine
+	done := make(chan bool)
+	go func() {
+		manager.fadeOutBedroomSpeaker()
+		done <- true
+	}()
+
+	// Wait a bit for fade out to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Change music type to cancel fade out
+	stateManager.SetString("musicPlaybackType", "day")
+
+	// Wait for completion
+	select {
+	case <-done:
+		// Fade out cancelled
+	case <-time.After(10 * time.Second):
+		t.Fatal("Fade out did not cancel within timeout")
+	}
+
+	// Verify volume_set calls were made but not all 60
+	calls := mockHA.GetServiceCalls()
+	volumeSetCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			volumeSetCalls++
+		}
+	}
+
+	// Should have fewer than 60 calls since we cancelled early
+	if volumeSetCalls >= 60 {
+		t.Errorf("Expected fewer than 60 volume_set calls after cancel, got %d", volumeSetCalls)
+	}
+
+	// Should have at least 1 call (fade out started)
+	if volumeSetCalls < 1 {
+		t.Error("Expected at least 1 volume_set call before cancel")
+	}
+}
+
+// TestFadeOutBedroomSpeaker_VolumeSequence tests that volume decreases correctly
+func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions for fade out
+	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Start fade out in goroutine
+	done := make(chan bool)
+	go func() {
+		manager.fadeOutBedroomSpeaker()
+		done <- true
+	}()
+
+	// Wait for a few volume changes
+	time.Sleep(500 * time.Millisecond)
+
+	// Abort to stop the test quickly
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Wait for completion
+	<-done
+
+	// Verify volume levels are decreasing
+	calls := mockHA.GetServiceCalls()
+	var volumeLevels []float64
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			if volumeLevel, ok := call.Data["volume_level"].(float64); ok {
+				volumeLevels = append(volumeLevels, volumeLevel)
+			}
+		}
+	}
+
+	// Verify volumes are decreasing
+	for i := 1; i < len(volumeLevels); i++ {
+		if volumeLevels[i] >= volumeLevels[i-1] {
+			t.Errorf("Volume should be decreasing: volume[%d]=%.2f, volume[%d]=%.2f",
+				i-1, volumeLevels[i-1], i, volumeLevels[i])
+		}
+	}
+
+	// Verify first volume is 59/100 (60 - 1)
+	if len(volumeLevels) > 0 {
+		expectedFirst := 0.59
+		if volumeLevels[0] != expectedFirst {
+			t.Errorf("Expected first volume to be %.2f, got %.2f", expectedFirst, volumeLevels[0])
+		}
+	}
+}
+
+// TestBeginWake_LaunchesFadeOut tests that begin_wake launches fade out goroutine
+func TestBeginWake_LaunchesFadeOut(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions for begin_wake
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Trigger begin_wake
+	manager.handleBeginWake()
+
+	// Give goroutine time to start
+	time.Sleep(200 * time.Millisecond)
+
+	// Abort fade out to stop it quickly
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Wait a bit more for goroutine to exit
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify volume_set calls were made
+	calls := mockHA.GetServiceCalls()
+	volumeSetCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			volumeSetCalls++
+		}
+	}
+
+	// Should have at least 1 volume set call (fade out started)
+	if volumeSetCalls < 1 {
+		t.Error("Expected at least 1 volume_set call after begin_wake")
+	}
+}
+
+// TestGetSpeakerVolume tests querying volume from Home Assistant
+func TestGetSpeakerVolume(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, mockHA, _, _ := setupTest(t, now)
+
+	// Set up mock to return a state with volume_level attribute
+	mockHA.SetMockState("media_player.bedroom", &ha.State{
+		EntityID: "media_player.bedroom",
+		State:    "playing",
+		Attributes: map[string]interface{}{
+			"volume_level": 0.75, // 75%
+		},
+	})
+
+	volume := manager.getSpeakerVolume("media_player.bedroom")
+
+	// Should return 75 (converted from 0.75)
+	if volume != 75 {
+		t.Errorf("Expected volume 75, got %d", volume)
+	}
+}
+
+// TestGetSpeakerVolume_NoState tests fallback when state query fails
+func TestGetSpeakerVolume_NoState(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, _, _, _ := setupTest(t, now)
+
+	// Don't set any mock state, should fall back to default
+
+	volume := manager.getSpeakerVolume("media_player.nonexistent")
+
+	// Should return default 60
+	if volume != 60 {
+		t.Errorf("Expected default volume 60, got %d", volume)
+	}
+}
+
+// TestUpdateSpeakerVolumeInState tests currentlyPlayingMusic state updates
+func TestUpdateSpeakerVolumeInState(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, _, stateManager, _ := setupTest(t, now)
+
+	// Set up currentlyPlayingMusic with bedroom speaker
+	currentMusic := map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{
+				"player_name": "media_player.bedroom",
+				"volume":      80,
+			},
+			map[string]interface{}{
+				"player_name": "media_player.living_room",
+				"volume":      50,
+			},
+		},
+	}
+	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
+
+	// Update bedroom volume to 45
+	manager.updateSpeakerVolumeInState("media_player.bedroom", 45)
+
+	// Verify it was updated
+	var updatedMusic map[string]interface{}
+	if err := stateManager.GetJSON("currentlyPlayingMusic", &updatedMusic); err != nil {
+		t.Fatal("Failed to get updated currentlyPlayingMusic:", err)
+	}
+
+	participants := updatedMusic["participants"].([]interface{})
+	bedroom := participants[0].(map[string]interface{})
+	livingRoom := participants[1].(map[string]interface{})
+
+	// volume might be int or float64 depending on JSON marshaling
+	bedroomVolume := int(bedroom["volume"].(float64))
+	if bedroomVolume != 45 {
+		t.Errorf("Expected bedroom volume 45, got %d", bedroomVolume)
+	}
+
+	// Living room should be unchanged
+	livingRoomVolume := int(livingRoom["volume"].(float64))
+	if livingRoomVolume != 50 {
+		t.Errorf("Expected living room volume unchanged at 50, got %d", livingRoomVolume)
+	}
+}
+
+// TestGetBedroomSpeakers tests dynamic bedroom speaker discovery
+func TestGetBedroomSpeakers(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, _, stateManager, _ := setupTest(t, now)
+
+	// Set up currentlyPlayingMusic with multiple speakers
+	currentMusic := map[string]interface{}{
+		"participants": []map[string]interface{}{
+			{
+				"player_name": "media_player.bedroom",
+				"volume":      60,
+			},
+			{
+				"player_name": "media_player.bedroom_left",
+				"volume":      55,
+			},
+			{
+				"player_name": "media_player.living_room",
+				"volume":      50,
+			},
+			{
+				"player_name": "media_player.kitchen",
+				"volume":      40,
+			},
+		},
+	}
+	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
+
+	bedroomSpeakers := manager.getBedroomSpeakers()
+
+	// Should find both bedroom speakers
+	if len(bedroomSpeakers) != 2 {
+		// Debug: let's see what we actually got
+		var debugMusic map[string]interface{}
+		if err := stateManager.GetJSON("currentlyPlayingMusic", &debugMusic); err == nil {
+			t.Logf("currentlyPlayingMusic: %+v", debugMusic)
+			if participants, ok := debugMusic["participants"]; ok {
+				t.Logf("participants type: %T, value: %+v", participants, participants)
+			}
+		}
+		t.Errorf("Expected 2 bedroom speakers, got %d: %v", len(bedroomSpeakers), bedroomSpeakers)
+	}
+
+	// Check that we got the right ones
+	hasBedroomMain := false
+	hasBedroomLeft := false
+	for _, speaker := range bedroomSpeakers {
+		if speaker == "media_player.bedroom" {
+			hasBedroomMain = true
+		}
+		if speaker == "media_player.bedroom_left" {
+			hasBedroomLeft = true
+		}
+	}
+
+	if !hasBedroomMain {
+		t.Error("Expected to find media_player.bedroom")
+	}
+	if !hasBedroomLeft {
+		t.Error("Expected to find media_player.bedroom_left")
+	}
+}
+
+// TestGetBedroomSpeakers_EmptyState tests fallback when currentlyPlayingMusic is not set
+func TestGetBedroomSpeakers_EmptyState(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, _, _, _ := setupTest(t, now)
+
+	// Don't set currentlyPlayingMusic
+
+	bedroomSpeakers := manager.getBedroomSpeakers()
+
+	// Should fall back to default
+	if len(bedroomSpeakers) != 1 {
+		t.Errorf("Expected 1 default bedroom speaker, got %d", len(bedroomSpeakers))
+	}
+	if bedroomSpeakers[0] != "media_player.bedroom" {
+		t.Errorf("Expected default media_player.bedroom, got %s", bedroomSpeakers[0])
+	}
+}
+
+// TestFadeOutSpeaker_WithVolumeQuery tests fade out with actual volume query
+func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions for fade out
+	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+
+	// Set up mock to return initial volume of 58 (higher volume = shorter delays)
+	// At 58: delay after first reduction = 60-57 = 3 seconds
+	// At 57: delay = 60-56 = 4 seconds
+	// Total: ~7 seconds for 2 reductions
+	mockHA.SetMockState("media_player.bedroom", &ha.State{
+		EntityID: "media_player.bedroom",
+		State:    "playing",
+		Attributes: map[string]interface{}{
+			"volume_level": 0.58, // 58%
+		},
+	})
+
+	// Set up currentlyPlayingMusic
+	currentMusic := map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{
+				"player_name": "media_player.bedroom",
+				"volume":      58,
+			},
+		},
+	}
+	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Start fade out in goroutine
+	done := make(chan bool)
+	go func() {
+		manager.fadeOutSpeaker("media_player.bedroom")
+		done <- true
+	}()
+
+	// Wait for several volume changes (8 seconds to allow 2 reductions)
+	time.Sleep(8 * time.Second)
+
+	// Abort the fade out
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Wait for completion
+	select {
+	case <-done:
+		// Fade out completed
+	case <-time.After(10 * time.Second):
+		t.Fatal("Fade out did not stop within timeout")
+	}
+
+	// Verify GetState was called to query initial volume
+	if !mockHA.WasGetStateCalled("media_player.bedroom") {
+		t.Error("Expected GetState to be called for media_player.bedroom")
+	}
+
+	// Verify volume_set calls were made
+	calls := mockHA.GetServiceCalls()
+	volumeSetCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			volumeSetCalls++
+		}
+	}
+
+	// Should have made multiple volume set calls
+	if volumeSetCalls < 2 {
+		t.Errorf("Expected at least 2 volume_set calls, got %d", volumeSetCalls)
+	}
+
+	// Verify currentlyPlayingMusic was updated
+	var updatedMusic map[string]interface{}
+	if err := stateManager.GetJSON("currentlyPlayingMusic", &updatedMusic); err != nil {
+		t.Fatal("Failed to get updated currentlyPlayingMusic:", err)
+	}
+
+	participants := updatedMusic["participants"].([]interface{})
+	bedroom := participants[0].(map[string]interface{})
+
+	// Volume should be less than initial 58
+	// Type assertion - handle both int and float64
+	var bedroomVolume int
+	switch v := bedroom["volume"].(type) {
+	case int:
+		bedroomVolume = v
+	case float64:
+		bedroomVolume = int(v)
+	default:
+		t.Fatalf("Unexpected volume type: %T", bedroom["volume"])
+	}
+
+	if bedroomVolume >= 58 {
+		t.Errorf("Expected volume to be reduced from 58, got %d", bedroomVolume)
+	}
+}
+
+// TestBeginWake_MultipleSpeakers tests that begin_wake launches fade-out for all bedroom speakers
+func TestBeginWake_MultipleSpeakers(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions for begin_wake
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Set up currentlyPlayingMusic with multiple bedroom speakers
+	currentMusic := map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{
+				"player_name": "media_player.bedroom",
+				"volume":      60,
+			},
+			map[string]interface{}{
+				"player_name": "media_player.bedroom_left",
+				"volume":      55,
+			},
+		},
+	}
+	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
+
+	// Set up mock states for both speakers
+	mockHA.SetMockState("media_player.bedroom", &ha.State{
+		EntityID: "media_player.bedroom",
+		State:    "playing",
+		Attributes: map[string]interface{}{
+			"volume_level": 0.60,
+		},
+	})
+	mockHA.SetMockState("media_player.bedroom_left", &ha.State{
+		EntityID: "media_player.bedroom_left",
+		State:    "playing",
+		Attributes: map[string]interface{}{
+			"volume_level": 0.55,
+		},
+	})
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Trigger begin_wake
+	manager.handleBeginWake()
+
+	// Give goroutines time to start
+	time.Sleep(300 * time.Millisecond)
+
+	// Abort fade out to stop it quickly
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Wait a bit more for goroutines to exit
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify both speakers were queried
+	if !mockHA.WasGetStateCalled("media_player.bedroom") {
+		t.Error("Expected GetState to be called for media_player.bedroom")
+	}
+	if !mockHA.WasGetStateCalled("media_player.bedroom_left") {
+		t.Error("Expected GetState to be called for media_player.bedroom_left")
+	}
+
+	// Verify volume_set calls were made for both speakers
+	calls := mockHA.GetServiceCalls()
+	bedroomCalls := 0
+	bedroomLeftCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			if entityID, ok := call.Data["entity_id"].(string); ok {
+				if entityID == "media_player.bedroom" {
+					bedroomCalls++
+				} else if entityID == "media_player.bedroom_left" {
+					bedroomLeftCalls++
+				}
+			}
+		}
+	}
+
+	// Should have at least 1 call for each speaker
+	if bedroomCalls < 1 {
+		t.Error("Expected at least 1 volume_set call for media_player.bedroom")
+	}
+	if bedroomLeftCalls < 1 {
+		t.Error("Expected at least 1 volume_set call for media_player.bedroom_left")
+	}
+}
