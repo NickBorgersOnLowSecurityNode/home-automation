@@ -19,18 +19,19 @@ type Manager struct {
 	readOnly     bool
 
 	// Subscriptions for cleanup
-	appleTVSub   ha.Subscription
-	syncBoxSub   ha.Subscription
-	hdmiInputSub ha.Subscription
+	haSubscriptions    []ha.Subscription
+	stateSubscriptions []state.Subscription
 }
 
 // NewManager creates a new TV manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) *Manager {
 	return &Manager{
-		haClient:     haClient,
-		stateManager: stateManager,
-		logger:       logger.Named("tv"),
-		readOnly:     readOnly,
+		haClient:           haClient,
+		stateManager:       stateManager,
+		logger:             logger.Named("tv"),
+		readOnly:           readOnly,
+		haSubscriptions:    make([]ha.Subscription, 0),
+		stateSubscriptions: make([]state.Subscription, 0),
 	}
 }
 
@@ -43,26 +44,28 @@ func (m *Manager) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to media_player.big_beautiful_oled: %w", err)
 	}
-	m.appleTVSub = appleTVSub
+	m.haSubscriptions = append(m.haSubscriptions, appleTVSub)
 
 	// Subscribe to sync box power state changes
 	syncBoxSub, err := m.haClient.SubscribeStateChanges("switch.sync_box_power", m.handleSyncBoxPowerChange)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to switch.sync_box_power: %w", err)
 	}
-	m.syncBoxSub = syncBoxSub
+	m.haSubscriptions = append(m.haSubscriptions, syncBoxSub)
 
 	// Subscribe to HDMI input selector changes
 	hdmiInputSub, err := m.haClient.SubscribeStateChanges("select.sync_box_hdmi_input", m.handleHDMIInputChange)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to select.sync_box_hdmi_input: %w", err)
 	}
-	m.hdmiInputSub = hdmiInputSub
+	m.haSubscriptions = append(m.haSubscriptions, hdmiInputSub)
 
 	// Subscribe to isAppleTVPlaying state changes to recalculate isTVPlaying
-	if _, err := m.stateManager.Subscribe("isAppleTVPlaying", m.handleAppleTVPlayingChange); err != nil {
+	sub, err := m.stateManager.Subscribe("isAppleTVPlaying", m.handleAppleTVPlayingChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to isAppleTVPlaying: %w", err)
 	}
+	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
 	// Initialize current states
 	m.logger.Info("Initializing TV states from current HA entities")
@@ -74,30 +77,23 @@ func (m *Manager) Start() error {
 	return nil
 }
 
-// Stop stops the TV manager and cleans up subscriptions
-func (m *Manager) Stop() error {
+// Stop stops the TV Manager and cleans up subscriptions
+func (m *Manager) Stop() {
 	m.logger.Info("Stopping TV Manager")
 
-	if m.appleTVSub != nil {
-		if err := m.appleTVSub.Unsubscribe(); err != nil {
-			m.logger.Warn("Failed to unsubscribe from Apple TV", zap.Error(err))
-		}
+	// Unsubscribe from all HA subscriptions
+	for _, sub := range m.haSubscriptions {
+		sub.Unsubscribe()
 	}
+	m.haSubscriptions = nil
 
-	if m.syncBoxSub != nil {
-		if err := m.syncBoxSub.Unsubscribe(); err != nil {
-			m.logger.Warn("Failed to unsubscribe from sync box", zap.Error(err))
-		}
+	// Unsubscribe from all state subscriptions
+	for _, sub := range m.stateSubscriptions {
+		sub.Unsubscribe()
 	}
-
-	if m.hdmiInputSub != nil {
-		if err := m.hdmiInputSub.Unsubscribe(); err != nil {
-			m.logger.Warn("Failed to unsubscribe from HDMI input", zap.Error(err))
-		}
-	}
+	m.stateSubscriptions = nil
 
 	m.logger.Info("TV Manager stopped")
-	return nil
 }
 
 // initializeStates fetches current HA entity states and initializes state variables
