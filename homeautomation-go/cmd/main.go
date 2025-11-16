@@ -12,6 +12,7 @@ import (
 	"homeautomation/internal/loadshedding"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/music"
+	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/state"
 
 	"github.com/joho/godotenv"
@@ -91,6 +92,14 @@ func main() {
 	if err := startMusicManager(client, stateManager, logger, readOnly, configDir); err != nil {
 		logger.Fatal("Failed to start Music Manager", zap.Error(err))
 	}
+
+	// Start Sleep Hygiene Manager
+	sleepHygieneManager, err := startSleepHygieneManager(client, stateManager, logger, readOnly, configDir)
+	if err != nil {
+		logger.Fatal("Failed to start Sleep Hygiene Manager", zap.Error(err))
+	}
+	defer sleepHygieneManager.Stop()
+	logger.Info("Sleep Hygiene Manager started")
 
 	// Start Load Shedding controller
 	loadSheddingController := loadshedding.New(stateManager, client, logger)
@@ -282,5 +291,26 @@ func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *
 
 	logger.Info("Music Manager started successfully")
 	return nil
+}
+
+func startSleepHygieneManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*sleephygiene.Manager, error) {
+	// Load schedule configuration
+	configPath := filepath.Join(configDir, "schedule_config.yaml")
+	scheduleConfig, err := sleephygiene.LoadScheduleConfig(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load schedule config: %w", err)
+	}
+
+	logger.Info("Loaded schedule configuration",
+		zap.Int("days", len(scheduleConfig.Schedule)))
+
+	// Create and start sleep hygiene manager
+	sleepHygieneManager := sleephygiene.NewManager(client, stateManager, scheduleConfig, logger, readOnly)
+	if err := sleepHygieneManager.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start sleep hygiene manager: %w", err)
+	}
+
+	logger.Info("Sleep Hygiene Manager started successfully")
+	return sleepHygieneManager, nil
 }
 
