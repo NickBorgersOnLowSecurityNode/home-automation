@@ -240,6 +240,32 @@ func (m *Manager) handleGridAvailabilityChange(key string, oldValue, newValue in
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
 
+	// Sync grid availability to Home Assistant
+	// Convert newValue to bool
+	gridAvailable, ok := newValue.(bool)
+	if !ok {
+		m.logger.Error("Grid availability value is not a boolean",
+			zap.Any("value", newValue))
+		return
+	}
+
+	// Skip HA sync in read-only mode
+	if m.readOnly {
+		m.logger.Debug("Skipping grid availability sync in read-only mode",
+			zap.Bool("grid_available", gridAvailable))
+	} else {
+		// Explicitly sync to Home Assistant to ensure bidirectional consistency
+		if err := m.haClient.SetInputBoolean("grid_available", gridAvailable); err != nil {
+			m.logger.Error("Failed to sync grid availability to Home Assistant",
+				zap.Bool("grid_available", gridAvailable),
+				zap.Error(err))
+			// Continue processing even if sync fails
+		} else {
+			m.logger.Debug("Successfully synced grid availability to Home Assistant",
+				zap.Bool("grid_available", gridAvailable))
+		}
+	}
+
 	// Trigger free energy recalculation
 	m.checkFreeEnergy()
 }
