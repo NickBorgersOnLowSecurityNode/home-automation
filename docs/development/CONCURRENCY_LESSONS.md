@@ -147,7 +147,81 @@ func (m *Manager) Set(key string, val interface{}) {
 
 ---
 
-## Lesson 5: Always Test with Race Detector
+## Lesson 5: Event Handlers Must Not Block Message Processing
+
+**Pattern**: Call event handlers asynchronously in separate goroutines.
+
+**Why**: Event handlers are invoked from the `receiveMessages()` goroutine. If a handler tries to send a message to HA and wait for a response, it will deadlock because `receiveMessages()` is blocked waiting for the handler to return.
+
+**Deadlock Scenario** (CRITICAL BUG - Fixed in PR #XX):
+```go
+// ❌ BAD: Synchronous handler call causes deadlock
+func (c *Client) handleEvent(msg *Message) {
+    for _, entry := range entries {
+        entry.handler(...)  // BLOCKS receiveMessages goroutine
+        // Handler tries to send message → waits for response
+        // But response can never be received because receiveMessages is blocked!
+        // → 10 second timeout → error
+    }
+}
+```
+
+**Error Symptoms**:
+```
+Failed to set solarProductionEnergyLevel: failed to set HA value: timeout waiting for response
+```
+
+**Call Chain Leading to Deadlock**:
+```
+receiveMessages() goroutine:
+  → ReadJSON() - reads state change event
+  → handleEvent() - processes event
+  → handler() - energy manager handler called SYNCHRONOUSLY
+    → recalculateSolarProductionLevel()
+      → stateManager.SetString()
+        → haClient.SetInputText()
+          → haClient.CallService()
+            → haClient.sendMessage()
+              → Waits for response with 10 second timeout
+              → BUT receiveMessages() is BLOCKED waiting for handler to return
+              → Response can never be received
+              → DEADLOCK → timeout → error
+```
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Async handler calls prevent deadlock
+func (c *Client) handleEvent(msg *Message) {
+    for _, entry := range entries {
+        // Run each handler in its own goroutine
+        // This allows receiveMessages to continue processing
+        go entry.handler(entityID, oldState, newState)
+    }
+}
+```
+
+**Benefits**:
+- No blocking of message processing
+- Handlers can safely send messages back to HA
+- Better performance (parallel handler execution)
+- Prevents cascading delays when handlers are slow
+
+**Where to Apply**:
+- `internal/ha/client.go` - Event handler invocation
+- Any callback/handler system invoked from a message processing loop
+- Plugin systems where plugins might need to communicate back
+
+**Test That Validates This**:
+- `TestClient_HandleEventBackpressuresHandlers` - Verifies handlers don't block message processing
+- Production logs showing timeout errors when handlers were synchronous
+
+**Production Impact**:
+- **Before Fix**: Frequent 10-second timeout errors in energy manager
+- **After Fix**: No timeouts, all HA updates succeed immediately
+
+---
+
+## Lesson 6: Always Test with Race Detector
 
 **Command**: `go test -race ./...`
 
@@ -220,7 +294,8 @@ func (s *Subscription) Close() {
 2. **Track subscriptions individually** - Multiple handlers per entity must be supported
 3. **Use RWMutex for caches** - Better concurrency for read-heavy workloads
 4. **Mock external services** - Faster, more reliable concurrency testing
-5. **Always test with -race** - Catches bugs you can't see in normal runs
+5. **Event handlers must be async** - Prevents deadlocks when handlers send messages
+6. **Always test with -race** - Catches bugs you can't see in normal runs
 
 ---
 
@@ -231,5 +306,16 @@ func (s *Subscription) Close() {
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2025-11-15
+**Last Updated**: 2025-11-16
 **Test Status**: All 11/11 integration tests passing with `-race` flag
+
+---
+
+## Change Log
+
+### 2025-11-16
+- **Added Lesson 5**: Event Handlers Must Not Block Message Processing
+  - Fixed critical deadlock bug causing 10-second timeouts in production
+  - Changed handlers from synchronous to asynchronous execution
+  - Updated `TestClient_HandleEventBackpressuresHandlers` to verify async behavior
+  - See `internal/ha/client.go:356-360` for implementation

@@ -545,9 +545,14 @@ func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 	}
 
 	var calls int32
+	done := make(chan struct{})
+
 	handler := func(entityID string, oldState, newState *State) {
 		time.Sleep(50 * time.Millisecond)
-		atomic.AddInt32(&calls, 1)
+		count := atomic.AddInt32(&calls, 1)
+		if count == 2 {
+			close(done)
+		}
 	}
 
 	client.subscribers["sensor.test"] = []subscriberEntry{
@@ -569,6 +574,14 @@ func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 	})
 	elapsed := time.Since(start)
 
-	assert.GreaterOrEqual(t, elapsed, 100*time.Millisecond)
-	assert.Equal(t, int32(2), atomic.LoadInt32(&calls))
+	// With async handlers, handleEvent should return immediately (not block)
+	assert.Less(t, elapsed, 50*time.Millisecond, "handleEvent should not block on handlers")
+
+	// Wait for both handlers to complete
+	select {
+	case <-done:
+		assert.Equal(t, int32(2), atomic.LoadInt32(&calls))
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("handlers did not complete in time")
+	}
 }
