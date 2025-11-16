@@ -38,9 +38,9 @@ type PlaybackOption struct {
 	VolumeMultiplier float64 `yaml:"volume_multiplier"`
 }
 
-// LoadMusicConfig loads the music configuration from a YAML file
-func LoadMusicConfig(configPath string) (*MusicConfig, error) {
-	data, err := os.ReadFile(configPath)
+// LoadConfig loads the music configuration from a YAML file
+func LoadConfig(path string) (*MusicConfig, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read music config file: %w", err)
 	}

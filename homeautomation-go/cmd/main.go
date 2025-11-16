@@ -102,7 +102,7 @@ func main() {
 	logger.Info("Sleep Hygiene Manager started")
 
 	// Start Load Shedding controller
-	loadSheddingController := loadshedding.New(stateManager, client, logger)
+	loadSheddingController := loadshedding.NewManager(stateManager, client, logger)
 	if err := loadSheddingController.Start(); err != nil {
 		logger.Fatal("Failed to start Load Shedding controller", zap.Error(err))
 	}
@@ -274,7 +274,7 @@ func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger 
 func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) error {
 	// Load music configuration
 	configPath := filepath.Join(configDir, "music_config.yaml")
-	musicConfig, err := music.LoadMusicConfig(configPath)
+	musicConfig, err := music.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load music config: %w", err)
 	}
