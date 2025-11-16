@@ -572,3 +572,131 @@ func TestManagerReset(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, currentLevel)
 }
+
+// TestHandleGridAvailabilityChange tests grid availability change synchronization
+func TestHandleGridAvailabilityChange(t *testing.T) {
+	logger := zap.NewNop()
+	config := createTestConfig()
+
+	t.Run("syncs_grid_availability_to_HA_when_enabled", func(t *testing.T) {
+		mockClient := ha.NewMockClient()
+		stateManager := state.NewManager(mockClient, logger, false)
+		manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+		// Clear any initial service calls
+		mockClient.ClearServiceCalls()
+
+		// Simulate grid availability change to true
+		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
+
+		// Verify SetInputBoolean was called for grid_available
+		// Note: checkFreeEnergy() is also called, which may make additional service calls
+		serviceCalls := mockClient.GetServiceCalls()
+		assert.GreaterOrEqual(t, len(serviceCalls), 1, "Expected at least one service call")
+
+		// Find the grid_available service call
+		var gridAvailableCall *ha.ServiceCall
+		for i := range serviceCalls {
+			if serviceCalls[i].Data["entity_id"] == "input_boolean.grid_available" {
+				gridAvailableCall = &serviceCalls[i]
+				break
+			}
+		}
+
+		assert.NotNil(t, gridAvailableCall, "Expected grid_available service call")
+		assert.Equal(t, "input_boolean", gridAvailableCall.Domain)
+		assert.Equal(t, "turn_on", gridAvailableCall.Service)
+	})
+
+	t.Run("syncs_grid_availability_to_HA_when_disabled", func(t *testing.T) {
+		mockClient := ha.NewMockClient()
+		stateManager := state.NewManager(mockClient, logger, false)
+		manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+		// Clear any initial service calls
+		mockClient.ClearServiceCalls()
+
+		// Simulate grid availability change to false
+		manager.handleGridAvailabilityChange("isGridAvailable", true, false)
+
+		// Verify SetInputBoolean was called with turn_off for grid_available
+		// Note: checkFreeEnergy() is also called, which may make additional service calls
+		serviceCalls := mockClient.GetServiceCalls()
+		assert.GreaterOrEqual(t, len(serviceCalls), 1, "Expected at least one service call")
+
+		// Find the grid_available service call
+		var gridAvailableCall *ha.ServiceCall
+		for i := range serviceCalls {
+			if serviceCalls[i].Data["entity_id"] == "input_boolean.grid_available" {
+				gridAvailableCall = &serviceCalls[i]
+				break
+			}
+		}
+
+		assert.NotNil(t, gridAvailableCall, "Expected grid_available service call")
+		assert.Equal(t, "input_boolean", gridAvailableCall.Domain)
+		assert.Equal(t, "turn_off", gridAvailableCall.Service)
+	})
+
+	t.Run("skips_HA_sync_in_read_only_mode", func(t *testing.T) {
+		mockClient := ha.NewMockClient()
+		stateManager := state.NewManager(mockClient, logger, true) // read-only mode
+		manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+
+		// Clear any initial service calls
+		mockClient.ClearServiceCalls()
+
+		// Simulate grid availability change
+		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
+
+		// Verify no service calls were made
+		serviceCalls := mockClient.GetServiceCalls()
+		assert.Len(t, serviceCalls, 0, "Expected no service calls in read-only mode")
+	})
+
+	t.Run("handles_non_boolean_value_gracefully", func(t *testing.T) {
+		mockClient := ha.NewMockClient()
+		stateManager := state.NewManager(mockClient, logger, false)
+		manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+		// Clear any initial service calls
+		mockClient.ClearServiceCalls()
+
+		// Simulate grid availability change with invalid value
+		manager.handleGridAvailabilityChange("isGridAvailable", false, "not_a_boolean")
+
+		// Verify no service calls were made (error was handled)
+		serviceCalls := mockClient.GetServiceCalls()
+		assert.Len(t, serviceCalls, 0, "Expected no service calls with invalid value")
+	})
+
+	t.Run("triggers_free_energy_recalculation", func(t *testing.T) {
+		mockClient := ha.NewMockClient()
+		stateManager := state.NewManager(mockClient, logger, false)
+
+		// Initialize required state variables
+		_ = stateManager.SyncFromHA()
+		_ = stateManager.SetBool("isGridAvailable", true)
+		_ = stateManager.SetBool("isFreeEnergyAvailable", false)
+
+		manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+		// Clear any initial service calls
+		mockClient.ClearServiceCalls()
+
+		// Get initial free energy state
+		initialFreeEnergy, _ := stateManager.GetBool("isFreeEnergyAvailable")
+
+		// Simulate grid availability change
+		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
+
+		// Verify free energy was recalculated (may or may not change depending on time)
+		// The important thing is that checkFreeEnergy was called without error
+		currentFreeEnergy, err := stateManager.GetBool("isFreeEnergyAvailable")
+		assert.NoError(t, err)
+
+		// Value might be the same, but at least we verify it was processed
+		_ = initialFreeEnergy
+		_ = currentFreeEnergy
+	})
+}

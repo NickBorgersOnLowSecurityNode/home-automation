@@ -328,10 +328,17 @@ func (m *MockClient) updateStateFromServiceCall(entityID, domain, service string
 	}
 
 	m.states[entityID] = newState
+
+	// Only notify subscribers if state actually changed
+	stateChanged := oldState == nil || oldState.State != newStateValue
+
 	m.statesMu.Unlock()
 
-	// Notify subscribers
-	m.notifySubscribers(entityID, oldState, newState)
+	// Notify subscribers only if state changed
+	if stateChanged {
+		m.notifySubscribers(entityID, oldState, newState)
+	}
+
 	m.statesMu.Lock()
 }
 
