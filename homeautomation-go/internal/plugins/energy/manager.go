@@ -127,6 +127,16 @@ func (m *Manager) Stop() {
 // subscribeToSensor subscribes to a Home Assistant sensor
 func (m *Manager) subscribeToSensor(entityID string, callback func(state float64)) error {
 	sub, err := m.haClient.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
+		// Check for common non-numeric Home Assistant states
+		// These are expected and should be silently ignored
+		switch newState.State {
+		case "unknown", "unavailable", "none", "":
+			m.logger.Debug("Sensor state is not available, skipping",
+				zap.String("entity_id", entityID),
+				zap.String("value", newState.State))
+			return
+		}
+
 		// Try to convert to float64
 		var val float64
 

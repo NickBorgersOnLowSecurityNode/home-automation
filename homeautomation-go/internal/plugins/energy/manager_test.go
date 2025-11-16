@@ -542,3 +542,207 @@ func TestTimezoneHandling(t *testing.T) {
 		// but we've verified the timezone is set correctly
 	})
 }
+
+// TestSubscribeToSensor_HandlesUnknownState tests that "unknown" states are handled gracefully
+func TestSubscribeToSensor_HandlesUnknownState(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, time.UTC)
+
+	var callbackCalled bool
+	callback := func(val float64) {
+		callbackCalled = true
+	}
+
+	// Subscribe to a sensor
+	err := manager.subscribeToSensor("sensor.test", callback)
+	assert.NoError(t, err)
+
+	// Simulate "unknown" state - callback should NOT be called
+	mockClient.SimulateStateChange("sensor.test", "unknown")
+	time.Sleep(50 * time.Millisecond) // Give time for async callback
+
+	assert.False(t, callbackCalled, "Callback should not be called for 'unknown' state")
+}
+
+// TestSubscribeToSensor_HandlesUnavailableState tests that "unavailable" states are handled gracefully
+func TestSubscribeToSensor_HandlesUnavailableState(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, time.UTC)
+
+	var callbackCalled bool
+	callback := func(val float64) {
+		callbackCalled = true
+	}
+
+	// Subscribe to a sensor
+	err := manager.subscribeToSensor("sensor.test", callback)
+	assert.NoError(t, err)
+
+	// Simulate "unavailable" state - callback should NOT be called
+	mockClient.SimulateStateChange("sensor.test", "unavailable")
+	time.Sleep(50 * time.Millisecond)
+
+	assert.False(t, callbackCalled, "Callback should not be called for 'unavailable' state")
+}
+
+// TestSubscribeToSensor_HandlesNoneState tests that "none" states are handled gracefully
+func TestSubscribeToSensor_HandlesNoneState(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, time.UTC)
+
+	var callbackCalled bool
+	callback := func(val float64) {
+		callbackCalled = true
+	}
+
+	// Subscribe to a sensor
+	err := manager.subscribeToSensor("sensor.test", callback)
+	assert.NoError(t, err)
+
+	// Simulate "none" state - callback should NOT be called
+	mockClient.SimulateStateChange("sensor.test", "none")
+	time.Sleep(50 * time.Millisecond)
+
+	assert.False(t, callbackCalled, "Callback should not be called for 'none' state")
+}
+
+// TestSubscribeToSensor_HandlesEmptyState tests that empty string states are handled gracefully
+func TestSubscribeToSensor_HandlesEmptyState(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, time.UTC)
+
+	var callbackCalled bool
+	callback := func(val float64) {
+		callbackCalled = true
+	}
+
+	// Subscribe to a sensor
+	err := manager.subscribeToSensor("sensor.test", callback)
+	assert.NoError(t, err)
+
+	// Simulate empty string state - callback should NOT be called
+	mockClient.SimulateStateChange("sensor.test", "")
+	time.Sleep(50 * time.Millisecond)
+
+	assert.False(t, callbackCalled, "Callback should not be called for empty state")
+}
+
+// TestSubscribeToSensor_HandlesValidNumericState tests that valid numeric values work correctly
+func TestSubscribeToSensor_HandlesValidNumericState(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, time.UTC)
+
+	var receivedValue float64
+	var callbackCalled bool
+	callback := func(val float64) {
+		receivedValue = val
+		callbackCalled = true
+	}
+
+	// Subscribe to a sensor
+	err := manager.subscribeToSensor("sensor.test", callback)
+	assert.NoError(t, err)
+
+	// Simulate valid numeric state - callback SHOULD be called
+	mockClient.SimulateStateChange("sensor.test", "90")
+	time.Sleep(50 * time.Millisecond)
+
+	assert.True(t, callbackCalled, "Callback should be called for valid numeric state")
+	assert.Equal(t, 90.0, receivedValue, "Received value should be 90.0")
+}
+
+// TestSubscribeToSensor_HandlesFloatingPointState tests floating point values
+func TestSubscribeToSensor_HandlesFloatingPointState(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, time.UTC)
+
+	var receivedValue float64
+	var callbackCalled bool
+	callback := func(val float64) {
+		receivedValue = val
+		callbackCalled = true
+	}
+
+	// Subscribe to a sensor
+	err := manager.subscribeToSensor("sensor.test", callback)
+	assert.NoError(t, err)
+
+	// Simulate valid floating point state
+	mockClient.SimulateStateChange("sensor.test", "45.67")
+	time.Sleep(50 * time.Millisecond)
+
+	assert.True(t, callbackCalled, "Callback should be called for valid floating point state")
+	assert.InDelta(t, 45.67, receivedValue, 0.001, "Received value should be approximately 45.67")
+}
+
+// TestSubscribeToSensor_TransitionFromUnknownToValid tests state transitions
+func TestSubscribeToSensor_TransitionFromUnknownToValid(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, time.UTC)
+
+	var receivedValue float64
+	var callCount int
+	callback := func(val float64) {
+		receivedValue = val
+		callCount++
+	}
+
+	// Subscribe to a sensor
+	err := manager.subscribeToSensor("sensor.test", callback)
+	assert.NoError(t, err)
+
+	// First, simulate "unknown" state - callback should NOT be called
+	mockClient.SimulateStateChange("sensor.test", "unknown")
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, 0, callCount, "Callback should not be called for 'unknown' state")
+
+	// Then, transition to valid state - callback SHOULD be called
+	mockClient.SimulateStateChange("sensor.test", "90")
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, 1, callCount, "Callback should be called once for valid state")
+	assert.Equal(t, 90.0, receivedValue, "Received value should be 90.0")
+}
