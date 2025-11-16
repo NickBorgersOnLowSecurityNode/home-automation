@@ -63,7 +63,7 @@ func TestStateTrackingManager_IsAnyOwnerHome(t *testing.T) {
 			}
 
 			// Create and start manager
-			manager := NewManager(stateMgr, logger)
+			manager := NewManager(mockHA, stateMgr, logger, false)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -161,7 +161,7 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 			}
 
 			// Create and start manager
-			manager := NewManager(stateMgr, logger)
+			manager := NewManager(mockHA, stateMgr, logger, false)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -235,7 +235,7 @@ func TestStateTrackingManager_IsAnyoneAsleep(t *testing.T) {
 			}
 
 			// Create and start manager
-			manager := NewManager(stateMgr, logger)
+			manager := NewManager(mockHA, stateMgr, logger, false)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -309,7 +309,7 @@ func TestStateTrackingManager_IsEveryoneAsleep(t *testing.T) {
 			}
 
 			// Create and start manager
-			manager := NewManager(stateMgr, logger)
+			manager := NewManager(mockHA, stateMgr, logger, false)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -347,7 +347,7 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(stateMgr, logger)
+	manager := NewManager(mockHA, stateMgr, logger, false)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -410,7 +410,7 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(stateMgr, logger)
+	manager := NewManager(mockHA, stateMgr, logger, false)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -478,7 +478,7 @@ func TestStateTrackingManager_StopCleansUpSubscriptions(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(stateMgr, logger)
+	manager := NewManager(mockHA, stateMgr, logger, false)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
