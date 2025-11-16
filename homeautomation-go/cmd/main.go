@@ -11,6 +11,7 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/loadshedding"
 	"homeautomation/internal/plugins/energy"
+	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/state"
 
@@ -83,14 +84,25 @@ func main() {
 	subscribeToChanges(stateManager, logger)
 
 	// Start Energy State Manager
-	if err := startEnergyManager(client, stateManager, logger, readOnly, configDir); err != nil {
+	energyManager, err := startEnergyManager(client, stateManager, logger, readOnly, configDir)
+	if err != nil {
 		logger.Fatal("Failed to start Energy State Manager", zap.Error(err))
 	}
+	defer energyManager.Stop()
 
 	// Start Music Manager
-	if err := startMusicManager(client, stateManager, logger, readOnly, configDir); err != nil {
+	musicManager, err := startMusicManager(client, stateManager, logger, readOnly, configDir)
+	if err != nil {
 		logger.Fatal("Failed to start Music Manager", zap.Error(err))
 	}
+	defer musicManager.Stop()
+
+	// Start Lighting Manager
+	lightingManager, err := startLightingManager(client, stateManager, logger, readOnly, configDir)
+	if err != nil {
+		logger.Fatal("Failed to start Lighting Manager", zap.Error(err))
+	}
+	defer lightingManager.Stop()
 
 	// Start Load Shedding controller
 	loadSheddingController := loadshedding.New(stateManager, client, logger)
@@ -240,12 +252,12 @@ func demonstrateStateChanges(manager *state.Manager, logger *zap.Logger) {
 	logger.Info("===================================")
 }
 
-func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) error {
+func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*energy.Manager, error) {
 	// Load energy configuration
 	configPath := filepath.Join(configDir, "energy_config.yaml")
 	energyConfig, err := energy.LoadConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to load energy config: %w", err)
+		return nil, fmt.Errorf("failed to load energy config: %w", err)
 	}
 
 	logger.Info("Loaded energy configuration",
@@ -256,18 +268,18 @@ func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger 
 	// Create and start energy manager
 	energyManager := energy.NewManager(client, stateManager, energyConfig, logger, readOnly)
 	if err := energyManager.Start(); err != nil {
-		return fmt.Errorf("failed to start energy manager: %w", err)
+		return nil, fmt.Errorf("failed to start energy manager: %w", err)
 	}
 
-	return nil
+	return energyManager, nil
 }
 
-func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) error {
+func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*music.Manager, error) {
 	// Load music configuration
 	configPath := filepath.Join(configDir, "music_config.yaml")
 	musicConfig, err := music.LoadMusicConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to load music config: %w", err)
+		return nil, fmt.Errorf("failed to load music config: %w", err)
 	}
 
 	// Count total music modes
@@ -277,10 +289,31 @@ func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *
 	// Create and start music manager
 	musicManager := music.NewManager(client, stateManager, musicConfig, logger, readOnly)
 	if err := musicManager.Start(); err != nil {
-		return fmt.Errorf("failed to start music manager: %w", err)
+		return nil, fmt.Errorf("failed to start music manager: %w", err)
 	}
 
 	logger.Info("Music Manager started successfully")
-	return nil
+	return musicManager, nil
+}
+
+func startLightingManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*lighting.Manager, error) {
+	// Load lighting configuration
+	configPath := filepath.Join(configDir, "hue_config.yaml")
+	lightingConfig, err := lighting.LoadConfig(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load lighting config: %w", err)
+	}
+
+	logger.Info("Loaded lighting configuration",
+		zap.Int("rooms", len(lightingConfig.Rooms)))
+
+	// Create and start lighting manager
+	lightingManager := lighting.NewManager(client, stateManager, lightingConfig, logger, readOnly)
+	if err := lightingManager.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start lighting manager: %w", err)
+	}
+
+	logger.Info("Lighting Manager started successfully")
+	return lightingManager, nil
 }
 

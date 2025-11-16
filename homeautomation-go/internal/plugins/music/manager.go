@@ -17,16 +17,20 @@ type Manager struct {
 	config       *MusicConfig
 	logger       *zap.Logger
 	readOnly     bool
+
+	// Subscriptions for cleanup
+	subscriptions []state.Subscription
 }
 
 // NewManager creates a new Music manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *MusicConfig, logger *zap.Logger, readOnly bool) *Manager {
 	return &Manager{
-		haClient:     haClient,
-		stateManager: stateManager,
-		config:       config,
-		logger:       logger.Named("music"),
-		readOnly:     readOnly,
+		haClient:      haClient,
+		stateManager:  stateManager,
+		config:        config,
+		logger:        logger.Named("music"),
+		readOnly:      readOnly,
+		subscriptions: make([]state.Subscription, 0),
 	}
 }
 
@@ -35,25 +39,44 @@ func (m *Manager) Start() error {
 	m.logger.Info("Starting Music Manager")
 
 	// Subscribe to dayPhase changes
-	if _, err := m.stateManager.Subscribe("dayPhase", m.handleStateChange); err != nil {
+	sub, err := m.stateManager.Subscribe("dayPhase", m.handleStateChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to dayPhase: %w", err)
 	}
+	m.subscriptions = append(m.subscriptions, sub)
 
 	// Subscribe to isAnyoneAsleep changes
-	if _, err := m.stateManager.Subscribe("isAnyoneAsleep", m.handleStateChange); err != nil {
+	sub, err = m.stateManager.Subscribe("isAnyoneAsleep", m.handleStateChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to isAnyoneAsleep: %w", err)
 	}
+	m.subscriptions = append(m.subscriptions, sub)
 
 	// Subscribe to isAnyoneHome changes
-	if _, err := m.stateManager.Subscribe("isAnyoneHome", m.handleStateChange); err != nil {
+	sub, err = m.stateManager.Subscribe("isAnyoneHome", m.handleStateChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
 	}
+	m.subscriptions = append(m.subscriptions, sub)
 
 	// Perform initial music mode selection
 	m.selectAppropriateMusicMode()
 
 	m.logger.Info("Music Manager started successfully")
 	return nil
+}
+
+// Stop stops the Music Manager and cleans up subscriptions
+func (m *Manager) Stop() {
+	m.logger.Info("Stopping Music Manager")
+
+	// Unsubscribe from all subscriptions
+	for _, sub := range m.subscriptions {
+		sub.Unsubscribe()
+	}
+	m.subscriptions = nil
+
+	m.logger.Info("Music Manager stopped")
 }
 
 // handleStateChange processes state changes that should trigger music mode re-evaluation
