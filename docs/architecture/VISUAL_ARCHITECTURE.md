@@ -202,9 +202,35 @@ flowchart TD
     CallService --> End5([End])
 
     style Start fill:#e1f5ff
-    style UpdateCache fill:#fff3e0
+    style WSEvent fill:#e8f5e9
+    style HAClient fill:#e8f5e9
+    style ParseEvent fill:#fff3e0
+    style ExtractState fill:#e8f5e9
+    style Ignore fill:#ffebee
+    style FindSubs fill:#fff3e0
+    style End1 fill:#ffebee
+    style CallHandlers fill:#e8f5e9
+    style SMHandler fill:#e8f5e9
+    style ParseValue fill:#e8f5e9
+    style TypeCheck fill:#fff3e0
+    style ParseBool fill:#e8f5e9
+    style ParseNum fill:#e8f5e9
+    style UseString fill:#e8f5e9
+    style ParseJSON fill:#e8f5e9
+    style UpdateCache fill:#e8f5e9
+    style NotifyPlugins fill:#fff3e0
+    style End2 fill:#ffebee
+    style CallPluginHandlers fill:#e8f5e9
     style PluginLogic fill:#e8f5e9
-    style CallService fill:#ffebee
+    style Decision fill:#fff3e0
+    style End3 fill:#ffebee
+    style SetState fill:#e8f5e9
+    style CheckReadOnly fill:#fff3e0
+    style LogOnly fill:#e8f5e9
+    style SyncToHA fill:#e8f5e9
+    style End4 fill:#ffebee
+    style CallService fill:#e8f5e9
+    style End5 fill:#ffebee
 ```
 
 ---
@@ -270,11 +296,45 @@ flowchart TD
     FadeIn --> Complete([Playback Complete])
 
     style Start fill:#e1f5ff
+    style GetState fill:#e8f5e9
     style CheckHome fill:#fff3e0
+    style StopMusic fill:#e8f5e9
     style CheckAsleep fill:#fff3e0
+    style SetSleep fill:#e8f5e9
     style CheckDayPhase fill:#fff3e0
+    style CheckWakeUp fill:#fff3e0
+    style CheckSunday fill:#fff3e0
+    style SetDay1 fill:#e8f5e9
+    style SetMorning fill:#e8f5e9
+    style SetDay2 fill:#e8f5e9
+    style SetDay3 fill:#e8f5e9
+    style SetEvening fill:#e8f5e9
+    style CheckCurrentSleep fill:#fff3e0
+    style KeepSleep fill:#e8f5e9
+    style SetWinddown fill:#e8f5e9
+    style End1 fill:#ffebee
+    style End2 fill:#ffebee
+    style End3 fill:#ffebee
+    style TriggerPlayback1 fill:#e8f5e9
+    style TriggerPlayback2 fill:#e8f5e9
+    style TriggerPlayback3 fill:#e8f5e9
+    style TriggerPlayback4 fill:#e8f5e9
+    style TriggerPlayback5 fill:#e8f5e9
+    style TriggerPlayback6 fill:#e8f5e9
+    style Orchestrate1 fill:#e8f5e9
+    style Orchestrate2 fill:#e8f5e9
+    style Orchestrate3 fill:#e8f5e9
+    style Orchestrate4 fill:#e8f5e9
+    style Orchestrate5 fill:#e8f5e9
+    style Orchestrate6 fill:#e8f5e9
     style SelectPlaylist fill:#e8f5e9
+    style BuildGroup fill:#e8f5e9
+    style MuteAll fill:#e8f5e9
     style StartPlayback fill:#e8f5e9
+    style EnableShuffle fill:#e8f5e9
+    style EvalConditions fill:#e8f5e9
+    style FadeIn fill:#e8f5e9
+    style Complete fill:#ffebee
 ```
 
 **Reference:** See `homeautomation-go/internal/plugins/music/manager.go` for implementation details.
@@ -331,10 +391,29 @@ flowchart TD
     NextRoom5 -->|No| Complete
 
     style Start fill:#e1f5ff
+    style GetState fill:#e8f5e9
+    style LoadConfig fill:#e8f5e9
+    style IterateRooms fill:#e8f5e9
     style CheckConditions fill:#fff3e0
+    style GetSceneOn1 fill:#e8f5e9
+    style GetSceneOn2 fill:#e8f5e9
+    style GetSceneDefault fill:#e8f5e9
+    style TurnOff1 fill:#e8f5e9
+    style TurnOff2 fill:#e8f5e9
+    style FormatScene1 fill:#e8f5e9
+    style FormatScene2 fill:#e8f5e9
+    style FormatScene3 fill:#e8f5e9
     style ActivateScene1 fill:#e8f5e9
     style ActivateScene2 fill:#e8f5e9
     style ActivateScene3 fill:#e8f5e9
+    style CallLightOff1 fill:#e8f5e9
+    style CallLightOff2 fill:#e8f5e9
+    style NextRoom1 fill:#fff3e0
+    style NextRoom2 fill:#fff3e0
+    style NextRoom3 fill:#fff3e0
+    style NextRoom4 fill:#fff3e0
+    style NextRoom5 fill:#fff3e0
+    style Complete fill:#ffebee
 ```
 
 **Reference:** See `homeautomation-go/internal/plugins/lighting/manager.go` for implementation details.
@@ -427,12 +506,64 @@ flowchart TD
     UseBattery5 --> End15([End])
 
     style Start fill:#e1f5ff
+    style GetBatteryPercent fill:#e8f5e9
+    style LoadConfig fill:#e8f5e9
     style CheckLevels fill:#fff3e0
+    style SetCritical fill:#e8f5e9
+    style SetLow fill:#e8f5e9
+    style SetMedium fill:#e8f5e9
+    style SetHigh fill:#e8f5e9
+    style SetFull fill:#e8f5e9
+    style SyncToHA1 fill:#e8f5e9
+    style SyncToHA2 fill:#e8f5e9
+    style SyncToHA3 fill:#e8f5e9
+    style SyncToHA4 fill:#e8f5e9
+    style SyncToHA5 fill:#e8f5e9
+    style CalculateCurrent1 fill:#e8f5e9
+    style CalculateCurrent2 fill:#e8f5e9
+    style CalculateCurrent3 fill:#e8f5e9
+    style CalculateCurrent4 fill:#e8f5e9
+    style CalculateCurrent5 fill:#e8f5e9
     style CheckFreeEnergy1 fill:#fff3e0
+    style CheckFreeEnergy2 fill:#fff3e0
+    style CheckFreeEnergy3 fill:#fff3e0
+    style CheckFreeEnergy4 fill:#fff3e0
+    style CheckFreeEnergy5 fill:#fff3e0
+    style SetInfinite1 fill:#e8f5e9
+    style SetInfinite2 fill:#e8f5e9
+    style SetInfinite3 fill:#e8f5e9
+    style SetInfinite4 fill:#e8f5e9
+    style SetInfinite5 fill:#e8f5e9
     style CheckGrid1 fill:#fff3e0
-    style SetInfinite1 fill:#c8e6c9
+    style CheckGrid2 fill:#fff3e0
+    style CheckGrid3 fill:#fff3e0
+    style CheckGrid4 fill:#fff3e0
+    style CheckGrid5 fill:#fff3e0
     style SetAbundant1 fill:#e8f5e9
-    style UseBattery1 fill:#ffebee
+    style SetAbundant2 fill:#e8f5e9
+    style SetAbundant3 fill:#e8f5e9
+    style SetPlenty1 fill:#e8f5e9
+    style SetPlenty2 fill:#e8f5e9
+    style UseBattery1 fill:#e8f5e9
+    style UseBattery2 fill:#e8f5e9
+    style UseBattery3 fill:#e8f5e9
+    style UseBattery4 fill:#e8f5e9
+    style UseBattery5 fill:#e8f5e9
+    style End1 fill:#ffebee
+    style End2 fill:#ffebee
+    style End3 fill:#ffebee
+    style End4 fill:#ffebee
+    style End5 fill:#ffebee
+    style End6 fill:#ffebee
+    style End7 fill:#ffebee
+    style End8 fill:#ffebee
+    style End9 fill:#ffebee
+    style End10 fill:#ffebee
+    style End11 fill:#ffebee
+    style End12 fill:#ffebee
+    style End13 fill:#ffebee
+    style End14 fill:#ffebee
+    style End15 fill:#ffebee
 ```
 
 **Reference:** See `homeautomation-go/internal/plugins/energy/manager.go` for implementation details.
@@ -525,6 +656,15 @@ graph LR
 
     CurrentEnergy --> LoadShedding
 
+    style NickHome fill:#e1f5ff
+    style CarolineHome fill:#e1f5ff
+    style ToriHere fill:#e1f5ff
+    style MasterAsleep fill:#e1f5ff
+    style GuestAsleep fill:#e1f5ff
+    style TVPlaying fill:#e1f5ff
+    style AlarmTime fill:#e1f5ff
+    style BatteryPercent fill:#e1f5ff
+
     style AnyOwnerHome fill:#fff3e0
     style AnyoneHome fill:#fff3e0
     style AnyoneAsleep fill:#fff3e0
@@ -536,6 +676,16 @@ graph LR
     style MusicType fill:#e8f5e9
     style MusicURI fill:#e8f5e9
     style FadeOut fill:#e8f5e9
+
+    style StateTracking fill:#c8e6c9
+    style DayPhasePlugin fill:#c8e6c9
+    style Music fill:#c8e6c9
+    style Lighting fill:#c8e6c9
+    style Energy fill:#c8e6c9
+    style SleepHygiene fill:#c8e6c9
+    style TV fill:#c8e6c9
+    style Security fill:#c8e6c9
+    style LoadShedding fill:#c8e6c9
 ```
 
 ---
