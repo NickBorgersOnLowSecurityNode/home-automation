@@ -1,23 +1,23 @@
-package statetracking
+package dayphase
 
 import (
 	"fmt"
 	"time"
 
 	"homeautomation/internal/config"
-	"homeautomation/internal/dayphase"
+	dayphaselib "homeautomation/internal/dayphase"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
 )
 
-// Manager handles state tracking for sun events and day phase calculation
+// Manager handles day phase and sun event calculation
 type Manager struct {
 	haClient     ha.HAClient
 	stateManager *state.Manager
 	configLoader *config.Loader
-	calculator   *dayphase.Calculator
+	calculator   *dayphaselib.Calculator
 	logger       *zap.Logger
 	readOnly     bool
 
@@ -33,12 +33,12 @@ type Manager struct {
 	subscriptions []state.Subscription
 }
 
-// NewManager creates a new State Tracking manager
+// NewManager creates a new Day Phase manager
 func NewManager(
 	haClient ha.HAClient,
 	stateManager *state.Manager,
 	configLoader *config.Loader,
-	calculator *dayphase.Calculator,
+	calculator *dayphaselib.Calculator,
 	logger *zap.Logger,
 	readOnly bool,
 ) *Manager {
@@ -47,7 +47,7 @@ func NewManager(
 		stateManager:  stateManager,
 		configLoader:  configLoader,
 		calculator:    calculator,
-		logger:        logger.Named("statetracking"),
+		logger:        logger.Named("dayphase"),
 		readOnly:      readOnly,
 		stopChan:      make(chan struct{}),
 		stoppedChan:   make(chan struct{}),
@@ -55,16 +55,16 @@ func NewManager(
 	}
 }
 
-// Start begins monitoring and updating state tracking variables
+// Start begins monitoring and updating day phase variables
 func (m *Manager) Start() error {
-	m.logger.Info("Starting State Tracking Manager")
+	m.logger.Info("Starting Day Phase Manager")
 
 	// Start periodic sun time updates (every 6 hours)
 	m.sunStopChan = m.calculator.StartPeriodicUpdate()
 
 	// Do initial calculation and update
 	if err := m.updateSunEventAndDayPhase(); err != nil {
-		return fmt.Errorf("failed to do initial state update: %w", err)
+		return fmt.Errorf("failed to do initial day phase update: %w", err)
 	}
 
 	// Start periodic update goroutine (every 5 minutes)
@@ -73,17 +73,17 @@ func (m *Manager) Start() error {
 	// Mark as started
 	m.started = true
 
-	m.logger.Info("State Tracking Manager started successfully")
+	m.logger.Info("Day Phase Manager started successfully")
 	return nil
 }
 
-// Stop stops the State Tracking Manager and cleans up subscriptions
+// Stop stops the Day Phase Manager and cleans up subscriptions
 func (m *Manager) Stop() {
-	m.logger.Info("Stopping State Tracking Manager")
+	m.logger.Info("Stopping Day Phase Manager")
 
 	// Only stop if started
 	if !m.started {
-		m.logger.Info("State Tracking Manager was not started, nothing to stop")
+		m.logger.Info("Day Phase Manager was not started, nothing to stop")
 		return
 	}
 
@@ -104,7 +104,7 @@ func (m *Manager) Stop() {
 	}
 	m.subscriptions = nil
 
-	m.logger.Info("State Tracking Manager stopped")
+	m.logger.Info("Day Phase Manager stopped")
 }
 
 // periodicUpdate runs every 5 minutes to update sun event and day phase
@@ -122,7 +122,7 @@ func (m *Manager) periodicUpdate() {
 			}
 
 		case <-m.stopChan:
-			m.logger.Info("Stopping periodic state tracking updates")
+			m.logger.Info("Stopping periodic day phase updates")
 			return
 		}
 	}

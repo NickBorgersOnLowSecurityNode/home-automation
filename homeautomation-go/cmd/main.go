@@ -10,14 +10,14 @@ import (
 	"time"
 
 	"homeautomation/internal/config"
-	"homeautomation/internal/dayphase"
+	dayphaselib "homeautomation/internal/dayphase"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/plugins/dayphase"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/loadshedding"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/sleephygiene"
-	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/state"
 
 	"github.com/joho/godotenv"
@@ -127,14 +127,14 @@ func main() {
 	subscribeToChanges(stateManager, logger)
 
 	// Create day phase calculator
-	dayPhaseCalc := dayphase.NewCalculator(latitude, longitude, logger)
+	dayPhaseCalc := dayphaselib.NewCalculator(latitude, longitude, logger)
 
-	// Start State Tracking Manager (sun events and day phase)
-	stateTrackingManager, err := startStateTrackingManager(client, stateManager, logger, readOnly, configDir, dayPhaseCalc)
+	// Start Day Phase Manager (sun events and day phase)
+	dayPhaseManager, err := startDayPhaseManager(client, stateManager, logger, readOnly, configDir, dayPhaseCalc)
 	if err != nil {
-		logger.Fatal("Failed to start State Tracking Manager", zap.Error(err))
+		logger.Fatal("Failed to start Day Phase Manager", zap.Error(err))
 	}
-	defer stateTrackingManager.Stop()
+	defer dayPhaseManager.Stop()
 
 	// Start Energy State Manager
 	energyManager, err := startEnergyManager(client, stateManager, logger, readOnly, configDir, timezone)
@@ -396,21 +396,21 @@ func startSleepHygieneManager(client ha.HAClient, stateManager *state.Manager, l
 	return sleepHygieneManager, nil
 }
 
-func startStateTrackingManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, calculator *dayphase.Calculator) (*statetracking.Manager, error) {
+func startDayPhaseManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, calculator *dayphaselib.Calculator) (*dayphase.Manager, error) {
 	// Load schedule configuration (needed for day phase calculation)
 	configLoader := config.NewLoader(configDir, logger)
 	if err := configLoader.LoadScheduleConfig(); err != nil {
 		return nil, fmt.Errorf("failed to load schedule config: %w", err)
 	}
 
-	logger.Info("Loaded schedule configuration for State Tracking")
+	logger.Info("Loaded schedule configuration for Day Phase")
 
-	// Create and start state tracking manager
-	stateTrackingManager := statetracking.NewManager(client, stateManager, configLoader, calculator, logger, readOnly)
-	if err := stateTrackingManager.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start state tracking manager: %w", err)
+	// Create and start day phase manager
+	dayPhaseManager := dayphase.NewManager(client, stateManager, configLoader, calculator, logger, readOnly)
+	if err := dayPhaseManager.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start day phase manager: %w", err)
 	}
 
-	logger.Info("State Tracking Manager started successfully")
-	return stateTrackingManager, nil
+	logger.Info("Day Phase Manager started successfully")
+	return dayPhaseManager, nil
 }

@@ -1,11 +1,11 @@
-package statetracking
+package dayphase
 
 import (
 	"testing"
 	"time"
 
 	"homeautomation/internal/config"
-	"homeautomation/internal/dayphase"
+	dayphaselib "homeautomation/internal/dayphase"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
 
@@ -18,7 +18,7 @@ func TestNewManager(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
-	calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
 
@@ -35,7 +35,7 @@ func TestManagerStartStop(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
-	calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
 
@@ -68,7 +68,7 @@ func TestUpdateSunEventAndDayPhase(t *testing.T) {
 		t.Logf("Warning: Could not load schedule config: %v", err)
 	}
 
-	calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
 
@@ -103,7 +103,7 @@ func TestUpdateSunEventAndDayPhaseReadOnly(t *testing.T) {
 	assert.Error(t, err) // Should error in read-only mode
 
 	configLoader := config.NewLoader("../../../configs", logger)
-	calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, true)
 
@@ -117,7 +117,7 @@ func TestManagerPeriodicUpdate(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
-	calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
 
@@ -148,7 +148,7 @@ func TestManagerWithDifferentCoordinates(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 
 	// Test with different coordinates (San Francisco)
-	calculator := dayphase.NewCalculator(37.7749, -122.4194, logger)
+	calculator := dayphaselib.NewCalculator(37.7749, -122.4194, logger)
 
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
 
@@ -171,7 +171,7 @@ func TestUpdateSunEventNoChange(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
-	calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
 
@@ -198,7 +198,7 @@ func TestUpdateDayPhaseNoChange(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
-	calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
 
@@ -225,7 +225,7 @@ func TestManagerStopBeforeStart(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
-	calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
 
