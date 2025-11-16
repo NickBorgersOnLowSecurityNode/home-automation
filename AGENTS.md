@@ -506,42 +506,55 @@ staticcheck ./...               # Advanced linting
 
 **Note**: `golint` is deprecated. Use `staticcheck` for comprehensive linting.
 
-### Pre-commit Checks
+### Git Hooks Strategy
 
-**MANDATORY** before every commit. These checks mirror what CI/CD will run:
+This repository uses a two-tier validation strategy optimized for developer experience:
+
+#### Pre-commit Hook (Fast - ~5-10 seconds)
+
+**Runs automatically on every commit.** Checks code quality without running tests:
 
 ```bash
-# RECOMMENDED: Use the automated pre-commit hook
+# Automatically runs via git hook, or manually:
 make pre-commit
 
-# This runs all the checks below automatically:
+# This runs fast checks only:
 # 1. gofmt formatting check
 # 2. goimports formatting check
 # 3. go vet static analysis
 # 4. staticcheck linting
 # 5. Build check (go build ./...)
-# 6. All tests (go test ./...)
-# 7. Race detector (go test -race ./...)
 ```
 
-**Manual checks** (if you need to run them individually):
+**Why no tests?** Commits should be fast. Tests run on push (see below).
+
+#### Pre-push Hook (Comprehensive - ~30-40 seconds)
+
+**Runs automatically before every push.** This is the main quality gate:
 
 ```bash
-# Style and formatting
-cd homeautomation-go
-gofmt -l .                       # Check formatting (should return nothing)
-goimports -l .                   # Check imports (should return nothing)
-go vet ./...                     # Static analysis
-staticcheck ./...                # Advanced linting
+# Automatically runs via git hook (cannot run manually)
+# This runs comprehensive validation:
+# 1. Build check (go build ./...)
+# 2. All tests (go test ./...)
+# 3. Race detector (go test -race ./...)
+# 4. Coverage check (≥70%)
+```
 
-# Build and tests
-go build ./...                   # Compile everything (including tests)
+**Your push will be blocked if tests fail.**
+
+#### Manual Testing
+
+If you want to run the full test suite before committing:
+
+```bash
+cd homeautomation-go
 go test ./...                    # Run all tests
 go test -race ./...              # Run with race detector
 go test -v -race ./test/integration/...  # Integration tests explicitly
 ```
 
-**If ANY of these fail, CI will fail. Fix locally first!**
+**If pre-push fails, CI will also fail. Fix locally first!**
 
 #### Quick Commands
 
