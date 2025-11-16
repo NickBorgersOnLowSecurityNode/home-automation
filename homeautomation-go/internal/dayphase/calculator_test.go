@@ -350,8 +350,14 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				c.dusk = now.Add(-1 * time.Hour) // Past dusk
 				c.lastUpdate = now
 			},
-			schedule: nil,              // No schedule
-			expected: DayPhaseWinddown, // Will be winddown unless it's very late or very early
+			schedule: nil, // No schedule
+			// Expected phase depends on current time: Night if hour >= 23 or < 6, otherwise Winddown
+			expected: func() DayPhase {
+				if now.Hour() >= 23 || now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseWinddown
+			}(),
 		},
 	}
 
