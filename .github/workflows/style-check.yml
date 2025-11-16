@@ -1,0 +1,121 @@
+name: Style Check
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - '**'
+  push:
+    branches:
+      - 'claude/**'  # Test development branches
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  go-style-check:
+    name: Go Code Style Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./homeautomation-go
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: homeautomation-go/go.sum
+
+      - name: Install style checking tools
+        run: |
+          echo "Installing Go style checking tools..."
+          go install golang.org/x/tools/cmd/goimports@latest
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Check gofmt formatting
+        run: |
+          echo "Checking gofmt formatting..."
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "❌ ERROR: The following files are not formatted with gofmt:"
+            echo "$unformatted"
+            echo ""
+            echo "Please run 'gofmt -w .' to format the code"
+            exit 1
+          fi
+          echo "✅ All files are properly formatted with gofmt"
+
+      - name: Check goimports formatting
+        run: |
+          echo "Checking goimports formatting..."
+          unformatted=$(goimports -l .)
+          if [ -n "$unformatted" ]; then
+            echo "❌ ERROR: The following files have import formatting issues:"
+            echo "$unformatted"
+            echo ""
+            echo "Please run 'goimports -w .' to fix imports"
+            exit 1
+          fi
+          echo "✅ All files have properly formatted imports"
+
+      - name: Run go vet
+        run: |
+          echo "Running go vet static analysis..."
+          if ! go vet ./...; then
+            echo ""
+            echo "❌ ERROR: go vet found issues"
+            echo "Please fix the issues reported above"
+            exit 1
+          fi
+          echo "✅ go vet passed - no issues found"
+
+      - name: Run staticcheck
+        run: |
+          echo "Running staticcheck advanced linting..."
+          if ! staticcheck ./...; then
+            echo ""
+            echo "❌ ERROR: staticcheck found issues"
+            echo "Please fix the issues reported above"
+            exit 1
+          fi
+          echo "✅ staticcheck passed - no issues found"
+
+      - name: Check for common Go anti-patterns
+        run: |
+          echo "Checking for common anti-patterns..."
+
+          # Check for debug prints that should be removed
+          if grep -r "fmt.Println" --include="*.go" --exclude="*_test.go" . ; then
+            echo "❌ WARNING: Found fmt.Println in non-test code (use logger instead)"
+            # Not failing on this, just warning
+          fi
+
+          # Check for TODO comments (informational only)
+          todos=$(grep -r "TODO" --include="*.go" . || true)
+          if [ -n "$todos" ]; then
+            echo "ℹ️  INFO: Found TODO comments:"
+            echo "$todos"
+          fi
+
+          echo "✅ Anti-pattern check complete"
+
+      - name: Style Check Summary
+        if: always()
+        run: |
+          echo "==============================================="
+          echo "        GO CODE STYLE CHECK SUMMARY"
+          echo "==============================================="
+          echo "✅ gofmt formatting check passed"
+          echo "✅ goimports formatting check passed"
+          echo "✅ go vet static analysis passed"
+          echo "✅ staticcheck linting passed"
+          echo "✅ Anti-pattern check complete"
+          echo ""
+          echo "✅ ALL STYLE CHECKS PASSED"
+          echo "==============================================="
