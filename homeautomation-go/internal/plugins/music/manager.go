@@ -1,6 +1,7 @@
 package music
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -140,7 +141,12 @@ func (m *Manager) selectAppropriateMusicModeWithContext(triggerKey string, isWak
 	if !isAnyoneHome {
 		m.logger.Info("No one is home, stopping music")
 		if err := m.setMusicPlaybackType(""); err != nil {
-			m.logger.Error("Failed to set empty music playback type", zap.Error(err))
+			if errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Debug("Skipping music playback type update in read-only mode",
+					zap.String("music_type", ""))
+			} else {
+				m.logger.Error("Failed to set empty music playback type", zap.Error(err))
+			}
 		}
 		return
 	}
@@ -155,7 +161,12 @@ func (m *Manager) selectAppropriateMusicModeWithContext(triggerKey string, isWak
 	if isAnyoneAsleep {
 		m.logger.Info("Someone is asleep, selecting sleep mode")
 		if err := m.setMusicPlaybackType("sleep"); err != nil {
-			m.logger.Error("Failed to set sleep music playback type", zap.Error(err))
+			if errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Debug("Skipping music playback type update in read-only mode",
+					zap.String("music_type", "sleep"))
+			} else {
+				m.logger.Error("Failed to set sleep music playback type", zap.Error(err))
+			}
 		}
 		return
 	}
@@ -186,7 +197,12 @@ func (m *Manager) selectAppropriateMusicModeWithContext(triggerKey string, isWak
 
 	// Set the music playback type
 	if err := m.setMusicPlaybackType(musicMode); err != nil {
-		m.logger.Error("Failed to set music playback type", zap.Error(err))
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping music playback type update in read-only mode",
+				zap.String("music_type", musicMode))
+		} else {
+			m.logger.Error("Failed to set music playback type", zap.Error(err))
+		}
 	}
 }
 

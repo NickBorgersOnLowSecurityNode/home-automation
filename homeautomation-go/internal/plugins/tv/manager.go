@@ -1,6 +1,7 @@
 package tv
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -144,7 +145,12 @@ func (m *Manager) handleAppleTVStateChange(entityID string, oldState, newState *
 
 	// Update isAppleTVPlaying state variable
 	if err := m.stateManager.SetBool("isAppleTVPlaying", isPlaying); err != nil {
-		m.logger.Error("Failed to set isAppleTVPlaying", zap.Error(err))
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping isAppleTVPlaying update in read-only mode",
+				zap.Bool("is_playing", isPlaying))
+		} else {
+			m.logger.Error("Failed to set isAppleTVPlaying", zap.Error(err))
+		}
 	}
 }
 
@@ -164,13 +170,23 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 
 	// Update isTVon state variable
 	if err := m.stateManager.SetBool("isTVon", isTVOn); err != nil {
-		m.logger.Error("Failed to set isTVon", zap.Error(err))
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping isTVon update in read-only mode",
+				zap.Bool("is_tv_on", isTVOn))
+		} else {
+			m.logger.Error("Failed to set isTVon", zap.Error(err))
+		}
 	}
 
 	// If TV is off, then it's definitely not playing
 	if !isTVOn {
 		if err := m.stateManager.SetBool("isTVPlaying", false); err != nil {
-			m.logger.Error("Failed to set isTVPlaying to false", zap.Error(err))
+			if errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Debug("Skipping isTVPlaying update in read-only mode",
+					zap.Bool("is_playing", false))
+			} else {
+				m.logger.Error("Failed to set isTVPlaying to false", zap.Error(err))
+			}
 		}
 	}
 }
@@ -237,6 +253,11 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 
 	// Update isTVPlaying state variable
 	if err := m.stateManager.SetBool("isTVPlaying", isTVPlaying); err != nil {
-		m.logger.Error("Failed to set isTVPlaying", zap.Error(err))
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping isTVPlaying update in read-only mode",
+				zap.Bool("is_playing", isTVPlaying))
+		} else {
+			m.logger.Error("Failed to set isTVPlaying", zap.Error(err))
+		}
 	}
 }

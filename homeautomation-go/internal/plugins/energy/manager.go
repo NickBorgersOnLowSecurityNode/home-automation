@@ -1,6 +1,7 @@
 package energy
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -165,8 +166,12 @@ func (m *Manager) handleBatteryChange(percentage float64) {
 
 	// Update state variable
 	if err := m.stateManager.SetString("batteryEnergyLevel", level); err != nil {
-		m.logger.Error("Failed to set batteryEnergyLevel",
-			zap.Error(err))
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping batteryEnergyLevel update in read-only mode",
+				zap.String("level", level))
+		} else {
+			m.logger.Error("Failed to set batteryEnergyLevel", zap.Error(err))
+		}
 	}
 }
 
@@ -184,8 +189,12 @@ func (m *Manager) handleThisHourSolarChange(kw float64) {
 
 	// Update state variable
 	if err := m.stateManager.SetNumber("thisHourSolarGeneration", kw); err != nil {
-		m.logger.Error("Failed to set thisHourSolarGeneration",
-			zap.Error(err))
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping thisHourSolarGeneration update in read-only mode",
+				zap.Float64("kw", kw))
+		} else {
+			m.logger.Error("Failed to set thisHourSolarGeneration", zap.Error(err))
+		}
 	}
 
 	// Trigger recalculation
@@ -206,8 +215,12 @@ func (m *Manager) handleRemainingSolarChange(kwh float64) {
 
 	// Update state variable
 	if err := m.stateManager.SetNumber("remainingSolarGeneration", kwh); err != nil {
-		m.logger.Error("Failed to set remainingSolarGeneration",
-			zap.Error(err))
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping remainingSolarGeneration update in read-only mode",
+				zap.Float64("kwh", kwh))
+		} else {
+			m.logger.Error("Failed to set remainingSolarGeneration", zap.Error(err))
+		}
 	}
 
 	// Trigger recalculation
@@ -296,8 +309,12 @@ func (m *Manager) recalculateSolarProductionLevel() {
 
 	// Update state variable
 	if err := m.stateManager.SetString("solarProductionEnergyLevel", level); err != nil {
-		m.logger.Error("Failed to set solarProductionEnergyLevel",
-			zap.Error(err))
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping solarProductionEnergyLevel update in read-only mode",
+				zap.String("level", level))
+		} else {
+			m.logger.Error("Failed to set solarProductionEnergyLevel", zap.Error(err))
+		}
 	}
 }
 
@@ -335,7 +352,12 @@ func (m *Manager) recalculateOverallEnergyLevel() {
 	if isFreeEnergy {
 		m.logger.Info("Free energy is available, setting current energy level to white")
 		if err := m.stateManager.SetString("currentEnergyLevel", "white"); err != nil {
-			m.logger.Error("Failed to set currentEnergyLevel", zap.Error(err))
+			if errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Debug("Skipping currentEnergyLevel update in read-only mode",
+					zap.String("level", "white"))
+			} else {
+				m.logger.Error("Failed to set currentEnergyLevel", zap.Error(err))
+			}
 		}
 		return
 	}
@@ -362,7 +384,12 @@ func (m *Manager) recalculateOverallEnergyLevel() {
 
 	// Update state variable
 	if err := m.stateManager.SetString("currentEnergyLevel", overallLevel); err != nil {
-		m.logger.Error("Failed to set currentEnergyLevel", zap.Error(err))
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping currentEnergyLevel update in read-only mode",
+				zap.String("level", overallLevel))
+		} else {
+			m.logger.Error("Failed to set currentEnergyLevel", zap.Error(err))
+		}
 	}
 }
 
@@ -478,7 +505,12 @@ func (m *Manager) checkFreeEnergy() {
 
 	// Update state
 	if err := m.stateManager.SetBool("isFreeEnergyAvailable", isFreeEnergy); err != nil {
-		m.logger.Error("Failed to set isFreeEnergyAvailable", zap.Error(err))
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping isFreeEnergyAvailable update in read-only mode",
+				zap.Bool("is_free_energy", isFreeEnergy))
+		} else {
+			m.logger.Error("Failed to set isFreeEnergyAvailable", zap.Error(err))
+		}
 	}
 }
 
