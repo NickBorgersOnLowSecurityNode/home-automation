@@ -124,8 +124,13 @@ func (m *MockClient) CallService(domain, service string, data map[string]interfa
 	m.callsMu.Unlock()
 
 	// Update mock state based on service call
+	// Handle both single entity_id and array of entity_ids
 	if entityID, ok := data["entity_id"].(string); ok {
 		m.updateStateFromServiceCall(entityID, domain, service, data)
+	} else if entityIDs, ok := data["entity_id"].([]string); ok {
+		for _, entityID := range entityIDs {
+			m.updateStateFromServiceCall(entityID, domain, service, data)
+		}
 	}
 
 	return nil
@@ -290,7 +295,7 @@ func (m *MockClient) updateStateFromServiceCall(entityID, domain, service string
 	}
 
 	switch domain {
-	case "input_boolean":
+	case "input_boolean", "switch":
 		if service == "turn_on" {
 			newStateValue = "on"
 		} else if service == "turn_off" {

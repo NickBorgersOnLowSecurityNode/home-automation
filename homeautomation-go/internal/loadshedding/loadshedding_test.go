@@ -14,6 +14,11 @@ import (
 func TestLoadShedding_EnergyStateRed(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
+
+	// Initialize thermostat hold switches in mock (start with them off)
+	mockClient.SetState(thermostatHoldHouse, "off", nil)
+	mockClient.SetState(thermostatHoldSuite, "off", nil)
+
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	// Initialize state
@@ -68,6 +73,11 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
+
+	// Initialize thermostat hold switches in mock (start with them off)
+	mockClient.SetState(thermostatHoldHouse, "off", nil)
+	mockClient.SetState(thermostatHoldSuite, "off", nil)
+
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	err := stateManager.SyncFromHA()
@@ -100,17 +110,25 @@ func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
+
+	// Initialize thermostat hold switches in mock (start with them on - load shedding active)
+	mockClient.SetState(thermostatHoldHouse, "on", nil)
+	mockClient.SetState(thermostatHoldSuite, "on", nil)
+
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
 	ls := NewManager(stateManager, mockClient, logger)
+	// Manually set loadSheddingOn to true to simulate that load shedding was previously enabled
+	ls.loadSheddingOn = true
+
 	err = ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set energy state to green
+	// Set energy state to green (should disable load shedding)
 	err = stateManager.SetString("currentEnergyLevel", "green")
 	assert.NoError(t, err)
 
@@ -137,17 +155,25 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
+
+	// Initialize thermostat hold switches in mock (start with them on - load shedding active)
+	mockClient.SetState(thermostatHoldHouse, "on", nil)
+	mockClient.SetState(thermostatHoldSuite, "on", nil)
+
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
 	ls := NewManager(stateManager, mockClient, logger)
+	// Manually set loadSheddingOn to true to simulate that load shedding was previously enabled
+	ls.loadSheddingOn = true
+
 	err = ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set energy state to white
+	// Set energy state to white (should disable load shedding)
 	err = stateManager.SetString("currentEnergyLevel", "white")
 	assert.NoError(t, err)
 
@@ -169,6 +195,11 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 func TestLoadShedding_RateLimiting(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
+
+	// Initialize thermostat hold switches in mock (start with them off)
+	mockClient.SetState(thermostatHoldHouse, "off", nil)
+	mockClient.SetState(thermostatHoldSuite, "off", nil)
+
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	err := stateManager.SyncFromHA()
@@ -207,6 +238,11 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 func TestLoadShedding_StartStop(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
+
+	// Initialize thermostat hold switches in mock (start with them off)
+	mockClient.SetState(thermostatHoldHouse, "off", nil)
+	mockClient.SetState(thermostatHoldSuite, "off", nil)
+
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	err := stateManager.SyncFromHA()
@@ -235,6 +271,11 @@ func TestLoadShedding_StartStop(t *testing.T) {
 func TestLoadShedding_UnknownState(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
+
+	// Initialize thermostat hold switches in mock (start with them off)
+	mockClient.SetState(thermostatHoldHouse, "off", nil)
+	mockClient.SetState(thermostatHoldSuite, "off", nil)
+
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	err := stateManager.SyncFromHA()
@@ -261,6 +302,11 @@ func TestLoadShedding_UnknownState(t *testing.T) {
 func TestLoadShedding_RedToGreenTransition(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
+
+	// Initialize thermostat hold switches in mock (start with them off)
+	mockClient.SetState(thermostatHoldHouse, "off", nil)
+	mockClient.SetState(thermostatHoldSuite, "off", nil)
+
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	err := stateManager.SyncFromHA()

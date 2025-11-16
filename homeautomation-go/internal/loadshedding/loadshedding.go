@@ -34,13 +34,15 @@ const (
 
 // LoadShedding manages thermostat control based on energy state
 type LoadShedding struct {
-	state        *state.Manager
-	client       ha.HAClient
-	logger       *zap.Logger
-	lastAction   time.Time
-	lastActionMu sync.Mutex
-	subscription state.Subscription
-	enabled      bool
+	state          *state.Manager
+	client         ha.HAClient
+	logger         *zap.Logger
+	lastAction     time.Time
+	lastActionMu   sync.Mutex
+	subscription   state.Subscription
+	enabled        bool
+	loadSheddingOn bool
+	stateMu        sync.Mutex
 }
 
 // NewManager creates a new LoadShedding controller
@@ -134,6 +136,32 @@ func (ls *LoadShedding) enableLoadShedding(energyLevel string) {
 		zap.String("energy_level", energyLevel),
 		zap.String("reason", "Energy state is "+energyLevel+" (low battery)"))
 
+	// Check if load shedding is already enabled
+	ls.stateMu.Lock()
+	alreadyEnabled := ls.loadSheddingOn
+	ls.stateMu.Unlock()
+
+	if alreadyEnabled {
+		ls.logger.Info("⏭  Action skipped: Load shedding already enabled",
+			zap.String("reason", "Preventing unnecessary thermostat changes"))
+		return
+	}
+
+	// Check current thermostat hold state
+	holdOn, err := ls.checkThermostatHoldState()
+	if err != nil {
+		ls.logger.Warn("Failed to check thermostat hold state, proceeding with action",
+			zap.Error(err))
+	} else if holdOn {
+		ls.logger.Info("⏭  Action skipped: Thermostat holds already enabled",
+			zap.String("reason", "Thermostats already in desired state"))
+		// Update our state tracking to match reality
+		ls.stateMu.Lock()
+		ls.loadSheddingOn = true
+		ls.stateMu.Unlock()
+		return
+	}
+
 	// Check rate limiting
 	if !ls.checkRateLimit() {
 		return
@@ -173,7 +201,11 @@ func (ls *LoadShedding) enableLoadShedding(energyLevel string) {
 	ls.logger.Info("=== LOAD SHEDDING ACTIVATED ===",
 		zap.String("action", "HVAC restricted to conserve battery"))
 
-	// Update last action time
+	// Update state tracking and last action time
+	ls.stateMu.Lock()
+	ls.loadSheddingOn = true
+	ls.stateMu.Unlock()
+
 	ls.lastActionMu.Lock()
 	ls.lastAction = time.Now()
 	ls.lastActionMu.Unlock()
@@ -184,6 +216,32 @@ func (ls *LoadShedding) disableLoadShedding(energyLevel string) {
 	ls.logger.Info("=== LOAD SHEDDING DECISION: DISABLE ===",
 		zap.String("energy_level", energyLevel),
 		zap.String("reason", "Energy state is "+energyLevel+" (battery restored)"))
+
+	// Check if load shedding is already disabled
+	ls.stateMu.Lock()
+	alreadyDisabled := !ls.loadSheddingOn
+	ls.stateMu.Unlock()
+
+	if alreadyDisabled {
+		ls.logger.Info("⏭  Action skipped: Load shedding already disabled",
+			zap.String("reason", "Preventing unnecessary thermostat changes"))
+		return
+	}
+
+	// Check current thermostat hold state
+	holdOn, err := ls.checkThermostatHoldState()
+	if err != nil {
+		ls.logger.Warn("Failed to check thermostat hold state, proceeding with action",
+			zap.Error(err))
+	} else if !holdOn {
+		ls.logger.Info("⏭  Action skipped: Thermostat holds already disabled",
+			zap.String("reason", "Thermostats already in desired state"))
+		// Update our state tracking to match reality
+		ls.stateMu.Lock()
+		ls.loadSheddingOn = false
+		ls.stateMu.Unlock()
+		return
+	}
 
 	// Check rate limiting
 	if !ls.checkRateLimit() {
@@ -206,7 +264,11 @@ func (ls *LoadShedding) disableLoadShedding(energyLevel string) {
 	ls.logger.Info("=== LOAD SHEDDING DEACTIVATED ===",
 		zap.String("action", "HVAC returned to normal schedule"))
 
-	// Update last action time
+	// Update state tracking and last action time
+	ls.stateMu.Lock()
+	ls.loadSheddingOn = false
+	ls.stateMu.Unlock()
+
 	ls.lastActionMu.Lock()
 	ls.lastAction = time.Now()
 	ls.lastActionMu.Unlock()
@@ -233,4 +295,29 @@ func (ls *LoadShedding) checkRateLimit() bool {
 	ls.logger.Info("✓ Rate limit check passed",
 		zap.Duration("time_since_last_action", timeSinceLastAction))
 	return true
+}
+
+// checkThermostatHoldState checks if thermostat holds are currently enabled
+// Returns true if at least one hold is on, false otherwise
+func (ls *LoadShedding) checkThermostatHoldState() (bool, error) {
+	// Get state of both thermostat hold switches
+	houseState, err := ls.client.GetState(thermostatHoldHouse)
+	if err != nil {
+		return false, fmt.Errorf("failed to get house thermostat hold state: %w", err)
+	}
+
+	suiteState, err := ls.client.GetState(thermostatHoldSuite)
+	if err != nil {
+		return false, fmt.Errorf("failed to get suite thermostat hold state: %w", err)
+	}
+
+	// Check if either hold is on
+	houseOn := houseState.State == "on"
+	suiteOn := suiteState.State == "on"
+
+	ls.logger.Debug("Current thermostat hold states",
+		zap.Bool("house_hold", houseOn),
+		zap.Bool("suite_hold", suiteOn))
+
+	return houseOn || suiteOn, nil
 }
