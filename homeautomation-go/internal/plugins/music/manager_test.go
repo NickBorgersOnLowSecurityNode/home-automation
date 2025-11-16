@@ -333,9 +333,9 @@ func TestMusicManager_Stop(t *testing.T) {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
 
-	// Verify subscriptions were created
-	if len(manager.subscriptions) != 3 {
-		t.Errorf("Expected 3 subscriptions, got %d", len(manager.subscriptions))
+	// Verify subscriptions were created (dayPhase, isAnyoneAsleep, isAnyoneHome, musicPlaybackType)
+	if len(manager.subscriptions) != 4 {
+		t.Errorf("Expected 4 subscriptions, got %d", len(manager.subscriptions))
 	}
 
 	// Stop manager
@@ -469,4 +469,580 @@ func TestMusicManager_ReadOnlyMode(t *testing.T) {
 
 	// If we get here without panicking, the read-only mode handling worked correctly
 	// The actual verification is that no errors are thrown, just debug logs
+}
+
+// TestCalculateVolume tests volume calculation
+func TestCalculateVolume(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	tests := []struct {
+		name       string
+		baseVolume int
+		multiplier float64
+		expected   int
+	}{
+		{"No multiplier", 9, 1.0, 9},
+		{"1.5x multiplier", 10, 1.5, 15},
+		{"Rounds correctly", 9, 1.1, 10},
+		{"Caps at 15", 16, 1.1, 15},
+		{"Zero base", 0, 1.5, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := manager.calculateVolume(tt.baseVolume, tt.multiplier)
+			if result != tt.expected {
+				t.Errorf("calculateVolume(%d, %.1f) = %d, want %d",
+					tt.baseVolume, tt.multiplier, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestPlaylistRotation tests playlist rotation logic
+func TestPlaylistRotation(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Test rotation for "day" music type with 3 playlists
+	musicType := "day"
+	optionsCount := 3
+
+	// First call should return 0
+	index1 := manager.getNextPlaylistIndex(musicType, optionsCount)
+	if index1 != 0 {
+		t.Errorf("First call should return 0, got %d", index1)
+	}
+
+	// Second call should return 1
+	index2 := manager.getNextPlaylistIndex(musicType, optionsCount)
+	if index2 != 1 {
+		t.Errorf("Second call should return 1, got %d", index2)
+	}
+
+	// Third call should return 2
+	index3 := manager.getNextPlaylistIndex(musicType, optionsCount)
+	if index3 != 2 {
+		t.Errorf("Third call should return 2, got %d", index3)
+	}
+
+	// Fourth call should wrap around to 0
+	index4 := manager.getNextPlaylistIndex(musicType, optionsCount)
+	if index4 != 0 {
+		t.Errorf("Fourth call should wrap to 0, got %d", index4)
+	}
+
+	// Test different music type starts at 0
+	index5 := manager.getNextPlaylistIndex("evening", optionsCount)
+	if index5 != 0 {
+		t.Errorf("Different music type should start at 0, got %d", index5)
+	}
+}
+
+// TestRateLimiting tests rate limiting functionality
+func TestRateLimiting(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Initialize state variables
+	_ = stateManager.SetString("musicPlaybackType", "")
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	// Use a fixed time for testing
+	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider)
+
+	// First playback should succeed
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
+	if manager.currentlyPlaying == nil {
+		t.Error("First playback should have succeeded")
+	}
+
+	// Immediate second playback should be rate limited
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "evening")
+	if manager.currentlyPlaying.Type != "day" {
+		t.Error("Second immediate playback should have been rate limited")
+	}
+
+	// Update time to 11 seconds later
+	timeProvider.FixedTime = fixedTime.Add(11 * time.Second)
+	manager.timeProvider = timeProvider
+
+	// Now it should succeed
+	_ = stateManager.SetString("musicPlaybackType", "evening")
+	config.Music["evening"] = config.Music["day"] // Add evening config
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "evening")
+	if manager.currentlyPlaying.Type != "evening" {
+		t.Error("Playback after 11 seconds should have succeeded")
+	}
+}
+
+// TestDoubleActivationPrevention tests prevention of re-activating already playing music
+func TestDoubleActivationPrevention(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+
+	// First playback
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
+	firstURI := manager.currentlyPlaying.URI
+
+	// Second activation of same type should be blocked
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "day")
+	if manager.currentlyPlaying.URI != firstURI {
+		t.Error("Double activation should not have changed the playlist")
+	}
+}
+
+// TestMuteConditionEvaluation tests mute condition logic
+func TestMuteConditionEvaluation(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set up state variables
+	_ = stateManager.SetBool("isTVPlaying", true)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	tests := []struct {
+		name          string
+		participant   ParticipantWithVolume
+		expectedMuted bool
+	}{
+		{
+			name: "No mute conditions - should unmute",
+			participant: ParticipantWithVolume{
+				PlayerName:   "Kitchen",
+				LeaveMutedIf: []MuteCondition{},
+			},
+			expectedMuted: false,
+		},
+		{
+			name: "TV playing condition matches - should stay muted",
+			participant: ParticipantWithVolume{
+				PlayerName: "Living Room",
+				LeaveMutedIf: []MuteCondition{
+					{Variable: "isTVPlaying", Value: true},
+				},
+			},
+			expectedMuted: true,
+		},
+		{
+			name: "Master asleep condition doesn't match - should unmute",
+			participant: ParticipantWithVolume{
+				PlayerName: "Bedroom",
+				LeaveMutedIf: []MuteCondition{
+					{Variable: "isMasterAsleep", Value: true},
+				},
+			},
+			expectedMuted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shouldUnmute := manager.shouldUnmuteSpeaker(tt.participant)
+			if shouldUnmute == tt.expectedMuted {
+				t.Errorf("shouldUnmuteSpeaker() = %v, expectedMuted = %v",
+					shouldUnmute, tt.expectedMuted)
+			}
+		})
+	}
+}
+
+// TestGetSpeakerEntityID tests entity ID conversion
+func TestGetSpeakerEntityID(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	tests := []struct {
+		speakerName string
+		expected    string
+	}{
+		{"Kitchen", "media_player.kitchen"},
+		{"Kids Bathroom", "media_player.kids_bathroom"},
+		{"Soundbar", "media_player.soundbar"},
+		{"Dining Room", "media_player.dining_room"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.speakerName, func(t *testing.T) {
+			result := manager.getSpeakerEntityID(tt.speakerName)
+			if result != tt.expected {
+				t.Errorf("getSpeakerEntityID(%q) = %q, want %q",
+					tt.speakerName, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestStopPlayback tests stopping music playback
+func TestStopPlayback(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{},
+			},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up currently playing music
+	manager.currentlyPlaying = &CurrentlyPlayingMusic{
+		Type: "day",
+		URI:  "spotify:playlist:test",
+	}
+
+	// Stop playback
+	manager.stopPlayback()
+
+	// Verify currently playing is cleared
+	if manager.currentlyPlaying != nil {
+		t.Error("currentlyPlaying should be nil after stopPlayback()")
+	}
+}
+
+// TestOrchestratePlayback tests the main orchestration flow
+func TestOrchestratePlayback(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+					{PlayerName: "Living Room", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:test1", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "spotify:playlist:test2", MediaType: "playlist", VolumeMultiplier: 1.5},
+				},
+			},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+
+	// Test orchestration
+	err := manager.orchestratePlayback("day")
+	if err != nil {
+		t.Fatalf("orchestratePlayback() failed: %v", err)
+	}
+
+	// Verify currently playing was set
+	if manager.currentlyPlaying == nil {
+		t.Fatal("currentlyPlaying should be set after orchestration")
+	}
+
+	if manager.currentlyPlaying.Type != "day" {
+		t.Errorf("currentlyPlaying.Type = %q, want %q", manager.currentlyPlaying.Type, "day")
+	}
+
+	if len(manager.currentlyPlaying.Participants) != 2 {
+		t.Errorf("currentlyPlaying.Participants count = %d, want 2", len(manager.currentlyPlaying.Participants))
+	}
+
+	if manager.currentlyPlaying.LeadPlayer != "Kitchen" {
+		t.Errorf("currentlyPlaying.LeadPlayer = %q, want %q", manager.currentlyPlaying.LeadPlayer, "Kitchen")
+	}
+
+	// Test with unknown music type
+	err = manager.orchestratePlayback("unknown")
+	if err == nil {
+		t.Error("orchestratePlayback() with unknown type should return error")
+	}
+}
+
+// TestToLower tests the toLower helper function
+func TestToLower(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Kitchen", "kitchen"},
+		{"Kids Bathroom", "kids bathroom"},
+		{"DINING ROOM", "dining room"},
+		{"soundbar", "soundbar"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := toLower(tt.input)
+			if result != tt.expected {
+				t.Errorf("toLower(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestValuesMatch tests value matching logic
+func TestValuesMatch(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	tests := []struct {
+		name     string
+		a        interface{}
+		b        interface{}
+		expected bool
+	}{
+		{"Matching bools", true, true, true},
+		{"Non-matching bools", true, false, false},
+		{"Matching strings", "test", "test", true},
+		{"Non-matching strings", "test", "other", false},
+		{"Matching numbers", 42, 42, true},
+		{"Non-matching numbers", 42, 43, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := manager.valuesMatch(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("valuesMatch(%v, %v) = %v, want %v",
+					tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestGetStateValue tests state value retrieval
+func TestGetStateValue(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set up various state variables
+	_ = stateManager.SetBool("isTVPlaying", true)
+	_ = stateManager.SetString("dayPhase", "evening")
+	_ = stateManager.SetNumber("alarmTime", 7.5)
+
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Test getting boolean
+	val, err := manager.getStateValue("isTVPlaying")
+	if err != nil {
+		t.Errorf("getStateValue(isTVPlaying) failed: %v", err)
+	}
+	if val != true {
+		t.Errorf("getStateValue(isTVPlaying) = %v, want true", val)
+	}
+
+	// Test getting string
+	val, err = manager.getStateValue("dayPhase")
+	if err != nil {
+		t.Errorf("getStateValue(dayPhase) failed: %v", err)
+	}
+	if val != "evening" {
+		t.Errorf("getStateValue(dayPhase) = %v, want 'evening'", val)
+	}
+
+	// Test getting number
+	val, err = manager.getStateValue("alarmTime")
+	if err != nil {
+		t.Errorf("getStateValue(alarmTime) failed: %v", err)
+	}
+	if val != 7.5 {
+		t.Errorf("getStateValue(alarmTime) = %v, want 7.5", val)
+	}
+
+	// Test non-existent variable
+	_, err = manager.getStateValue("nonExistent")
+	if err == nil {
+		t.Error("getStateValue(nonExistent) should return error")
+	}
+}
+
+// TestCallService tests service calling
+func TestCallService(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+
+	// Test in normal mode
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	err := manager.callService("media_player", "play_media", map[string]interface{}{
+		"entity_id": "media_player.kitchen",
+	})
+	if err != nil {
+		t.Errorf("callService() in normal mode failed: %v", err)
+	}
+
+	// Test in read-only mode
+	managerRO := NewManager(mockClient, stateManager, config, logger, true, nil)
+	err = managerRO.callService("media_player", "play_media", map[string]interface{}{
+		"entity_id": "media_player.kitchen",
+	})
+	if err != nil {
+		t.Errorf("callService() in read-only mode failed: %v", err)
+	}
+}
+
+// TestHandleMusicPlaybackTypeChange_EmptyString tests stopping playback
+func TestHandleMusicPlaybackTypeChange_EmptyString(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{},
+			},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+
+	// Set up currently playing music
+	manager.currentlyPlaying = &CurrentlyPlayingMusic{
+		Type: "day",
+		URI:  "spotify:playlist:test",
+	}
+
+	// Trigger empty music type (stop)
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "")
+
+	// Verify playback was stopped
+	if manager.currentlyPlaying != nil {
+		t.Error("handleMusicPlaybackTypeChange with empty string should stop playback")
+	}
+}
+
+// TestHandleMusicPlaybackTypeChange_InvalidType tests handling of invalid type values
+func TestHandleMusicPlaybackTypeChange_InvalidType(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Pass non-string value (should log error and return)
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", 123)
+
+	// If we reach here without panic, the invalid type handling worked
+}
+
+// TestExecutePlayback tests the complete execution flow
+func TestExecutePlayback(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set up state variables for mute conditions
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetString("musicPlaybackType", "day")
+
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	participants := []ParticipantWithVolume{
+		{
+			PlayerName:   "Kitchen",
+			BaseVolume:   9,
+			Volume:       9,
+			LeaveMutedIf: []MuteCondition{},
+		},
+		{
+			PlayerName: "Living Room",
+			BaseVolume: 10,
+			Volume:     10,
+			LeaveMutedIf: []MuteCondition{
+				{Variable: "isTVPlaying", Value: true},
+			},
+		},
+	}
+
+	option := PlaybackOption{
+		URI:              "spotify:playlist:test",
+		MediaType:        "playlist",
+		VolumeMultiplier: 1.0,
+	}
+
+	err := manager.executePlayback("day", option, participants, "Kitchen")
+	if err != nil {
+		t.Errorf("executePlayback() failed: %v", err)
+	}
+}
+
+// TestBuildSpeakerGroup tests speaker group building
+func TestBuildSpeakerGroup(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},
+		{PlayerName: "Living Room", Volume: 10},
+		{PlayerName: "Bedroom", Volume: 8},
+	}
+
+	err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
+	if err != nil {
+		t.Errorf("buildSpeakerGroup() failed: %v", err)
+	}
 }
