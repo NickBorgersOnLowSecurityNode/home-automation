@@ -472,3 +472,39 @@ func TestCheckTimeTriggers_WakeTime(t *testing.T) {
 		t.Error("Expected service calls for wake sequence")
 	}
 }
+
+func TestSleepHygieneManager_ReadOnlyMode(t *testing.T) {
+	logger := zap.NewNop()
+	mockHA := ha.NewMockClient()
+	stateManager := state.NewManager(mockHA, logger, true)
+	configLoader := config.NewLoader("../../../configs", logger)
+
+	// Set up initial state
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+	stateManager.SetBool("isNickHome", true)
+	stateManager.SetBool("isCarolineHome", true)
+
+	// Set alarm time to 1 hour from now
+	alarmTime := time.Now().Add(1 * time.Hour)
+	stateManager.SetNumber("alarmTime", float64(alarmTime.UnixMilli()))
+
+	manager := NewManager(mockHA, stateManager, configLoader, logger, true, nil)
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Test that read-only mode prevents state updates but doesn't error
+	// The manager should handle read-only mode gracefully
+	manager.checkTimeTriggers()
+
+	// In read-only mode, no service calls should be made
+	calls := mockHA.GetServiceCalls()
+	if len(calls) != 0 {
+		t.Errorf("Expected no service calls in read-only mode, got %d", len(calls))
+	}
+}
