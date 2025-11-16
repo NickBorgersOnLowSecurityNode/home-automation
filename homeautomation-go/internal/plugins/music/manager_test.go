@@ -46,8 +46,14 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 			isAnyoneAsleep:    false,
 			dayPhase:          "morning",
 			currentMusicType:  "",
-			expectedMusicType: "morning",
-			description:       "Morning phase triggers morning music",
+			expectedMusicType: func() string {
+				// On Sundays, morning mode returns "day" instead of "morning"
+				if time.Now().Weekday() == time.Sunday {
+					return "day"
+				}
+				return "morning"
+			}(),
+			description:       "Morning phase triggers morning music (except Sundays)",
 		},
 		{
 			name:              "Day - day mode",
