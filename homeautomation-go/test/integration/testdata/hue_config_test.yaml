@@ -1,0 +1,19 @@
+---
+# Minimal lighting config for testing
+rooms:
+  - hue_group: Living Room
+    hass_area_id: living_room
+    on_if_true: isAnyoneHome
+    on_if_false: isTVPlaying
+    off_if_true: isEveryoneAsleep
+    off_if_false: isAnyoneHome
+    increase_brightness_if_true: isHaveGuests
+    transition_seconds: 5
+  - hue_group: Master Bedroom
+    hass_area_id: master_bedroom
+    on_if_true: ~
+    on_if_false: isMasterAsleep
+    off_if_true: isMasterAsleep
+    off_if_false: isAnyoneHome
+    increase_brightness_if_true: ~
+    transition_seconds: 5

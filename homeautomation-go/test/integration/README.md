@@ -70,13 +70,18 @@ go test -v -race -timeout=5m ./test/integration/...
 
 ## Test Status
 
-✅ **All 11 integration tests passing!**
+✅ **All 13 integration tests passing!**
 
 All critical bugs discovered during testing have been fixed:
 - ✅ Concurrent WebSocket writes (fixed with `writeMu` mutex)
 - ✅ Subscription memory leak (fixed with per-subscription IDs)
 - ✅ All race conditions resolved
 - ✅ No known failures
+
+**NEW:** Scenario-based testing infrastructure added!
+- ✅ Mock server tracks all service calls for automation testing
+- ✅ Helper functions for verifying automation behavior
+- ✅ Proof-of-concept scenario tests demonstrate the approach
 
 ## What Each Test Does
 
@@ -142,6 +147,18 @@ All critical bugs discovered during testing have been fixed:
 - Boolean, Number, String, JSON
 - Ensures type safety and conversions work
 
+### TestScenario_MockServerServiceCallTracking 🆕
+- Validates mock server tracks service calls
+- Tests GetServiceCalls(), FindServiceCall(), ClearServiceCalls()
+- Verifies service call filtering and counting
+- Foundation for automation behavior testing
+
+### TestScenario_ServiceCallFiltering 🆕
+- Tests helper functions for service call verification
+- filterServiceCalls() - filter by domain/service
+- findServiceCallWithData() - find calls with specific parameters
+- Demonstrates scenario testing patterns
+
 ## Debugging Tips
 
 ### If Tests Hang (Deadlock)
@@ -184,6 +201,23 @@ state := server.GetState("input_boolean.test")
 fmt.Printf("Current state: %s\n", state.State)
 ```
 
+### Service Call Tracking 🆕
+```go
+// Get all service calls made
+calls := server.GetServiceCalls()
+
+// Find specific service call
+call := server.FindServiceCall("scene", "activate", "scene.living_room_evening")
+
+// Count service calls
+count := server.CountServiceCalls("light", "turn_on")
+
+// Clear tracked calls
+server.ClearServiceCalls()
+```
+
+**Use case:** Verify that automation plugins call the correct Home Assistant services with the correct parameters.
+
 ## Continuous Integration
 
 Add to `.github/workflows/test.yml`:
@@ -212,10 +246,49 @@ All previously identified issues have been resolved:
 
 No known bugs or issues remain. All integration tests pass successfully.
 
+## Scenario-Based Testing (NEW)
+
+### What is Scenario Testing?
+
+Scenario tests validate end-to-end automation behavior by:
+1. Simulating real-world events (e.g., time of day changes, sensor updates)
+2. Verifying automation plugins respond correctly
+3. Checking that correct Home Assistant services are called
+
+### Example Scenario Test
+
+```go
+func TestScenario_DayPhaseChangeActivatesScenes(t *testing.T) {
+    server, manager, cleanup := setupScenarioTest(t)
+    defer cleanup()
+
+    // GIVEN: Morning, someone is home
+    server.SetState("input_text.day_phase", "morning", ...)
+    server.ClearServiceCalls()
+
+    // WHEN: Day phase changes to evening
+    server.SetState("input_text.day_phase", "evening", ...)
+    time.Sleep(500 * time.Millisecond)
+
+    // THEN: Verify evening scenes were activated
+    calls := server.GetServiceCalls()
+    sceneActivations := filterServiceCalls(calls, "scene", "activate")
+    assert.Greater(t, len(sceneActivations), 0)
+}
+```
+
+### Current Status
+
+✅ **Infrastructure complete** - Mock server tracking and helper functions working
+🔨 **In progress** - Complex plugin scenario tests being developed
+📋 **See GitHub issues** for planned scenario tests
+
 ## Next Steps
 
 With all bugs fixed:
-1. ✅ All tests passing!
-2. Add benchmarks for performance regression testing
-3. Add fuzzing tests for edge cases
-4. Test with real Home Assistant instance in production-like scenarios
+1. ✅ All infrastructure tests passing!
+2. ✅ Scenario testing infrastructure complete
+3. 🔨 Add scenario tests for each automation plugin (Lighting, Energy, TV, etc.)
+4. Add benchmarks for performance regression testing
+5. Add fuzzing tests for edge cases
+6. Test with real Home Assistant instance in production-like scenarios

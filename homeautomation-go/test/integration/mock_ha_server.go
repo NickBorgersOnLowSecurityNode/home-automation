@@ -21,16 +21,26 @@ type connWrapper struct {
 	writeMu sync.Mutex
 }
 
+// ServiceCall records a service call for testing/verification
+type ServiceCall struct {
+	Timestamp   time.Time
+	Domain      string
+	Service     string
+	ServiceData map[string]interface{}
+}
+
 // MockHAServer simulates a Home Assistant WebSocket server
 type MockHAServer struct {
-	server      *http.Server
-	addr        string
-	states      map[string]*EntityState
-	statesMu    sync.RWMutex
-	connections []*connWrapper
-	connsMu     sync.Mutex
-	eventDelay  time.Duration // Simulates network latency
-	token       string
+	server       *http.Server
+	addr         string
+	states       map[string]*EntityState
+	statesMu     sync.RWMutex
+	connections  []*connWrapper
+	connsMu      sync.Mutex
+	eventDelay   time.Duration // Simulates network latency
+	token        string
+	serviceCalls []ServiceCall // Track all service calls for verification
+	callsMu      sync.Mutex    // Protects serviceCalls
 }
 
 // EntityState represents a Home Assistant entity state
@@ -97,11 +107,12 @@ type SubscribeEventsRequest struct {
 // NewMockHAServer creates a new mock HA server
 func NewMockHAServer(addr, token string) *MockHAServer {
 	return &MockHAServer{
-		addr:        addr,
-		states:      make(map[string]*EntityState),
-		connections: make([]*connWrapper, 0),
-		eventDelay:  10 * time.Millisecond, // Simulate network latency
-		token:       token,
+		addr:         addr,
+		states:       make(map[string]*EntityState),
+		connections:  make([]*connWrapper, 0),
+		eventDelay:   10 * time.Millisecond, // Simulate network latency
+		token:        token,
+		serviceCalls: make([]ServiceCall, 0),
 	}
 }
 
@@ -182,12 +193,12 @@ func (s *MockHAServer) InitializeStates() {
 	// Boolean states
 	boolEntities := []string{
 		"nick_home", "caroline_home", "tori_here",
-		"any_owner_home", "anyone_home",
+		"any_owner_home", "anyone_home", "anyone_home_and_awake",
 		"master_asleep", "guest_asleep", "anyone_asleep", "everyone_asleep",
 		"guest_bedroom_door_open", "have_guests",
 		"apple_tv_playing", "tv_playing", "tv_on",
 		"fade_out_in_progress", "free_energy_available", "grid_available",
-		"expecting_someone",
+		"expecting_someone", "reset",
 	}
 
 	for _, name := range boolEntities {
@@ -205,6 +216,7 @@ func (s *MockHAServer) InitializeStates() {
 	s.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 	s.SetState("input_text.sun_event", "sunrise", map[string]interface{}{})
 	s.SetState("input_text.music_playback_type", "", map[string]interface{}{})
+	s.SetState("input_text.currently_playing_music_uri", "", map[string]interface{}{})
 	s.SetState("input_text.battery_energy_level", "green", map[string]interface{}{})
 	s.SetState("input_text.current_energy_level", "green", map[string]interface{}{})
 	s.SetState("input_text.solar_production_energy_level", "white", map[string]interface{}{})
@@ -338,6 +350,16 @@ func (s *MockHAServer) handleCallService(wrapper *connWrapper, msg json.RawMessa
 		return
 	}
 
+	// Track the service call for test verification
+	s.callsMu.Lock()
+	s.serviceCalls = append(s.serviceCalls, ServiceCall{
+		Timestamp:   time.Now(),
+		Domain:      req.Domain,
+		Service:     req.Service,
+		ServiceData: req.ServiceData,
+	})
+	s.callsMu.Unlock()
+
 	// Update state based on service call
 	entityID, _ := req.ServiceData["entity_id"].(string)
 
@@ -378,6 +400,20 @@ func (s *MockHAServer) handleCallService(wrapper *connWrapper, msg json.RawMessa
 				s.SetState(entityID, value, oldState.Attributes)
 			}
 		}
+
+	case "scene":
+		// Scene activations are fire-and-forget, just acknowledge
+		// Don't need to track state changes for scenes
+
+	case "light":
+		// Light service calls (turn_on, turn_off, etc.)
+		// For testing, we just acknowledge them without state changes
+
+	case "notify", "tts":
+		// Notification and TTS services - just acknowledge
+
+	default:
+		// Unknown service domain - still acknowledge to prevent timeouts
 	}
 
 	success := true
@@ -423,4 +459,57 @@ func (s *MockHAServer) broadcastStateChange(entityID string, oldState, newState 
 		wrapper.conn.WriteJSON(msg)
 		wrapper.writeMu.Unlock()
 	}
+}
+
+// GetServiceCalls returns all service calls since last clear
+func (s *MockHAServer) GetServiceCalls() []ServiceCall {
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	calls := make([]ServiceCall, len(s.serviceCalls))
+	copy(calls, s.serviceCalls)
+	return calls
+}
+
+// ClearServiceCalls resets the service call log
+func (s *MockHAServer) ClearServiceCalls() {
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	s.serviceCalls = nil
+}
+
+// FindServiceCall finds the most recent service call matching criteria
+// Returns nil if no matching call found
+func (s *MockHAServer) FindServiceCall(domain, service string, entityID string) *ServiceCall {
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+
+	// Search backwards to find most recent match
+	for i := len(s.serviceCalls) - 1; i >= 0; i-- {
+		call := s.serviceCalls[i]
+		if call.Domain == domain && call.Service == service {
+			// If no entity ID specified, match on domain/service only
+			if entityID == "" {
+				return &call
+			}
+			// Check if entity_id matches
+			if eid, ok := call.ServiceData["entity_id"].(string); ok && eid == entityID {
+				return &call
+			}
+		}
+	}
+	return nil
+}
+
+// CountServiceCalls counts service calls matching criteria
+func (s *MockHAServer) CountServiceCalls(domain, service string) int {
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+
+	count := 0
+	for _, call := range s.serviceCalls {
+		if call.Domain == domain && call.Service == service {
+			count++
+		}
+	}
+	return count
 }
