@@ -258,7 +258,9 @@ func (m *Manager) ensureWritable(variable StateVariable) error {
 	if variable.ReadOnly {
 		return fmt.Errorf("variable %s is read-only", variable.Key)
 	}
-	if m.readOnly && !variable.LocalOnly {
+	// Allow writes to computed outputs even in read-only mode
+	// These are values calculated by the Go code that need to be published to HA
+	if m.readOnly && !variable.LocalOnly && !variable.ComputedOutput {
 		return ErrReadOnlyMode
 	}
 	return nil

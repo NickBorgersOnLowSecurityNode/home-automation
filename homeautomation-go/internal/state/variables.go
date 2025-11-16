@@ -12,12 +12,13 @@ const (
 
 // StateVariable defines metadata for a state variable
 type StateVariable struct {
-	Key       string      // Go variable name (e.g., "isNickHome")
-	EntityID  string      // HA entity ID (e.g., "input_boolean.nick_home")
-	Type      StateType   // bool, string, number, json
-	Default   interface{} // Default value
-	ReadOnly  bool        // Whether it's read-only from HA
-	LocalOnly bool        // If true, only exists in memory, not synced with HA
+	Key            string      // Go variable name (e.g., "isNickHome")
+	EntityID       string      // HA entity ID (e.g., "input_boolean.nick_home")
+	Type           StateType   // bool, string, number, json
+	Default        interface{} // Default value
+	ReadOnly       bool        // Whether it's read-only from HA
+	LocalOnly      bool        // If true, only exists in memory, not synced with HA
+	ComputedOutput bool        // If true, can be written even in read-only mode (for computed values)
 }
 
 // AllVariables contains all 31 state variables (29 synced with HA + 2 local-only)
@@ -54,9 +55,9 @@ var AllVariables = []StateVariable{
 	{Key: "sunevent", EntityID: "input_text.sun_event", Type: TypeString, Default: ""},
 	{Key: "musicPlaybackType", EntityID: "input_text.music_playback_type", Type: TypeString, Default: ""},
 	{Key: "currentlyPlayingMusicUri", EntityID: "input_text.currently_playing_music_uri", Type: TypeString, Default: ""},
-	{Key: "batteryEnergyLevel", EntityID: "input_text.battery_energy_level", Type: TypeString, Default: ""},
-	{Key: "currentEnergyLevel", EntityID: "input_text.current_energy_level", Type: TypeString, Default: ""},
-	{Key: "solarProductionEnergyLevel", EntityID: "input_text.solar_production_energy_level", Type: TypeString, Default: ""},
+	{Key: "batteryEnergyLevel", EntityID: "input_text.battery_energy_level", Type: TypeString, Default: "", ComputedOutput: true},
+	{Key: "currentEnergyLevel", EntityID: "input_text.current_energy_level", Type: TypeString, Default: "", ComputedOutput: true},
+	{Key: "solarProductionEnergyLevel", EntityID: "input_text.solar_production_energy_level", Type: TypeString, Default: "", ComputedOutput: true},
 
 	// Local-only variables (not synced with HA)
 	{Key: "didOwnerJustReturnHome", EntityID: "", Type: TypeBool, Default: false, LocalOnly: true},
