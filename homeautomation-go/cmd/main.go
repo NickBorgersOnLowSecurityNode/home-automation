@@ -5,11 +5,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
 	"homeautomation/internal/config"
+	dayphaselib "homeautomation/internal/dayphase"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/plugins/dayphase"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/loadshedding"
@@ -70,6 +73,31 @@ func main() {
 	}
 	logger.Info("Using config directory", zap.String("path", configDir))
 
+	// Get location coordinates for sun event calculations
+	// Default: Austin, TX area (32.85486, -97.50515)
+	latitude := 32.85486
+	longitude := -97.50515
+
+	if latStr := os.Getenv("LATITUDE"); latStr != "" {
+		if lat, err := strconv.ParseFloat(latStr, 64); err == nil {
+			latitude = lat
+		} else {
+			logger.Warn("Invalid LATITUDE value, using default", zap.String("value", latStr))
+		}
+	}
+
+	if lonStr := os.Getenv("LONGITUDE"); lonStr != "" {
+		if lon, err := strconv.ParseFloat(lonStr, 64); err == nil {
+			longitude = lon
+		} else {
+			logger.Warn("Invalid LONGITUDE value, using default", zap.String("value", lonStr))
+		}
+	}
+
+	logger.Info("Using location coordinates",
+		zap.Float64("latitude", latitude),
+		zap.Float64("longitude", longitude))
+
 	logger.Info("Starting Home Automation Client",
 		zap.String("url", haURL),
 		zap.Bool("read_only", readOnly))
@@ -106,6 +134,16 @@ func main() {
 	}
 	defer stateTrackingManager.Stop()
 	logger.Info("State Tracking Manager started - computing derived states")
+
+	// Create day phase calculator
+	dayPhaseCalc := dayphaselib.NewCalculator(latitude, longitude, logger)
+
+	// Start Day Phase Manager (sun events and day phase)
+	dayPhaseManager, err := startDayPhaseManager(client, stateManager, logger, readOnly, configDir, dayPhaseCalc)
+	if err != nil {
+		logger.Fatal("Failed to start Day Phase Manager", zap.Error(err))
+	}
+	defer dayPhaseManager.Stop()
 
 	// Start Energy State Manager
 	energyManager, err := startEnergyManager(client, stateManager, logger, readOnly, configDir, timezone)
@@ -365,4 +403,23 @@ func startSleepHygieneManager(client ha.HAClient, stateManager *state.Manager, l
 
 	logger.Info("Sleep Hygiene Manager started successfully")
 	return sleepHygieneManager, nil
+}
+
+func startDayPhaseManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, calculator *dayphaselib.Calculator) (*dayphase.Manager, error) {
+	// Load schedule configuration (needed for day phase calculation)
+	configLoader := config.NewLoader(configDir, logger)
+	if err := configLoader.LoadScheduleConfig(); err != nil {
+		return nil, fmt.Errorf("failed to load schedule config: %w", err)
+	}
+
+	logger.Info("Loaded schedule configuration for Day Phase")
+
+	// Create and start day phase manager
+	dayPhaseManager := dayphase.NewManager(client, stateManager, configLoader, calculator, logger, readOnly)
+	if err := dayPhaseManager.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start day phase manager: %w", err)
+	}
+
+	logger.Info("Day Phase Manager started successfully")
+	return dayPhaseManager, nil
 }
