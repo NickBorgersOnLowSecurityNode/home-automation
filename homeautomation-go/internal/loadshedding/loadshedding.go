@@ -160,7 +160,7 @@ func (ls *LoadShedding) enableLoadShedding(energyLevel string) {
 		zap.Strings("entities", []string{climateHouse, climateSuite}))
 
 	if err := ls.client.CallService("climate", "set_temperature", map[string]interface{}{
-		"entity_id":       []string{climateHouse, climateSuite},
+		"entity_id":        []string{climateHouse, climateSuite},
 		"target_temp_low":  tempLowRestricted,
 		"target_temp_high": tempHighRestricted,
 	}); err != nil {

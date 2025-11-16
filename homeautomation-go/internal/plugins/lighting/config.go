@@ -8,14 +8,14 @@ import (
 
 // RoomConfig represents the configuration for a single room/area
 type RoomConfig struct {
-	HueGroup                  string      `yaml:"hue_group"`
-	HASSAreaID                string      `yaml:"hass_area_id"`
-	OnIfTrue                  interface{} `yaml:"on_if_true"`  // Can be string or []string
-	OnIfFalse                 interface{} `yaml:"on_if_false"` // Can be string or []string
-	OffIfTrue                 interface{} `yaml:"off_if_true"` // Can be string or []string
-	OffIfFalse                interface{} `yaml:"off_if_false"` // Can be string or []string
-	IncreaseBrightnessIfTrue  interface{} `yaml:"increase_brightness_if_true"` // Can be string or []string
-	TransitionSeconds         *int        `yaml:"transition_seconds"` // Pointer to handle nil/~ values
+	HueGroup                 string      `yaml:"hue_group"`
+	HASSAreaID               string      `yaml:"hass_area_id"`
+	OnIfTrue                 interface{} `yaml:"on_if_true"`                  // Can be string or []string
+	OnIfFalse                interface{} `yaml:"on_if_false"`                 // Can be string or []string
+	OffIfTrue                interface{} `yaml:"off_if_true"`                 // Can be string or []string
+	OffIfFalse               interface{} `yaml:"off_if_false"`                // Can be string or []string
+	IncreaseBrightnessIfTrue interface{} `yaml:"increase_brightness_if_true"` // Can be string or []string
+	TransitionSeconds        *int        `yaml:"transition_seconds"`          // Pointer to handle nil/~ values
 }
 
 // GetOnIfTrueConditions returns the list of on_if_true conditions

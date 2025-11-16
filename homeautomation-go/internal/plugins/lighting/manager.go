@@ -2,6 +2,8 @@ package lighting
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -115,7 +117,8 @@ func (m *Manager) handleDayPhaseChange(key string, oldValue, newValue interface{
 		zap.String("new", newPhase))
 
 	// Activate scenes for all rooms based on new day phase
-	m.activateScenesForAllRooms(newPhase)
+	// dayPhase changes always affect all rooms (like "reset" in Node-RED)
+	m.activateScenesForAllRooms(newPhase, key)
 }
 
 // handleSunEventChange processes sun event changes
@@ -138,7 +141,8 @@ func (m *Manager) handleSunEventChange(key string, oldValue, newValue interface{
 		return
 	}
 
-	m.activateScenesForAllRooms(dayPhase)
+	// sunevent changes always affect all rooms (like "reset" in Node-RED)
+	m.activateScenesForAllRooms(dayPhase, key)
 }
 
 // handlePresenceChange processes presence changes
@@ -148,14 +152,14 @@ func (m *Manager) handlePresenceChange(key string, oldValue, newValue interface{
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
 
-	// Re-evaluate all rooms
+	// Re-evaluate all rooms, filtering by relevance
 	dayPhase, err := m.stateManager.GetString("dayPhase")
 	if err != nil {
 		m.logger.Error("Failed to get dayPhase", zap.Error(err))
 		return
 	}
 
-	m.evaluateAllRooms(dayPhase)
+	m.evaluateAllRooms(dayPhase, key)
 }
 
 // handleTVStateChange processes TV state changes
@@ -164,14 +168,14 @@ func (m *Manager) handleTVStateChange(key string, oldValue, newValue interface{}
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
 
-	// Re-evaluate rooms that depend on TV state
+	// Re-evaluate rooms that depend on TV state, filtering by relevance
 	dayPhase, err := m.stateManager.GetString("dayPhase")
 	if err != nil {
 		m.logger.Error("Failed to get dayPhase", zap.Error(err))
 		return
 	}
 
-	m.evaluateAllRooms(dayPhase)
+	m.evaluateAllRooms(dayPhase, key)
 }
 
 // handleSleepStateChange processes sleep state changes
@@ -181,36 +185,45 @@ func (m *Manager) handleSleepStateChange(key string, oldValue, newValue interfac
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
 
-	// Re-evaluate all rooms
+	// Re-evaluate all rooms, filtering by relevance
 	dayPhase, err := m.stateManager.GetString("dayPhase")
 	if err != nil {
 		m.logger.Error("Failed to get dayPhase", zap.Error(err))
 		return
 	}
 
-	m.evaluateAllRooms(dayPhase)
+	m.evaluateAllRooms(dayPhase, key)
 }
 
 // activateScenesForAllRooms activates scenes for all configured rooms
-func (m *Manager) activateScenesForAllRooms(dayPhase string) {
+func (m *Manager) activateScenesForAllRooms(dayPhase string, triggerKey string) {
 	for _, room := range m.config.Rooms {
-		m.evaluateAndActivateRoom(&room, dayPhase)
+		m.evaluateAndActivateRoom(&room, dayPhase, triggerKey)
 	}
 }
 
 // evaluateAllRooms re-evaluates all rooms and activates scenes as needed
-func (m *Manager) evaluateAllRooms(dayPhase string) {
+// Only evaluates rooms where the trigger variable is relevant (matches Node-RED)
+func (m *Manager) evaluateAllRooms(dayPhase string, triggerKey string) {
 	for _, room := range m.config.Rooms {
-		m.evaluateAndActivateRoom(&room, dayPhase)
+		// Check if this trigger is relevant to this room
+		if m.isTopicRelevant(&room, triggerKey) {
+			m.evaluateAndActivateRoom(&room, dayPhase, triggerKey)
+		} else {
+			m.logger.Debug("Skipping room evaluation - trigger not relevant",
+				zap.String("room", room.HueGroup),
+				zap.String("trigger", triggerKey))
+		}
 	}
 }
 
 // evaluateAndActivateRoom evaluates a room's conditions and activates the appropriate scene
-func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string) {
+func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, triggerKey string) {
 	m.logger.Debug("Evaluating room",
 		zap.String("room", room.HueGroup),
 		zap.String("area_id", room.HASSAreaID),
-		zap.String("day_phase", dayPhase))
+		zap.String("day_phase", dayPhase),
+		zap.String("trigger", triggerKey))
 
 	// Evaluate on/off conditions
 	shouldTurnOn := m.evaluateOnConditions(room)
@@ -221,7 +234,19 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string) {
 		zap.Bool("should_turn_on", shouldTurnOn),
 		zap.Bool("should_turn_off", shouldTurnOff))
 
-	// If both are true, prioritize turning off (safety first)
+	// If both are true, prioritize turning ON (matches Node-RED behavior)
+	if shouldTurnOn {
+		m.logger.Info("Room should be turned on with scene",
+			zap.String("room", room.HueGroup),
+			zap.String("day_phase", dayPhase))
+		if shouldTurnOff {
+			m.logger.Debug("ON takes precedence over OFF",
+				zap.String("room", room.HueGroup))
+		}
+		m.activateScene(room, dayPhase)
+		return
+	}
+
 	if shouldTurnOff {
 		m.logger.Info("Room should be turned off",
 			zap.String("room", room.HueGroup))
@@ -229,16 +254,32 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string) {
 		return
 	}
 
-	if shouldTurnOn {
-		m.logger.Info("Room should be turned on with scene",
-			zap.String("room", room.HueGroup),
-			zap.String("day_phase", dayPhase))
-		m.activateScene(room, dayPhase)
-		return
-	}
-
 	m.logger.Debug("No action needed for room",
 		zap.String("room", room.HueGroup))
+}
+
+// isTopicRelevant checks if a state variable change is relevant to a room's conditions
+// Matches Node-RED behavior: dayPhase and sunevent always relevant, otherwise check if variable is used in conditions
+func (m *Manager) isTopicRelevant(room *RoomConfig, triggerKey string) bool {
+	// dayPhase and sunevent changes always affect all rooms (like "reset" in Node-RED)
+	if triggerKey == "dayPhase" || triggerKey == "sunevent" || triggerKey == "" {
+		return true
+	}
+
+	// Check if trigger key appears in any of the room's conditions
+	allConditions := []string{}
+	allConditions = append(allConditions, room.GetOnIfTrueConditions()...)
+	allConditions = append(allConditions, room.GetOnIfFalseConditions()...)
+	allConditions = append(allConditions, room.GetOffIfTrueConditions()...)
+	allConditions = append(allConditions, room.GetOffIfFalseConditions()...)
+
+	for _, condition := range allConditions {
+		if condition == triggerKey {
+			return true
+		}
+	}
+
+	return false
 }
 
 // evaluateOnConditions evaluates whether a room should turn on
@@ -312,13 +353,33 @@ func (m *Manager) evaluateCondition(condition string) bool {
 	return value
 }
 
+// toSnakeCase converts a string to snake_case format
+// Matches the Node-RED implementation that converts "Primary Suite evening" to "primary_suite_evening"
+func toSnakeCase(str string) string {
+	// Simple approach: lowercase, replace spaces with underscores
+	// This matches the Node-RED behavior for room names like "Primary Suite evening" -> "primary_suite_evening"
+	result := strings.ToLower(str)
+	result = strings.ReplaceAll(result, " ", "_")
+
+	// Also handle multiple consecutive underscores
+	re := regexp.MustCompile(`_+`)
+	result = re.ReplaceAllString(result, "_")
+
+	return strings.Trim(result, "_")
+}
+
 // activateScene activates a Hue scene for a room
 func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
+	// Construct scene entity ID: scene.{snake_case(hue_group + " " + day_phase)}
+	sceneName := room.HueGroup + " " + dayPhase
+	sceneEntityID := "scene." + toSnakeCase(sceneName)
+
 	if m.readOnly {
 		m.logger.Info("READ ONLY MODE: Would activate scene",
 			zap.String("room", room.HueGroup),
 			zap.String("area_id", room.HASSAreaID),
-			zap.String("scene", dayPhase))
+			zap.String("scene", dayPhase),
+			zap.String("entity_id", sceneEntityID))
 		return
 	}
 
@@ -326,12 +387,13 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
 		zap.String("room", room.HueGroup),
 		zap.String("area_id", room.HASSAreaID),
 		zap.String("scene", dayPhase),
+		zap.String("entity_id", sceneEntityID),
 		zap.Any("transition_seconds", room.TransitionSeconds))
 
-	// Call Home Assistant hue.hue_activate_scene service
+	// Call Home Assistant scene.turn_on service (matches Node-RED)
 	serviceData := map[string]interface{}{
-		"group_name": room.HueGroup,
-		"scene_name": dayPhase,
+		"entity_id": sceneEntityID,
+		"area_id":   room.HASSAreaID,
 	}
 
 	// Add transition if specified
@@ -339,18 +401,26 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
 		serviceData["transition"] = *room.TransitionSeconds
 	}
 
-	err := m.haClient.CallService("hue", "hue_activate_scene", serviceData)
+	// The Nook doesn't do well with dynamics because of its lights
+	if room.HueGroup == "Nook" {
+		serviceData["dynamic"] = false
+	}
+
+	// Call the service with the constructed entity ID
+	err := m.haClient.CallService("scene", "turn_on", serviceData)
 	if err != nil {
 		m.logger.Error("Failed to activate scene",
 			zap.String("room", room.HueGroup),
 			zap.String("scene", dayPhase),
+			zap.String("entity_id", sceneEntityID),
 			zap.Error(err))
 		return
 	}
 
 	m.logger.Info("Scene activated successfully",
 		zap.String("room", room.HueGroup),
-		zap.String("scene", dayPhase))
+		zap.String("scene", dayPhase),
+		zap.String("entity_id", sceneEntityID))
 }
 
 // turnOffRoom turns off lights in a room

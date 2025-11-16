@@ -19,24 +19,24 @@ func createTestConfig() *HueConfig {
 	return &HueConfig{
 		Rooms: []RoomConfig{
 			{
-				HueGroup:                  "Living Room",
-				HASSAreaID:                "living_room_2",
-				OnIfTrue:                  "isAnyoneHome",
-				OnIfFalse:                 "isTVPlaying",
-				OffIfTrue:                 "isEveryoneAsleep",
-				OffIfFalse:                "isAnyoneHome",
-				IncreaseBrightnessIfTrue:  "isHaveGuests",
-				TransitionSeconds:         &transition30,
+				HueGroup:                 "Living Room",
+				HASSAreaID:               "living_room_2",
+				OnIfTrue:                 "isAnyoneHome",
+				OnIfFalse:                "isTVPlaying",
+				OffIfTrue:                "isEveryoneAsleep",
+				OffIfFalse:               "isAnyoneHome",
+				IncreaseBrightnessIfTrue: "isHaveGuests",
+				TransitionSeconds:        &transition30,
 			},
 			{
-				HueGroup:                  "Primary Suite",
-				HASSAreaID:                "master_bedroom",
-				OnIfTrue:                  nil,
-				OnIfFalse:                 "isMasterAsleep",
-				OffIfTrue:                 "isMasterAsleep",
-				OffIfFalse:                "isNickHome",
-				IncreaseBrightnessIfTrue:  nil,
-				TransitionSeconds:         &transition180,
+				HueGroup:                 "Primary Suite",
+				HASSAreaID:               "master_bedroom",
+				OnIfTrue:                 nil,
+				OnIfFalse:                "isMasterAsleep",
+				OffIfTrue:                "isMasterAsleep",
+				OffIfFalse:               "isNickHome",
+				IncreaseBrightnessIfTrue: nil,
+				TransitionSeconds:        &transition180,
 			},
 		},
 	}
@@ -96,7 +96,6 @@ func TestEvaluateOnConditions(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	manager := NewManager(mockClient, stateManager, config, logger, false)
-
 
 	tests := []struct {
 		name           string
@@ -165,7 +164,6 @@ func TestEvaluateOffConditions(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	manager := NewManager(mockClient, stateManager, config, logger, false)
-
 
 	tests := []struct {
 		name           string
@@ -264,10 +262,10 @@ func TestActivateScene(t *testing.T) {
 	assert.Equal(t, 1, len(calls))
 
 	call := calls[0]
-	assert.Equal(t, "hue", call.Domain)
-	assert.Equal(t, "hue_activate_scene", call.Service)
-	assert.Equal(t, "Living Room", call.Data["group_name"])
-	assert.Equal(t, "Morning", call.Data["scene_name"])
+	assert.Equal(t, "scene", call.Domain)
+	assert.Equal(t, "turn_on", call.Service)
+	assert.Equal(t, "scene.living_room_morning", call.Data["entity_id"])
+	assert.Equal(t, "living_room_2", call.Data["area_id"])
 	assert.Equal(t, 30, call.Data["transition"])
 }
 
@@ -317,7 +315,6 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	manager := NewManager(mockClient, stateManager, config, logger, false)
 
-
 	tests := []struct {
 		name              string
 		setupState        func()
@@ -330,7 +327,11 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 		{
 			name: "Room should turn off",
 			setupState: func() {
+				// Set OFF condition to true
 				_ = stateManager.SetBool("isEveryoneAsleep", true)
+				// Make sure ON conditions are false
+				_ = stateManager.SetBool("isAnyoneHome", false)
+				_ = stateManager.SetBool("isTVPlaying", true) // OnIfFalse should be false
 			},
 			roomIndex:         0,
 			dayPhase:          "Night",
@@ -346,8 +347,8 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 			},
 			roomIndex:         0,
 			dayPhase:          "Morning",
-			expectedService:   "hue_activate_scene",
-			expectedDomain:    "hue",
+			expectedService:   "turn_on",
+			expectedDomain:    "scene",
 			shouldCallService: true,
 		},
 	}
@@ -359,7 +360,7 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 
 			tt.setupState()
 			room := &config.Rooms[tt.roomIndex]
-			manager.evaluateAndActivateRoom(room, tt.dayPhase)
+			manager.evaluateAndActivateRoom(room, tt.dayPhase, "")
 
 			calls := mockClient.GetServiceCalls()
 			if tt.shouldCallService {

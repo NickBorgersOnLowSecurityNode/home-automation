@@ -118,9 +118,16 @@ func (m *Manager) handleStateChange(key string, oldValue, newValue interface{}) 
 	m.selectAppropriateMusicMode()
 }
 
-// selectAppropriateMusicMode determines which music mode should be active
+// selectAppropriateMusicMode determines which music mode should be active (without trigger context)
 func (m *Manager) selectAppropriateMusicMode() {
-	m.logger.Debug("Selecting appropriate music mode")
+	m.selectAppropriateMusicModeWithContext("", false)
+}
+
+// selectAppropriateMusicModeWithContext determines which music mode should be active with trigger context
+func (m *Manager) selectAppropriateMusicModeWithContext(triggerKey string, isWakeUpEvent bool) {
+	m.logger.Debug("Selecting appropriate music mode",
+		zap.String("trigger_key", triggerKey),
+		zap.Bool("is_wake_up_event", isWakeUpEvent))
 
 	// Get current state
 	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
@@ -167,12 +174,14 @@ func (m *Manager) selectAppropriateMusicMode() {
 		return
 	}
 
-	// Determine music mode based on day phase
-	musicMode := m.determineMusicModeFromDayPhase(dayPhase, currentMusicType)
+	// Determine music mode based on day phase and trigger context
+	musicMode := m.determineMusicModeFromDayPhase(dayPhase, currentMusicType, triggerKey, isWakeUpEvent)
 
 	m.logger.Info("Selected music mode",
 		zap.String("day_phase", dayPhase),
 		zap.String("current_music_type", currentMusicType),
+		zap.String("trigger_key", triggerKey),
+		zap.Bool("is_wake_up_event", isWakeUpEvent),
 		zap.String("new_music_mode", musicMode))
 
 	// Set the music playback type
@@ -182,15 +191,24 @@ func (m *Manager) selectAppropriateMusicMode() {
 }
 
 // determineMusicModeFromDayPhase determines the music mode based on the current day phase
-func (m *Manager) determineMusicModeFromDayPhase(dayPhase string, currentMusicType string) string {
+// Matches Node-RED behavior: morning music only plays on wake-up events
+func (m *Manager) determineMusicModeFromDayPhase(dayPhase string, currentMusicType string, triggerKey string, isWakeUpEvent bool) string {
 	switch dayPhase {
 	case "morning":
-		// Check if it's Sunday (no morning music on Sundays)
-		if m.timeProvider.Now().Weekday() == time.Sunday {
-			m.logger.Debug("Sunday detected, using day mode instead of morning")
-			return "day"
+		// Morning music ONLY plays when someone wakes up (matches Node-RED)
+		// Otherwise, fall back to day music during morning phase
+		if isWakeUpEvent {
+			// Check if it's Sunday (no morning music on Sundays)
+			if m.timeProvider.Now().Weekday() == time.Sunday {
+				m.logger.Debug("Sunday detected, using day mode instead of morning")
+				return "day"
+			}
+			m.logger.Info("Wake-up event during morning phase, playing morning music")
+			return "morning"
 		}
-		return "morning"
+		// During morning phase but not a wake-up event - use day music
+		m.logger.Debug("Morning phase but not a wake-up event, using day music")
+		return "day"
 
 	case "day":
 		return "day"
