@@ -2,6 +2,7 @@ package sleephygiene
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"homeautomation/internal/config"
@@ -256,12 +257,223 @@ func (m *Manager) handleBeginWake() {
 			m.logger.Error("Failed to set isFadeOutInProgress", zap.Error(err))
 		}
 
-		// TODO: Implement actual fade out logic
-		// This would involve gradually reducing volume on bedroom speakers
-		// For now, we just set the flag which other systems can monitor
+		// Get bedroom speakers from currentlyPlayingMusic
+		bedroomSpeakers := m.getBedroomSpeakers()
+		if len(bedroomSpeakers) == 0 {
+			m.logger.Warn("No bedroom speakers found in currentlyPlayingMusic, using default")
+			bedroomSpeakers = []string{"media_player.bedroom"}
+		}
+
+		// Start fade out goroutine for each bedroom speaker
+		for _, speaker := range bedroomSpeakers {
+			go m.fadeOutSpeaker(speaker)
+		}
 	} else {
 		m.logger.Info("READ-ONLY: Would start fade out")
 	}
+}
+
+// getBedroomSpeakers returns a list of bedroom speakers from currentlyPlayingMusic
+// This matches Node-RED's dynamic speaker discovery logic
+func (m *Manager) getBedroomSpeakers() []string {
+	var currentMusic map[string]interface{}
+	if err := m.stateManager.GetJSON("currentlyPlayingMusic", &currentMusic); err != nil {
+		m.logger.Warn("Failed to get currentlyPlayingMusic, using default bedroom speaker", zap.Error(err))
+		return []string{"media_player.bedroom"}
+	}
+
+	participants, ok := currentMusic["participants"].([]interface{})
+	if !ok {
+		m.logger.Warn("currentlyPlayingMusic has no participants array")
+		return []string{"media_player.bedroom"}
+	}
+
+	var bedroomSpeakers []string
+	for _, p := range participants {
+		participant, ok := p.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		playerName, ok := participant["player_name"].(string)
+		if !ok {
+			continue
+		}
+
+		// Match Node-RED logic: if (target.player_name.indexOf("Bedroom") > -1)
+		// Use case-insensitive match to handle both "Bedroom" and "bedroom"
+		if strings.Contains(strings.ToLower(playerName), "bedroom") {
+			bedroomSpeakers = append(bedroomSpeakers, playerName)
+		}
+	}
+
+	return bedroomSpeakers
+}
+
+// fadeOutSpeaker gradually reduces speaker volume to 0
+// This runs in a goroutine and implements the sleep music fade-out logic
+// matching the Node-RED "Repeat turn downs until 0" function
+func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
+	m.logger.Info("Starting speaker fade-out", zap.String("speaker", speakerEntityID))
+
+	// Get actual current volume from Home Assistant
+	currentVolume := m.getSpeakerVolume(speakerEntityID)
+	if currentVolume == 0 {
+		m.logger.Info("Speaker volume already at 0, skipping fade-out", zap.String("speaker", speakerEntityID))
+		return
+	}
+
+	m.logger.Info("Got initial speaker volume",
+		zap.String("speaker", speakerEntityID),
+		zap.Int("volume", currentVolume))
+
+	for currentVolume > 0 {
+		// Check if fade out was aborted
+		isFadeOut, err := m.stateManager.GetBool("isFadeOutInProgress")
+		if err != nil || !isFadeOut {
+			m.logger.Info("Fade out aborted - isFadeOutInProgress is false",
+				zap.String("speaker", speakerEntityID))
+			return
+		}
+
+		// Check if still playing sleep music
+		musicType, err := m.stateManager.GetString("musicPlaybackType")
+		if err != nil || musicType != "sleep" {
+			m.logger.Info("Sleep music stopped, cancelling fade out",
+				zap.String("speaker", speakerEntityID),
+				zap.String("current_music_type", musicType))
+			return
+		}
+
+		// Reduce volume by 1
+		currentVolume--
+		volumeLevel := float64(currentVolume) / 100.0
+
+		m.logger.Debug("Reducing speaker volume",
+			zap.String("speaker", speakerEntityID),
+			zap.Int("volume", currentVolume),
+			zap.Float64("volume_level", volumeLevel))
+
+		// Set volume on speaker
+		if err := m.haClient.CallService("media_player", "volume_set", map[string]interface{}{
+			"entity_id":    speakerEntityID,
+			"volume_level": volumeLevel,
+		}); err != nil {
+			m.logger.Error("Failed to set volume",
+				zap.String("speaker", speakerEntityID),
+				zap.Error(err))
+			// Continue anyway - don't abort the fade out for transient errors
+		}
+
+		// Update currentlyPlayingMusic state
+		m.updateSpeakerVolumeInState(speakerEntityID, currentVolume)
+
+		// Calculate adaptive delay (longer as volume gets lower)
+		// Formula matches Node-RED: (60 - current_volume) * 1000 ms
+		// At volume 50: delay = 10 seconds
+		// At volume 10: delay = 50 seconds
+		delaySeconds := 60 - currentVolume
+		if delaySeconds < 1 {
+			delaySeconds = 1 // Minimum 1 second delay
+		}
+
+		m.logger.Debug("Waiting before next volume reduction",
+			zap.String("speaker", speakerEntityID),
+			zap.Int("delay_seconds", delaySeconds))
+
+		time.Sleep(time.Duration(delaySeconds) * time.Second)
+	}
+
+	m.logger.Info("Fade out complete - speaker volume reached 0",
+		zap.String("speaker", speakerEntityID))
+
+	// Reset fade out flag when complete
+	if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
+		m.logger.Error("Failed to reset isFadeOutInProgress", zap.Error(err))
+	}
+}
+
+// getSpeakerVolume queries the current volume from Home Assistant
+// Returns volume as percentage (0-100)
+func (m *Manager) getSpeakerVolume(speakerEntityID string) int {
+	state, err := m.haClient.GetState(speakerEntityID)
+	if err != nil {
+		m.logger.Warn("Failed to get speaker state, defaulting to volume 60",
+			zap.String("speaker", speakerEntityID),
+			zap.Error(err))
+		return 60 // Default to typical sleep music volume
+	}
+
+	// Get volume_level attribute (0.0-1.0)
+	volumeLevel, ok := state.Attributes["volume_level"].(float64)
+	if !ok {
+		m.logger.Warn("Speaker has no volume_level attribute, defaulting to volume 60",
+			zap.String("speaker", speakerEntityID))
+		return 60
+	}
+
+	// Convert to percentage (0-100)
+	volume := int(volumeLevel * 100)
+	return volume
+}
+
+// updateSpeakerVolumeInState updates the volume in currentlyPlayingMusic state
+// This matches Node-RED's behavior of keeping currentlyPlayingMusic synchronized
+func (m *Manager) updateSpeakerVolumeInState(speakerEntityID string, volume int) {
+	var currentMusic map[string]interface{}
+	if err := m.stateManager.GetJSON("currentlyPlayingMusic", &currentMusic); err != nil {
+		m.logger.Debug("Failed to get currentlyPlayingMusic for update",
+			zap.String("speaker", speakerEntityID),
+			zap.Error(err))
+		return
+	}
+
+	participants, ok := currentMusic["participants"].([]interface{})
+	if !ok {
+		return
+	}
+
+	// Find and update the speaker's volume
+	updated := false
+	for _, p := range participants {
+		participant, ok := p.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		playerName, ok := participant["player_name"].(string)
+		if !ok {
+			continue
+		}
+
+		if playerName == speakerEntityID {
+			participant["volume"] = volume
+			updated = true
+			m.logger.Debug("Updated volume in currentlyPlayingMusic",
+				zap.String("speaker", speakerEntityID),
+				zap.Int("volume", volume))
+			break
+		}
+	}
+
+	if !updated {
+		m.logger.Debug("Speaker not found in currentlyPlayingMusic participants",
+			zap.String("speaker", speakerEntityID))
+		return
+	}
+
+	// Save updated state
+	if err := m.stateManager.SetJSON("currentlyPlayingMusic", currentMusic); err != nil {
+		m.logger.Warn("Failed to update currentlyPlayingMusic",
+			zap.String("speaker", speakerEntityID),
+			zap.Error(err))
+	}
+}
+
+// fadeOutBedroomSpeaker is a legacy wrapper that calls fadeOutSpeaker
+// Kept for backward compatibility with existing tests
+func (m *Manager) fadeOutBedroomSpeaker() {
+	m.fadeOutSpeaker("media_player.bedroom")
 }
 
 // handleWake handles the wake trigger (turn on lights, flash, cuddle announcement)
