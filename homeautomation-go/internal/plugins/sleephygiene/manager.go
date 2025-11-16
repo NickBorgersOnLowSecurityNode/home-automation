@@ -511,8 +511,11 @@ func (m *Manager) handleWake() {
 
 		// 3. Check if both owners can cuddle and announce
 		m.checkAndAnnounceCuddle()
+
+		// 4. Turn off bathroom lights (cleanup from overnight)
+		m.turnOffBathroomLights()
 	} else {
-		m.logger.Info("READ-ONLY: Would execute wake sequence (lights + cuddle)")
+		m.logger.Info("READ-ONLY: Would execute wake sequence (lights + cuddle + bathroom)")
 	}
 }
 
@@ -551,12 +554,13 @@ func (m *Manager) handleGoToBed() {
 }
 
 // turnOnMasterBedroomLights turns on master bedroom lights with a slow 30-minute transition
+// Matches Node-RED wake-up sequence behavior
 func (m *Manager) turnOnMasterBedroomLights() {
 	m.logger.Info("Turning on master bedroom lights slowly")
 
-	// First, ensure lights start dim and white
+	// First, ensure lights start dim and white (instant transition)
 	if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
-		"entity_id":      "light.master_bedroom",
+		"entity_id":      "light.primary_suite",
 		"transition":     0,
 		"color_temp":     290,
 		"brightness_pct": 1,
@@ -567,9 +571,8 @@ func (m *Manager) turnOnMasterBedroomLights() {
 
 	// Then start slow transition to full brightness over 30 minutes
 	if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
-		"entity_id":      "light.master_bedroom",
+		"entity_id":      "light.primary_suite",
 		"transition":     1800, // 30 minutes in seconds
-		"color_temp":     290,
 		"brightness_pct": 100,
 	}); err != nil {
 		m.logger.Error("Failed to start bedroom light transition", zap.Error(err))
@@ -627,6 +630,18 @@ func (m *Manager) checkAndAnnounceCuddle() {
 		m.logger.Debug("Only one owner home, skipping cuddle announcement",
 			zap.Bool("nick_home", isNickHome),
 			zap.Bool("caroline_home", isCarolineHome))
+	}
+}
+
+// turnOffBathroomLights turns off bathroom lights as part of wake-up cleanup
+// This ensures bathroom lights aren't left on from overnight usage
+func (m *Manager) turnOffBathroomLights() {
+	m.logger.Info("Turning off bathroom lights")
+
+	if err := m.haClient.CallService("light", "turn_off", map[string]interface{}{
+		"entity_id": "light.primary_bathroom_main_lights",
+	}); err != nil {
+		m.logger.Error("Failed to turn off bathroom lights", zap.Error(err))
 	}
 }
 

@@ -213,31 +213,42 @@ func TestWake_AllConditionsMet(t *testing.T) {
 	// - 2 calls for master bedroom lights (initial + transition)
 	// - 2 calls for common area lights flash
 	// - 1 call for TTS cuddle announcement
-	if len(calls) < 5 {
-		t.Errorf("Expected at least 5 service calls, got %d", len(calls))
+	// - 1 call to turn off bathroom lights
+	if len(calls) < 6 {
+		t.Errorf("Expected at least 6 service calls, got %d", len(calls))
 	}
 
-	// Check that light service was called for master bedroom
-	foundMasterBedroom := false
+	// Check that light service was called for primary suite (master bedroom)
+	foundPrimarySuite := false
 	foundTTS := false
+	foundBathroomOff := false
 
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_on" {
-			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "light.master_bedroom" {
-				foundMasterBedroom = true
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "light.primary_suite" {
+				foundPrimarySuite = true
 			}
 		}
 		if call.Domain == "tts" && call.Service == "speak" {
 			foundTTS = true
 		}
+		if call.Domain == "light" && call.Service == "turn_off" {
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "light.primary_bathroom_main_lights" {
+				foundBathroomOff = true
+			}
+		}
 	}
 
-	if !foundMasterBedroom {
-		t.Error("Expected light.turn_on call for master bedroom")
+	if !foundPrimarySuite {
+		t.Error("Expected light.turn_on call for primary suite")
 	}
 
 	if !foundTTS {
 		t.Error("Expected TTS call for cuddle announcement")
+	}
+
+	if !foundBathroomOff {
+		t.Error("Expected light.turn_off call for bathroom lights")
 	}
 }
 
@@ -1382,5 +1393,88 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 	}
 	if bedroomLeftCalls < 1 {
 		t.Error("Expected at least 1 volume_set call for media_player.bedroom_left")
+	}
+}
+
+func TestTurnOffBathroomLights(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
+	manager, mockHA, _, _ := setupTest(t, now)
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Call the bathroom lights turn-off function
+	manager.turnOffBathroomLights()
+
+	// Verify the service call was made
+	calls := mockHA.GetServiceCalls()
+
+	if len(calls) != 1 {
+		t.Errorf("Expected exactly 1 service call, got %d", len(calls))
+	}
+
+	// Verify it's a light.turn_off call for the bathroom
+	call := calls[0]
+	if call.Domain != "light" {
+		t.Errorf("Expected domain 'light', got '%s'", call.Domain)
+	}
+	if call.Service != "turn_off" {
+		t.Errorf("Expected service 'turn_off', got '%s'", call.Service)
+	}
+
+	entityID, ok := call.Data["entity_id"].(string)
+	if !ok {
+		t.Fatal("entity_id not found in call data")
+	}
+	if entityID != "light.primary_bathroom_main_lights" {
+		t.Errorf("Expected entity_id 'light.primary_bathroom_main_lights', got '%s'", entityID)
+	}
+}
+
+func TestWake_VerifiesLightEntityNames(t *testing.T) {
+	// This test verifies that the wake sequence uses the correct entity names
+	// matching the Node-RED implementation
+	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set all conditions for wake
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetBool("isNickHome", true)
+	stateManager.SetBool("isCarolineHome", true)
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Trigger wake
+	manager.handleWake()
+
+	// Verify correct entity names are used
+	calls := mockHA.GetServiceCalls()
+
+	// Check for light.primary_suite (not light.master_bedroom)
+	foundPrimarySuite := false
+	foundBathroomLights := false
+
+	for _, call := range calls {
+		if call.Domain == "light" {
+			if entityID, ok := call.Data["entity_id"].(string); ok {
+				if entityID == "light.primary_suite" && call.Service == "turn_on" {
+					foundPrimarySuite = true
+				}
+				if entityID == "light.primary_bathroom_main_lights" && call.Service == "turn_off" {
+					foundBathroomLights = true
+				}
+			}
+		}
+	}
+
+	if !foundPrimarySuite {
+		t.Error("Expected to find light.primary_suite in wake sequence (not light.master_bedroom)")
+	}
+
+	if !foundBathroomLights {
+		t.Error("Expected to find light.primary_bathroom_main_lights turn_off in wake sequence")
 	}
 }
