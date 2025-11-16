@@ -294,7 +294,7 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 
 	testCases := []struct {
-		name        string
+		name         string
 		scheduleYAML string
 		errorField   string
 	}{

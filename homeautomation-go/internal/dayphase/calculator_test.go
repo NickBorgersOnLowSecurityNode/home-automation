@@ -113,14 +113,14 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name     string
-		dawn     time.Time
-		sunrise  time.Time
-		sunriseEnd time.Time
+		name        string
+		dawn        time.Time
+		sunrise     time.Time
+		sunriseEnd  time.Time
 		sunsetStart time.Time
-		sunset   time.Time
-		dusk     time.Time
-		expected SunEvent
+		sunset      time.Time
+		dusk        time.Time
+		expected    SunEvent
 	}{
 		{
 			name:        "before dawn - night",
@@ -228,10 +228,10 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
+		name          string
 		setupSunTimes func(c *Calculator)
-		schedule     *config.ParsedSchedule
-		expected     DayPhase
+		schedule      *config.ParsedSchedule
+		expected      DayPhase
 	}{
 		{
 			name: "morning period",
@@ -313,9 +313,9 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				c.lastUpdate = now
 			},
 			schedule: &config.ParsedSchedule{
-				BeginWake:   time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-				Wake:        time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Night:       now.Add(-2 * time.Hour), // Schedule night time in the past
+				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Night:     now.Add(-2 * time.Hour), // Schedule night time in the past
 			},
 			expected: DayPhaseNight,
 		},
@@ -332,9 +332,9 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				c.lastUpdate = now
 			},
 			schedule: &config.ParsedSchedule{
-				BeginWake:   time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-				Wake:        time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Night:       now.Add(2 * time.Hour), // Schedule night time in the future
+				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Night:     now.Add(2 * time.Hour), // Schedule night time in the future
 			},
 			expected: DayPhaseWinddown,
 		},
@@ -350,7 +350,7 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				c.dusk = now.Add(-1 * time.Hour) // Past dusk
 				c.lastUpdate = now
 			},
-			schedule: nil, // No schedule
+			schedule: nil,              // No schedule
 			expected: DayPhaseWinddown, // Will be winddown unless it's very late or very early
 		},
 	}
