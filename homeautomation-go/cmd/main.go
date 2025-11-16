@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"homeautomation/internal/api"
 	"homeautomation/internal/config"
 	dayphaselib "homeautomation/internal/dayphase"
 	"homeautomation/internal/ha"
@@ -46,6 +47,16 @@ func main() {
 
 	if haURL == "" || haToken == "" {
 		logger.Fatal("HA_URL and HA_TOKEN environment variables must be set")
+	}
+
+	// HTTP API port configuration
+	httpPort := 8080 // default port
+	if portStr := os.Getenv("HTTP_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			httpPort = port
+		} else {
+			logger.Warn("Invalid HTTP_PORT value, using default", zap.String("value", portStr), zap.Int("default", 8080))
+		}
 	}
 
 	// Load timezone (default to UTC if not set)
@@ -121,6 +132,16 @@ func main() {
 	if err := stateManager.SyncFromHA(); err != nil {
 		logger.Fatal("Failed to sync state from HA", zap.Error(err))
 	}
+
+	// Start HTTP API server
+	apiServer := api.NewServer(stateManager, logger, httpPort)
+	if err := apiServer.Start(); err != nil {
+		logger.Fatal("Failed to start HTTP API server", zap.Error(err))
+	}
+	defer apiServer.Stop()
+	logger.Info("HTTP API server started",
+		zap.Int("port", httpPort),
+		zap.String("endpoint", fmt.Sprintf("http://localhost:%d/api/state", httpPort)))
 
 	// Display current state
 	displayState(stateManager, logger)
