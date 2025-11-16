@@ -284,7 +284,7 @@ func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *
 		zap.Int("music_modes", len(musicConfig.Music)))
 
 	// Create and start music manager
-	musicManager := music.NewManager(client, stateManager, musicConfig, logger, readOnly)
+	musicManager := music.NewManager(client, stateManager, musicConfig, logger, readOnly, nil)
 	if err := musicManager.Start(); err != nil {
 		return fmt.Errorf("failed to start music manager: %w", err)
 	}
