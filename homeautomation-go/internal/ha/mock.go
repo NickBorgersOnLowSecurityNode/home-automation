@@ -225,7 +225,6 @@ func (m *MockClient) SetInputText(name string, value string) error {
 // SetState sets a mock state (for testing)
 func (m *MockClient) SetState(entityID string, stateValue string, attributes map[string]interface{}) {
 	m.statesMu.Lock()
-	defer m.statesMu.Unlock()
 
 	now := time.Now()
 	oldState := m.states[entityID]
@@ -239,8 +238,9 @@ func (m *MockClient) SetState(entityID string, stateValue string, attributes map
 	}
 
 	m.states[entityID] = newState
+	m.statesMu.Unlock()
 
-	// Notify subscribers
+	// Notify subscribers (after unlocking to avoid deadlock when callbacks call back into the client)
 	m.notifySubscribers(entityID, oldState, newState)
 }
 

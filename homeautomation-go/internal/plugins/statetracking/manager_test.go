@@ -2,6 +2,7 @@ package statetracking
 
 import (
 	"testing"
+	"time"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -743,5 +744,338 @@ func TestStateTrackingManager_Reset(t *testing.T) {
 	isAnyOwnerHome, _ = stateMgr.GetBool("isAnyOwnerHome")
 	if isAnyOwnerHome != true {
 		t.Errorf("Expected isAnyOwnerHome=true after reset, got %v", isAnyOwnerHome)
+	}
+}
+
+func TestStateTrackingManager_NickArrivalAnnouncement_SomeoneHome(t *testing.T) {
+	// Test that Nick's arrival is announced when someone is already home
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: Caroline is already home, Nick is away
+	if err := stateMgr.SetBool("isCarolineHome", true); err != nil {
+		t.Fatalf("Failed to set isCarolineHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isNickHome", false); err != nil {
+		t.Fatalf("Failed to set isNickHome: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(mockHA, stateMgr, logger, false)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Clear any initial service calls
+	mockHA.ClearServiceCalls()
+
+	// Simulate Nick arriving home (input_boolean.nick_home changes to "on")
+	mockHA.SetState("input_boolean.nick_home", "off", nil)
+	mockHA.SetState("input_boolean.nick_home", "on", nil)
+
+	// Give the async handler a moment to process
+	// The announcement runs in a goroutine to avoid deadlocks
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify TTS service was called
+	calls := mockHA.GetServiceCalls()
+	if len(calls) == 0 {
+		t.Fatal("Expected TTS service call, but no service calls were made")
+	}
+
+	// Find the TTS call
+	var ttsCall *ha.ServiceCall
+	for i := range calls {
+		if calls[i].Domain == "tts" && calls[i].Service == "speak" {
+			ttsCall = &calls[i]
+			break
+		}
+	}
+
+	if ttsCall == nil {
+		t.Fatal("Expected TTS speak service call, but none was found")
+	}
+
+	// Verify TTS call parameters
+	if entityID, ok := ttsCall.Data["entity_id"].(string); !ok || entityID != "tts.google_translate_en_com" {
+		t.Errorf("Expected entity_id=tts.google_translate_en_com, got %v", ttsCall.Data["entity_id"])
+	}
+
+	if message, ok := ttsCall.Data["message"].(string); !ok || message != "Nick is home" {
+		t.Errorf("Expected message='Nick is home', got %v", ttsCall.Data["message"])
+	}
+
+	if cache, ok := ttsCall.Data["cache"].(bool); !ok || cache != true {
+		t.Errorf("Expected cache=true, got %v", ttsCall.Data["cache"])
+	}
+
+	// Verify media players
+	mediaPlayers, ok := ttsCall.Data["media_player_entity_id"].([]string)
+	if !ok {
+		t.Fatalf("Expected media_player_entity_id to be []string, got %T", ttsCall.Data["media_player_entity_id"])
+	}
+
+	expectedPlayers := []string{
+		"media_player.kitchen",
+		"media_player.dining_room",
+		"media_player.soundbar",
+		"media_player.kids_bathroom",
+	}
+
+	if len(mediaPlayers) != len(expectedPlayers) {
+		t.Errorf("Expected %d media players, got %d", len(expectedPlayers), len(mediaPlayers))
+	}
+
+	for _, expected := range expectedPlayers {
+		found := false
+		for _, actual := range mediaPlayers {
+			if actual == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected media player %s not found in TTS call", expected)
+		}
+	}
+}
+
+func TestStateTrackingManager_NickArrivalAnnouncement_NobodyHome(t *testing.T) {
+	// Test that Nick's arrival is NOT announced when nobody is home
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: Nobody is home
+	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
+		t.Fatalf("Failed to set isCarolineHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isNickHome", false); err != nil {
+		t.Fatalf("Failed to set isNickHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isToriHere", false); err != nil {
+		t.Fatalf("Failed to set isToriHere: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(mockHA, stateMgr, logger, false)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Clear any initial service calls
+	mockHA.ClearServiceCalls()
+
+	// Simulate Nick arriving home (input_boolean.nick_home changes to "on")
+	mockHA.SetState("input_boolean.nick_home", "off", nil)
+	mockHA.SetState("input_boolean.nick_home", "on", nil)
+
+	// Give the async handler a moment to process
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify NO TTS service was called
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "tts" && call.Service == "speak" {
+			t.Error("Expected no TTS announcement when nobody is home, but TTS service was called")
+		}
+	}
+}
+
+func TestStateTrackingManager_CarolineArrivalAnnouncement(t *testing.T) {
+	// Test that Caroline's arrival is announced when someone is already home
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: Nick is already home, Caroline is away
+	if err := stateMgr.SetBool("isNickHome", true); err != nil {
+		t.Fatalf("Failed to set isNickHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
+		t.Fatalf("Failed to set isCarolineHome: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(mockHA, stateMgr, logger, false)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Clear any initial service calls
+	mockHA.ClearServiceCalls()
+
+	// Simulate Caroline arriving home
+	mockHA.SetState("input_boolean.caroline_home", "off", nil)
+	mockHA.SetState("input_boolean.caroline_home", "on", nil)
+
+	// Give the async handler a moment to process
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify TTS service was called with Caroline's message
+	calls := mockHA.GetServiceCalls()
+	var ttsCall *ha.ServiceCall
+	for i := range calls {
+		if calls[i].Domain == "tts" && calls[i].Service == "speak" {
+			ttsCall = &calls[i]
+			break
+		}
+	}
+
+	if ttsCall == nil {
+		t.Fatal("Expected TTS speak service call for Caroline, but none was found")
+	}
+
+	if message, ok := ttsCall.Data["message"].(string); !ok || message != "Caroline is home" {
+		t.Errorf("Expected message='Caroline is home', got %v", ttsCall.Data["message"])
+	}
+
+	// Verify Caroline's media players include office
+	mediaPlayers, ok := ttsCall.Data["media_player_entity_id"].([]string)
+	if !ok {
+		t.Fatalf("Expected media_player_entity_id to be []string, got %T", ttsCall.Data["media_player_entity_id"])
+	}
+
+	expectedPlayers := []string{
+		"media_player.kitchen",
+		"media_player.dining_room",
+		"media_player.kids_bathroom",
+		"media_player.soundbar",
+		"media_player.office",
+	}
+
+	if len(mediaPlayers) != len(expectedPlayers) {
+		t.Errorf("Expected %d media players for Caroline, got %d", len(expectedPlayers), len(mediaPlayers))
+	}
+}
+
+func TestStateTrackingManager_ToriArrivalAnnouncement(t *testing.T) {
+	// Test that Tori's arrival is announced when someone is already home
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: Nick is already home, Tori is not here
+	if err := stateMgr.SetBool("isNickHome", true); err != nil {
+		t.Fatalf("Failed to set isNickHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isToriHere", false); err != nil {
+		t.Fatalf("Failed to set isToriHere: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(mockHA, stateMgr, logger, false)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Clear any initial service calls
+	mockHA.ClearServiceCalls()
+
+	// Simulate Tori arriving
+	mockHA.SetState("input_boolean.tori_here", "off", nil)
+	mockHA.SetState("input_boolean.tori_here", "on", nil)
+
+	// Give the async handler a moment to process
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify TTS service was called with Tori's message
+	calls := mockHA.GetServiceCalls()
+	var ttsCall *ha.ServiceCall
+	for i := range calls {
+		if calls[i].Domain == "tts" && calls[i].Service == "speak" {
+			ttsCall = &calls[i]
+			break
+		}
+	}
+
+	if ttsCall == nil {
+		t.Fatal("Expected TTS speak service call for Tori, but none was found")
+	}
+
+	if message, ok := ttsCall.Data["message"].(string); !ok || message != "Tori is here" {
+		t.Errorf("Expected message='Tori is here', got %v", ttsCall.Data["message"])
+	}
+}
+
+func TestStateTrackingManager_ArrivalAnnouncement_ReadOnlyMode(t *testing.T) {
+	// Test that TTS announcements are logged but not executed in read-only mode
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: Caroline is already home, Nick is away
+	if err := stateMgr.SetBool("isCarolineHome", true); err != nil {
+		t.Fatalf("Failed to set isCarolineHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isNickHome", false); err != nil {
+		t.Fatalf("Failed to set isNickHome: %v", err)
+	}
+
+	// Create manager in READ-ONLY mode
+	manager := NewManager(mockHA, stateMgr, logger, true)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Clear any initial service calls
+	mockHA.ClearServiceCalls()
+
+	// Simulate Nick arriving home
+	mockHA.SetState("input_boolean.nick_home", "off", nil)
+	mockHA.SetState("input_boolean.nick_home", "on", nil)
+
+	// Give the async handler a moment to process
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify NO TTS service was called (read-only mode)
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "tts" && call.Service == "speak" {
+			t.Error("Expected no TTS service call in read-only mode, but call was made")
+		}
+	}
+}
+
+func TestStateTrackingManager_NoAnnouncement_OnStateChangeFromUnknown(t *testing.T) {
+	// Test that announcements are not made when state changes from unknown/unavailable
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: Caroline is already home
+	if err := stateMgr.SetBool("isCarolineHome", true); err != nil {
+		t.Fatalf("Failed to set isCarolineHome: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(mockHA, stateMgr, logger, false)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Clear any initial service calls
+	mockHA.ClearServiceCalls()
+
+	// Simulate Nick's state changing from unknown to on (no oldState)
+	// This should NOT trigger an announcement
+	mockHA.SetState("input_boolean.nick_home", "on", nil)
+
+	// Give the async handler a moment to process
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify NO TTS service was called
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "tts" && call.Service == "speak" {
+			t.Error("Expected no TTS announcement when oldState is nil, but TTS service was called")
+		}
 	}
 }
