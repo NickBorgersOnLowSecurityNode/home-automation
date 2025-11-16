@@ -19,6 +19,7 @@ type Manager struct {
 	config       *EnergyConfig
 	logger       *zap.Logger
 	readOnly     bool
+	timezone     *time.Location
 
 	// Subscriptions for cleanup
 	haSubscriptions    []ha.Subscription
@@ -29,13 +30,19 @@ type Manager struct {
 }
 
 // NewManager creates a new Energy State manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *EnergyConfig, logger *zap.Logger, readOnly bool) *Manager {
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *EnergyConfig, logger *zap.Logger, readOnly bool, timezone *time.Location) *Manager {
+	// Default to UTC if no timezone provided
+	if timezone == nil {
+		timezone = time.UTC
+	}
+
 	return &Manager{
 		haClient:           haClient,
 		stateManager:       stateManager,
 		config:             config,
 		logger:             logger.Named("energy"),
 		readOnly:           readOnly,
+		timezone:           timezone,
 		haSubscriptions:    make([]ha.Subscription, 0),
 		stateSubscriptions: make([]state.Subscription, 0),
 		stopChecker:        make(chan struct{}),
@@ -489,7 +496,8 @@ func (m *Manager) isFreeEnergyTime(isGridAvailable bool) bool {
 		return false
 	}
 
-	now := time.Now()
+	// Get current time in configured timezone
+	now := time.Now().In(m.timezone)
 
 	// Parse times (format: "21:00")
 	startTime, err := time.Parse("15:04", m.config.Energy.FreeEnergyTime.Start)
@@ -504,12 +512,12 @@ func (m *Manager) isFreeEnergyTime(isGridAvailable bool) bool {
 		return false
 	}
 
-	// Set the times to today
+	// Set the times to today in configured timezone
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(),
-		startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
+		startTime.Hour(), startTime.Minute(), 0, 0, m.timezone)
 
 	todayEnd := time.Date(now.Year(), now.Month(), now.Day(),
-		endTime.Hour(), endTime.Minute(), 0, 0, now.Location())
+		endTime.Hour(), endTime.Minute(), 0, 0, m.timezone)
 
 	// If end time is before start time, it spans midnight
 	if todayEnd.Before(todayStart) {
