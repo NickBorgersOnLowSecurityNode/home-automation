@@ -26,6 +26,9 @@ type Manager struct {
 	stoppedChan chan struct{}
 	sunStopChan chan struct{}
 
+	// Lifecycle tracking
+	started bool
+
 	// Subscriptions for cleanup
 	subscriptions []state.Subscription
 }
@@ -67,6 +70,9 @@ func (m *Manager) Start() error {
 	// Start periodic update goroutine (every 5 minutes)
 	go m.periodicUpdate()
 
+	// Mark as started
+	m.started = true
+
 	m.logger.Info("State Tracking Manager started successfully")
 	return nil
 }
@@ -74,6 +80,12 @@ func (m *Manager) Start() error {
 // Stop stops the State Tracking Manager and cleans up subscriptions
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping State Tracking Manager")
+
+	// Only stop if started
+	if !m.started {
+		m.logger.Info("State Tracking Manager was not started, nothing to stop")
+		return
+	}
 
 	// Stop periodic update
 	close(m.stopChan)
