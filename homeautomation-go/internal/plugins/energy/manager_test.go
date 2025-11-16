@@ -456,3 +456,34 @@ func TestEnergyManager_Stop(t *testing.T) {
 	assert.Nil(t, manager.haSubscriptions, "HA subscriptions should be nil after Stop")
 	assert.Nil(t, manager.stateSubscriptions, "State subscriptions should be nil after Stop")
 }
+
+func TestEnergyManager_ReadOnlyMode(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	// Create state manager in read-only mode
+	stateManager := state.NewManager(mockClient, logger, true)
+
+	config := createTestConfig()
+	manager := NewManager(mockClient, stateManager, config, logger, true)
+
+	// Test battery change handler - should handle read-only gracefully
+	manager.handleBatteryChange(50.0)
+	// No error should be thrown, just logged at debug level
+
+	// Test solar generation handlers
+	manager.handleThisHourSolarChange(5.0)
+	manager.handleRemainingSolarChange(15.0)
+
+	// Test free energy check
+	_ = stateManager.SetBool("isGridAvailable", true)
+	manager.checkFreeEnergy()
+
+	// Test overall energy level recalculation
+	_ = stateManager.SetBool("isFreeEnergyAvailable", true)
+	_ = stateManager.SetString("batteryEnergyLevel", "green")
+	_ = stateManager.SetString("solarProductionEnergyLevel", "green")
+	manager.recalculateOverallEnergyLevel()
+
+	// If we get here without panicking, the read-only mode handling worked correctly
+	// The actual verification is that no errors are thrown, just debug logs
+}
