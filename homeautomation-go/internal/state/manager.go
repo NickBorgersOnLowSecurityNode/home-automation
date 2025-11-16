@@ -307,8 +307,9 @@ func (m *Manager) SetBool(key string, value bool) error {
 	m.cache[key] = value
 	m.cacheMu.Unlock()
 
-	// Skip HA sync for local-only variables
+	// Skip HA sync for local-only variables, but still notify subscribers
 	if variable.LocalOnly {
+		m.notifySubscribers(key, oldValue, value)
 		return nil
 	}
 
@@ -372,8 +373,9 @@ func (m *Manager) SetString(key string, value string) error {
 	m.cache[key] = value
 	m.cacheMu.Unlock()
 
-	// Skip HA sync for local-only variables
+	// Skip HA sync for local-only variables, but still notify subscribers
 	if variable.LocalOnly {
+		m.notifySubscribers(key, oldValue, value)
 		return nil
 	}
 
@@ -437,8 +439,9 @@ func (m *Manager) SetNumber(key string, value float64) error {
 	m.cache[key] = value
 	m.cacheMu.Unlock()
 
-	// Skip HA sync for local-only variables
+	// Skip HA sync for local-only variables, but still notify subscribers
 	if variable.LocalOnly {
+		m.notifySubscribers(key, oldValue, value)
 		return nil
 	}
 
@@ -507,8 +510,9 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 	m.cache[key] = value
 	m.cacheMu.Unlock()
 
-	// Skip HA sync for local-only variables
+	// Skip HA sync for local-only variables, but still notify subscribers
 	if variable.LocalOnly {
+		m.notifySubscribers(key, oldValue, value)
 		return nil
 	}
 

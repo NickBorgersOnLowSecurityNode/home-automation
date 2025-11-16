@@ -20,7 +20,7 @@ type StateVariable struct {
 	LocalOnly bool        // If true, only exists in memory, not synced with HA
 }
 
-// AllVariables contains all 28 state variables (27 synced with HA + 1 local-only)
+// AllVariables contains all 29 state variables (27 synced with HA + 2 local-only)
 var AllVariables = []StateVariable{
 	// Booleans (18)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},
@@ -55,7 +55,8 @@ var AllVariables = []StateVariable{
 	{Key: "currentEnergyLevel", EntityID: "input_text.current_energy_level", Type: TypeString, Default: ""},
 	{Key: "solarProductionEnergyLevel", EntityID: "input_text.solar_production_energy_level", Type: TypeString, Default: ""},
 
-	// JSON - Local Only (not synced with HA)
+	// Local-only variables (not synced with HA)
+	{Key: "didOwnerJustReturnHome", EntityID: "", Type: TypeBool, Default: false, LocalOnly: true},
 	{Key: "currentlyPlayingMusic", EntityID: "", Type: TypeJSON, Default: map[string]interface{}{}, LocalOnly: true},
 }
 
