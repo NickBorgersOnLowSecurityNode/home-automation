@@ -219,3 +219,37 @@ lint-go:
 	  fi && \
 	  (command -v staticcheck >/dev/null 2>&1 && staticcheck ./... || $(HOME)/go/bin/staticcheck ./...)
 	@echo "✅ All linters passed"
+
+#pre-push: @ Run comprehensive pre-push validation (build, tests, race detector, coverage ≥70%)
+pre-push:
+	@echo ""
+	@echo "🔍 Running pre-push validation..."
+	@echo "════════════════════════════════════════════════════════════════════════════"
+	@echo ""
+	@echo "📦 Step 1/3: Compiling all code (including tests)..."
+	@cd homeautomation-go && go build ./...
+	@echo "✅ All code compiles"
+	@echo ""
+	@echo "🧪 Step 2/3: Running all tests with race detector and coverage..."
+	@cd homeautomation-go && go test ./... -race -coverprofile=coverage.out -covermode=atomic -timeout=5m
+	@echo "✅ All tests passed with race detector"
+	@echo ""
+	@echo "📊 Step 3/3: Checking test coverage (≥70%)..."
+	@cd homeautomation-go && \
+	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
+	  echo "Total coverage: $${coverage}%" && \
+	  if [ "$$(echo "$$coverage < 70" | bc -l)" = "1" ]; then \
+	    echo "❌ ERROR: Test coverage $${coverage}% is below required 70%"; \
+	    rm -f coverage.out; \
+	    exit 1; \
+	  fi && \
+	  echo "✅ Test coverage $${coverage}% meets requirement" && \
+	  rm -f coverage.out
+	@echo ""
+	@echo "════════════════════════════════════════════════════════════════════════════"
+	@echo "🎉 Pre-push validation passed!"
+	@echo ""
+	@echo "✅ All code compiles"
+	@echo "✅ All tests passed with race detector"
+	@echo "✅ Test coverage meets minimum requirement (≥70%)"
+	@echo "════════════════════════════════════════════════════════════════════════════"
