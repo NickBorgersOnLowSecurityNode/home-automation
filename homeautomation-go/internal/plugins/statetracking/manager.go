@@ -77,6 +77,27 @@ func (m *Manager) Start() error {
 	}
 	m.haSubscriptions = append(m.haSubscriptions, doorSub)
 
+	// Subscribe to Nick's presence for arrival announcements
+	nickSub, err := m.haClient.SubscribeStateChanges("input_boolean.nick_home", m.handleNickHomeChange)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to input_boolean.nick_home: %w", err)
+	}
+	m.haSubscriptions = append(m.haSubscriptions, nickSub)
+
+	// Subscribe to Caroline's presence for arrival announcements
+	carolineSub, err := m.haClient.SubscribeStateChanges("input_boolean.caroline_home", m.handleCarolineHomeChange)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to input_boolean.caroline_home: %w", err)
+	}
+	m.haSubscriptions = append(m.haSubscriptions, carolineSub)
+
+	// Subscribe to Tori's presence for arrival announcements
+	toriSub, err := m.haClient.SubscribeStateChanges("input_boolean.tori_here", m.handleToriHereChange)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to input_boolean.tori_here: %w", err)
+	}
+	m.haSubscriptions = append(m.haSubscriptions, toriSub)
+
 	m.logger.Info("State Tracking Manager started successfully",
 		zap.Strings("derivedStates", []string{
 			"isAnyOwnerHome",
@@ -87,6 +108,11 @@ func (m *Manager) Start() error {
 		zap.Strings("sleepDetection", []string{
 			"light.primary_suite (1min off → asleep)",
 			"input_boolean.primary_bedroom_door_open (20sec open → awake)",
+		}),
+		zap.Strings("presenceAnnouncements", []string{
+			"input_boolean.nick_home (arrival → TTS)",
+			"input_boolean.caroline_home (arrival → TTS)",
+			"input_boolean.tori_here (arrival → TTS)",
 		}))
 	return nil
 }
@@ -234,6 +260,123 @@ func (m *Manager) detectMasterAwake() {
 		} else {
 			m.logger.Error("Failed to set isMasterAsleep to false", zap.Error(err))
 		}
+	}
+}
+
+// handleNickHomeChange processes Nick's presence state changes for TTS announcements
+func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil || oldState == nil {
+		return
+	}
+
+	// Check if Nick just arrived (state changed to "on" from something else)
+	if newState.State == "on" && oldState.State != "on" {
+		m.logger.Debug("Nick arrived home, checking if should announce",
+			zap.String("entity_id", entityID),
+			zap.String("old_state", oldState.State),
+			zap.String("new_state", newState.State))
+
+		// Run announcement asynchronously to avoid deadlocks
+		go m.announceArrival("Nick", "Nick is home", []string{
+			"media_player.kitchen",
+			"media_player.dining_room",
+			"media_player.soundbar",
+			"media_player.kids_bathroom",
+		})
+	}
+}
+
+// handleCarolineHomeChange processes Caroline's presence state changes for TTS announcements
+func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil || oldState == nil {
+		return
+	}
+
+	// Check if Caroline just arrived (state changed to "on" from something else)
+	if newState.State == "on" && oldState.State != "on" {
+		m.logger.Debug("Caroline arrived home, checking if should announce",
+			zap.String("entity_id", entityID),
+			zap.String("old_state", oldState.State),
+			zap.String("new_state", newState.State))
+
+		// Run announcement asynchronously to avoid deadlocks
+		go m.announceArrival("Caroline", "Caroline is home", []string{
+			"media_player.kitchen",
+			"media_player.dining_room",
+			"media_player.kids_bathroom",
+			"media_player.soundbar",
+			"media_player.office",
+		})
+	}
+}
+
+// handleToriHereChange processes Tori's presence state changes for TTS announcements
+func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil || oldState == nil {
+		return
+	}
+
+	// Check if Tori just arrived (state changed to "on" from something else)
+	if newState.State == "on" && oldState.State != "on" {
+		m.logger.Debug("Tori arrived, checking if should announce",
+			zap.String("entity_id", entityID),
+			zap.String("old_state", oldState.State),
+			zap.String("new_state", newState.State))
+
+		// Run announcement asynchronously to avoid deadlocks
+		go m.announceArrival("Tori", "Tori is here", []string{
+			"media_player.kitchen",
+			"media_player.dining_room",
+			"media_player.kids_bathroom",
+			"media_player.soundbar",
+			"media_player.office",
+		})
+	}
+}
+
+// announceArrival makes a TTS announcement if someone is already home
+func (m *Manager) announceArrival(person, message string, mediaPlayers []string) {
+	// Check if anyone is already home
+	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
+	if err != nil {
+		m.logger.Error("Failed to get isAnyoneHome for arrival announcement",
+			zap.String("person", person),
+			zap.Error(err))
+		return
+	}
+
+	if !isAnyoneHome {
+		m.logger.Debug("Nobody home yet, not announcing arrival",
+			zap.String("person", person))
+		return
+	}
+
+	// Skip TTS in read-only mode
+	if m.readOnly {
+		m.logger.Info("Would announce arrival (read-only mode)",
+			zap.String("person", person),
+			zap.String("message", message),
+			zap.Strings("media_players", mediaPlayers))
+		return
+	}
+
+	// Make the TTS announcement
+	m.logger.Info("Announcing arrival via TTS",
+		zap.String("person", person),
+		zap.String("message", message),
+		zap.Strings("media_players", mediaPlayers))
+
+	err = m.haClient.CallService("tts", "speak", map[string]interface{}{
+		"entity_id":             "tts.google_translate_en_com",
+		"message":               message,
+		"cache":                 true,
+		"media_player_entity_id": mediaPlayers,
+	})
+
+	if err != nil {
+		m.logger.Error("Failed to announce arrival via TTS",
+			zap.String("person", person),
+			zap.Error(err))
 	}
 }
 
