@@ -25,7 +25,7 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(stateManager, mockClient, logger)
+	ls := NewManager(mockClient, stateManager, logger, false)
 	err = ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
@@ -83,7 +83,7 @@ func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(stateManager, mockClient, logger)
+	ls := NewManager(mockClient, stateManager, logger, false)
 	err = ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
@@ -120,7 +120,7 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(stateManager, mockClient, logger)
+	ls := NewManager(mockClient, stateManager, logger, false)
 	// Manually set loadSheddingOn to true to simulate that load shedding was previously enabled
 	ls.loadSheddingOn = true
 
@@ -165,7 +165,7 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(stateManager, mockClient, logger)
+	ls := NewManager(mockClient, stateManager, logger, false)
 	// Manually set loadSheddingOn to true to simulate that load shedding was previously enabled
 	ls.loadSheddingOn = true
 
@@ -205,7 +205,7 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(stateManager, mockClient, logger)
+	ls := NewManager(mockClient, stateManager, logger, false)
 
 	// Override minimum action interval for testing
 	// (In production, we'd use dependency injection for the time source)
@@ -248,7 +248,7 @@ func TestLoadShedding_StartStop(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(stateManager, mockClient, logger)
+	ls := NewManager(mockClient, stateManager, logger, false)
 
 	// Start
 	err = ls.Start()
@@ -281,7 +281,7 @@ func TestLoadShedding_UnknownState(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(stateManager, mockClient, logger)
+	ls := NewManager(mockClient, stateManager, logger, false)
 	err = ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
@@ -312,7 +312,7 @@ func TestLoadShedding_RedToGreenTransition(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(stateManager, mockClient, logger)
+	ls := NewManager(mockClient, stateManager, logger, false)
 
 	// Manually set last action to past to avoid rate limiting
 	ls.lastAction = time.Now().Add(-2 * time.Hour)

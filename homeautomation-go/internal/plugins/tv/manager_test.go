@@ -363,9 +363,7 @@ func TestTVManager_Start_InitializesStates(t *testing.T) {
 	}
 
 	// Clean up
-	if err := manager.Stop(); err != nil {
-		t.Fatalf("Failed to stop TV manager: %v", err)
-	}
+	manager.Stop()
 }
 
 func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
@@ -383,22 +381,23 @@ func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
 	}
 
 	// Verify subscriptions exist
-	if manager.appleTVSub == nil {
-		t.Error("Expected appleTVSub to be set after Start()")
+	if len(manager.haSubscriptions) != 3 {
+		t.Errorf("Expected 3 HA subscriptions after Start(), got %d", len(manager.haSubscriptions))
 	}
-	if manager.syncBoxSub == nil {
-		t.Error("Expected syncBoxSub to be set after Start()")
-	}
-	if manager.hdmiInputSub == nil {
-		t.Error("Expected hdmiInputSub to be set after Start()")
+	if len(manager.stateSubscriptions) != 1 {
+		t.Errorf("Expected 1 state subscription after Start(), got %d", len(manager.stateSubscriptions))
 	}
 
 	// Stop the manager
-	if err := manager.Stop(); err != nil {
-		t.Fatalf("Failed to stop TV manager: %v", err)
-	}
+	manager.Stop()
 
-	// Test passes if Stop() doesn't error (cleanup is successful)
+	// Verify subscriptions were cleaned up
+	if manager.haSubscriptions != nil {
+		t.Error("Expected haSubscriptions to be nil after Stop()")
+	}
+	if manager.stateSubscriptions != nil {
+		t.Error("Expected stateSubscriptions to be nil after Stop()")
+	}
 }
 
 func TestTVManager_ReadOnlyMode(t *testing.T) {

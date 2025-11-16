@@ -10,9 +10,9 @@ import (
 
 	"homeautomation/internal/config"
 	"homeautomation/internal/ha"
-	"homeautomation/internal/loadshedding"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/lighting"
+	"homeautomation/internal/plugins/loadshedding"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/state"
@@ -126,13 +126,13 @@ func main() {
 	}
 	defer sleepHygieneManager.Stop()
 
-	// Start Load Shedding controller
-	loadSheddingController := loadshedding.NewManager(stateManager, client, logger)
-	if err := loadSheddingController.Start(); err != nil {
-		logger.Fatal("Failed to start Load Shedding controller", zap.Error(err))
+	// Start Load Shedding Manager
+	loadSheddingManager := loadshedding.NewManager(client, stateManager, logger, readOnly)
+	if err := loadSheddingManager.Start(); err != nil {
+		logger.Fatal("Failed to start Load Shedding Manager", zap.Error(err))
 	}
-	defer loadSheddingController.Stop()
-	logger.Info("Load Shedding controller started")
+	defer loadSheddingManager.Stop()
+	logger.Info("Load Shedding Manager started successfully")
 
 	// Demonstrate setting values (only in read-write mode)
 	if !readOnly {

@@ -375,7 +375,7 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
 	sceneEntityID := "scene." + toSnakeCase(sceneName)
 
 	if m.readOnly {
-		m.logger.Info("READ ONLY MODE: Would activate scene",
+		m.logger.Info("READ-ONLY: Would activate scene",
 			zap.String("room", room.HueGroup),
 			zap.String("area_id", room.HASSAreaID),
 			zap.String("scene", dayPhase),
@@ -426,7 +426,7 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
 // turnOffRoom turns off lights in a room
 func (m *Manager) turnOffRoom(room *RoomConfig) {
 	if m.readOnly {
-		m.logger.Info("READ ONLY MODE: Would turn off room",
+		m.logger.Info("READ-ONLY: Would turn off room",
 			zap.String("room", room.HueGroup),
 			zap.String("area_id", room.HASSAreaID))
 		return

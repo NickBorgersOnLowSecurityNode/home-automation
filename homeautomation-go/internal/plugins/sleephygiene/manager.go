@@ -260,7 +260,7 @@ func (m *Manager) handleBeginWake() {
 		// This would involve gradually reducing volume on bedroom speakers
 		// For now, we just set the flag which other systems can monitor
 	} else {
-		m.logger.Info("[READ-ONLY] Would start fade out")
+		m.logger.Info("READ-ONLY: Would start fade out")
 	}
 }
 
@@ -300,7 +300,7 @@ func (m *Manager) handleWake() {
 		// 3. Check if both owners can cuddle and announce
 		m.checkAndAnnounceCuddle()
 	} else {
-		m.logger.Info("[READ-ONLY] Would execute wake sequence (lights + cuddle)")
+		m.logger.Info("READ-ONLY: Would execute wake sequence (lights + cuddle)")
 	}
 }
 
@@ -327,7 +327,7 @@ func (m *Manager) handleStopScreens() {
 	if !m.readOnly {
 		m.flashCommonAreaLights()
 	} else {
-		m.logger.Info("[READ-ONLY] Would flash common area lights")
+		m.logger.Info("READ-ONLY: Would flash common area lights")
 	}
 }
 

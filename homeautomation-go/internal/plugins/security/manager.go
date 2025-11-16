@@ -18,6 +18,10 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 
+	// Subscriptions for cleanup
+	haSubscriptions    []ha.Subscription
+	stateSubscriptions []state.Subscription
+
 	// Rate limiting for notifications
 	lastDoorbellNotification       time.Time
 	lastVehicleArrivalNotification time.Time
@@ -27,10 +31,12 @@ type Manager struct {
 // NewManager creates a new Security manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) *Manager {
 	return &Manager{
-		haClient:     haClient,
-		stateManager: stateManager,
-		logger:       logger.Named("security"),
-		readOnly:     readOnly,
+		haClient:           haClient,
+		stateManager:       stateManager,
+		logger:             logger.Named("security"),
+		readOnly:           readOnly,
+		haSubscriptions:    make([]ha.Subscription, 0),
+		stateSubscriptions: make([]state.Subscription, 0),
 	}
 }
 
@@ -39,36 +45,67 @@ func (m *Manager) Start() error {
 	m.logger.Info("Starting Security Manager")
 
 	// 1. Subscribe to sleep/home states for lockdown activation
-	if _, err := m.stateManager.Subscribe("isEveryoneAsleep", m.handleEveryoneAsleepChange); err != nil {
+	sub, err := m.stateManager.Subscribe("isEveryoneAsleep", m.handleEveryoneAsleepChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to isEveryoneAsleep: %w", err)
 	}
+	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
-	if _, err := m.stateManager.Subscribe("isAnyoneHome", m.handleAnyoneHomeChange); err != nil {
+	sub, err = m.stateManager.Subscribe("isAnyoneHome", m.handleAnyoneHomeChange)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
 	}
+	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
 	// 2. Subscribe to didOwnerJustReturnHome for garage auto-open
-	if _, err := m.stateManager.Subscribe("didOwnerJustReturnHome", m.handleOwnerReturnHome); err != nil {
+	sub, err = m.stateManager.Subscribe("didOwnerJustReturnHome", m.handleOwnerReturnHome)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to didOwnerJustReturnHome: %w", err)
 	}
+	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
 	// 3. Subscribe to doorbell button
-	if _, err := m.haClient.SubscribeStateChanges("input_button.doorbell", m.handleDoorbellPressed); err != nil {
+	haSub, err := m.haClient.SubscribeStateChanges("input_button.doorbell", m.handleDoorbellPressed)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to doorbell: %w", err)
 	}
+	m.haSubscriptions = append(m.haSubscriptions, haSub)
 
 	// 4. Subscribe to vehicle arriving button
-	if _, err := m.haClient.SubscribeStateChanges("input_button.vehicle_arriving", m.handleVehicleArriving); err != nil {
+	haSub, err = m.haClient.SubscribeStateChanges("input_button.vehicle_arriving", m.handleVehicleArriving)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to vehicle_arriving: %w", err)
 	}
+	m.haSubscriptions = append(m.haSubscriptions, haSub)
 
 	// 5. Subscribe to lockdown activation for auto-reset
-	if _, err := m.haClient.SubscribeStateChanges("input_boolean.lockdown", m.handleLockdownActivated); err != nil {
+	haSub, err = m.haClient.SubscribeStateChanges("input_boolean.lockdown", m.handleLockdownActivated)
+	if err != nil {
 		return fmt.Errorf("failed to subscribe to lockdown: %w", err)
 	}
+	m.haSubscriptions = append(m.haSubscriptions, haSub)
 
 	m.logger.Info("Security Manager started successfully")
 	return nil
+}
+
+// Stop stops the Security Manager and cleans up subscriptions
+func (m *Manager) Stop() {
+	m.logger.Info("Stopping Security Manager")
+
+	// Unsubscribe from all HA subscriptions
+	for _, sub := range m.haSubscriptions {
+		sub.Unsubscribe()
+	}
+	m.haSubscriptions = nil
+
+	// Unsubscribe from all state subscriptions
+	for _, sub := range m.stateSubscriptions {
+		sub.Unsubscribe()
+	}
+	m.stateSubscriptions = nil
+
+	m.logger.Info("Security Manager stopped")
 }
 
 // handleEveryoneAsleepChange activates lockdown when everyone is asleep
@@ -102,7 +139,7 @@ func (m *Manager) handleAnyoneHomeChange(key string, oldValue, newValue interfac
 // activateLockdown turns on the lockdown input_boolean
 func (m *Manager) activateLockdown() {
 	if m.readOnly {
-		m.logger.Info("READ-ONLY mode: Would activate lockdown")
+		m.logger.Info("READ-ONLY: Would activate lockdown")
 		return
 	}
 
@@ -125,7 +162,7 @@ func (m *Manager) handleLockdownActivated(entity string, oldState, newState *ha.
 			time.Sleep(5 * time.Second)
 
 			if m.readOnly {
-				m.logger.Info("READ-ONLY mode: Would reset lockdown")
+				m.logger.Info("READ-ONLY: Would reset lockdown")
 				return
 			}
 
@@ -173,7 +210,7 @@ func (m *Manager) handleOwnerReturnHome(key string, oldValue, newValue interface
 // openGarageDoor opens the garage door
 func (m *Manager) openGarageDoor() {
 	if m.readOnly {
-		m.logger.Info("READ-ONLY mode: Would open garage door")
+		m.logger.Info("READ-ONLY: Would open garage door")
 		return
 	}
 
@@ -228,7 +265,7 @@ func (m *Manager) flashLightsForDoorbell() {
 // flashLights flashes the specified lights
 func (m *Manager) flashLights(lights []string) {
 	if m.readOnly {
-		m.logger.Info("READ-ONLY mode: Would flash lights", zap.Strings("lights", lights))
+		m.logger.Info("READ-ONLY: Would flash lights", zap.Strings("lights", lights))
 		return
 	}
 
@@ -282,7 +319,7 @@ func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.St
 // sendTTSNotification sends a TTS message to all Sonos speakers
 func (m *Manager) sendTTSNotification(message string) {
 	if m.readOnly {
-		m.logger.Info("READ-ONLY mode: Would send TTS notification", zap.String("message", message))
+		m.logger.Info("READ-ONLY: Would send TTS notification", zap.String("message", message))
 		return
 	}
 
