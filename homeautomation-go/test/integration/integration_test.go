@@ -465,6 +465,93 @@ func TestReconnection(t *testing.T) {
 	client.Disconnect()
 }
 
+// TestReconnectionMessageIDReset tests that message IDs are reset after reconnection
+// This prevents the "id_reuse - Identifier values have to increase" error from HA
+func TestReconnectionMessageIDReset(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping reconnection message ID test in short mode")
+	}
+
+	logger, _ := zap.NewDevelopment()
+
+	// Start server
+	server := NewMockHAServer(testAddr, testToken)
+	server.InitializeStates()
+	err := server.Start()
+	require.NoError(t, err)
+
+	// Connect client
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	err = client.Connect()
+	require.NoError(t, err)
+	require.True(t, client.IsConnected())
+
+	// Send several messages to increment message ID counter
+	t.Log("Sending initial messages to increment message ID counter...")
+	for i := 0; i < 10; i++ {
+		err = client.SetInputBoolean("nick_home", i%2 == 0)
+		require.NoError(t, err, "Message %d should succeed before reconnection", i)
+	}
+
+	// Stop server to force disconnect
+	t.Log("Stopping server to trigger reconnection...")
+	server.Stop()
+
+	// Wait for disconnect detection
+	time.Sleep(1 * time.Second)
+
+	// Restart server (this simulates a new HA session that expects message IDs from 1)
+	t.Log("Restarting server (new session)...")
+	server = NewMockHAServer(testAddr, testToken)
+	server.InitializeStates()
+	err = server.Start()
+	require.NoError(t, err)
+	defer server.Stop()
+
+	// Wait for reconnection (with timeout)
+	t.Log("Waiting for reconnection...")
+	reconnected := false
+	for i := 0; i < 40; i++ { // 40 seconds max
+		if client.IsConnected() {
+			reconnected = true
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	require.True(t, reconnected, "Client should reconnect automatically")
+
+	// CRITICAL TEST: Send messages after reconnection
+	// If message IDs are NOT reset, HA will reject these with "id_reuse" error
+	// because the new session expects IDs to start from 1, not continue from 11+
+	t.Log("Sending messages after reconnection (testing message ID reset)...")
+	for i := 0; i < 10; i++ {
+		err = client.SetInputBoolean("nick_home", i%2 == 1)
+		assert.NoError(t, err, "Message %d should succeed after reconnection (message IDs should be reset)", i)
+		if err != nil {
+			t.Logf("ERROR: Failed to send message after reconnection: %v", err)
+			t.Log("This likely means message IDs were NOT reset on reconnection")
+			break
+		}
+	}
+
+	// Also test with different service types to ensure ID reset works for all message types
+	t.Log("Testing different service types after reconnection...")
+	err = client.SetInputNumber("test_number", 42.5)
+	assert.NoError(t, err, "SetInputNumber should work after reconnection")
+
+	err = client.SetInputText("test_text", "reconnection_test")
+	assert.NoError(t, err, "SetInputText should work after reconnection")
+
+	// Verify we can still read state (GetState uses message IDs too)
+	state, err := client.GetState("input_boolean.nick_home")
+	assert.NoError(t, err, "GetState should work after reconnection")
+	assert.NotNil(t, state, "State should not be nil")
+
+	t.Log("✅ All messages sent successfully after reconnection - message IDs are properly reset!")
+
+	client.Disconnect()
+}
+
 // TestHighFrequencyStateChanges tests system under high load
 func TestHighFrequencyStateChanges(t *testing.T) {
 	server, _, manager, cleanup := setupTest(t)
