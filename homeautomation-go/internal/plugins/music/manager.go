@@ -15,20 +15,20 @@ import (
 
 // CurrentlyPlayingMusic represents the currently active music playback
 type CurrentlyPlayingMusic struct {
-	Type         string                    `json:"type"`
-	URI          string                    `json:"uri"`
-	MediaType    string                    `json:"media_type"`
-	LeadPlayer   string                    `json:"leadPlayer"`
-	Participants []ParticipantWithVolume   `json:"participants"`
+	Type         string                  `json:"type"`
+	URI          string                  `json:"uri"`
+	MediaType    string                  `json:"media_type"`
+	LeadPlayer   string                  `json:"leadPlayer"`
+	Participants []ParticipantWithVolume `json:"participants"`
 }
 
 // ParticipantWithVolume represents a speaker with calculated volume
 type ParticipantWithVolume struct {
-	PlayerName     string          `json:"player_name"`
-	BaseVolume     int             `json:"base_volume"`
-	Volume         int             `json:"volume"`
-	DefaultVolume  int             `json:"default_volume"`
-	LeaveMutedIf   []MuteCondition `json:"leave_muted_if"`
+	PlayerName    string          `json:"player_name"`
+	BaseVolume    int             `json:"base_volume"`
+	Volume        int             `json:"volume"`
+	DefaultVolume int             `json:"default_volume"`
+	LeaveMutedIf  []MuteCondition `json:"leave_muted_if"`
 }
 
 // TimeProvider is an interface for getting the current time
@@ -63,11 +63,11 @@ type Manager struct {
 	timeProvider TimeProvider
 
 	// Playback state
-	playlistNumbers      map[string]int // Tracks playlist rotation per music type
-	currentlyPlaying     *CurrentlyPlayingMusic
-	lastPlaybackTime     time.Time
-	playbackInProgress   bool
-	mu                   sync.RWMutex // Protects playback state
+	playlistNumbers    map[string]int // Tracks playlist rotation per music type
+	currentlyPlaying   *CurrentlyPlayingMusic
+	lastPlaybackTime   time.Time
+	playbackInProgress bool
+	mu                 sync.RWMutex // Protects playback state
 
 	// Subscriptions for cleanup
 	subscriptions []state.Subscription
@@ -80,14 +80,14 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Music
 		timeProvider = RealTimeProvider{}
 	}
 	return &Manager{
-		haClient:         haClient,
-		stateManager:     stateManager,
-		config:           config,
-		logger:           logger.Named("music"),
-		readOnly:         readOnly,
-		timeProvider:     timeProvider,
-		playlistNumbers:  make(map[string]int),
-		subscriptions:    make([]state.Subscription, 0),
+		haClient:           haClient,
+		stateManager:       stateManager,
+		config:             config,
+		logger:             logger.Named("music"),
+		readOnly:           readOnly,
+		timeProvider:       timeProvider,
+		playlistNumbers:    make(map[string]int),
+		subscriptions:      make([]state.Subscription, 0),
 		playbackInProgress: false,
 	}
 }
@@ -376,7 +376,7 @@ func (m *Manager) stopPlayback() {
 		for _, participant := range mode.Participants {
 			entityID := m.getSpeakerEntityID(participant.PlayerName)
 			if err := m.callService("media_player", "volume_set", map[string]interface{}{
-				"entity_id":   entityID,
+				"entity_id":    entityID,
 				"volume_level": 0,
 			}); err != nil {
 				m.logger.Error("Failed to set speaker volume to 0",
@@ -512,7 +512,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	for _, p := range participants {
 		entityID := m.getSpeakerEntityID(p.PlayerName)
 		if err := m.callService("media_player", "volume_set", map[string]interface{}{
-			"entity_id":   entityID,
+			"entity_id":    entityID,
 			"volume_level": 0,
 		}); err != nil {
 			m.logger.Error("Failed to mute speaker",
@@ -523,7 +523,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 
 	// Step 3: Start playback on lead player
 	if err := m.callService("media_player", "play_media", map[string]interface{}{
-		"entity_id":    leadEntityID,
+		"entity_id":          leadEntityID,
 		"media_content_id":   option.URI,
 		"media_content_type": option.MediaType,
 	}); err != nil {
@@ -576,7 +576,7 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 
 		entityID := m.getSpeakerEntityID(p.PlayerName)
 		if err := m.callService("media_player", "join", map[string]interface{}{
-			"entity_id": entityID,
+			"entity_id":     entityID,
 			"group_members": []string{leadEntityID},
 		}); err != nil {
 			m.logger.Error("Failed to join speaker to group",
@@ -645,7 +645,7 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 
 		// Set volume
 		if err := m.callService("media_player", "volume_set", map[string]interface{}{
-			"entity_id":   entityID,
+			"entity_id":    entityID,
 			"volume_level": float64(currentVolume) / 15.0, // Normalize to 0.0-1.0
 		}); err != nil {
 			m.logger.Error("Failed to set volume during fade-in",
