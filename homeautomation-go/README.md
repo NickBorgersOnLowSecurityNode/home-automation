@@ -14,6 +14,19 @@ A robust Golang client for managing Home Assistant state variables with type-saf
 - **Atomic Operations**: CompareAndSwap for race-free boolean updates
 - **Auto-Reconnection**: Automatic reconnection with exponential backoff
 - **Comprehensive Testing**: >80% test coverage with mock client for testing
+- **Automation Plugins**: Extensible plugin system for implementing home automation logic
+
+## Automation Plugins
+
+The system includes several automation plugins that implement intelligent home automation logic:
+
+- **Energy State Manager**: Monitors battery levels, solar generation, and grid availability
+- **Lighting Control Manager**: Activates scenes based on day phase, presence, and sleep status
+- **Music Manager**: Selects appropriate music modes based on time of day and occupancy
+- **TV Monitoring Manager**: Tracks TV and Apple TV playback states
+- **Sleep Hygiene Manager**: Manages wake-up sequences, sleep music fade-out, and bedtime reminders
+- **Load Shedding Manager**: Controls thermostat based on energy availability
+- **Security Manager**: Handles lockdown and garage automation
 
 ## State Variables
 

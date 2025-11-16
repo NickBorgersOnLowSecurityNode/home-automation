@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Last Updated:** 2025-11-15
+**Last Updated:** 2025-11-16
 **Phase:** ✅ MVP COMPLETE - Ready for Parallel Testing
 **Location:** `/home/user/home-automation/homeautomation-go/`
 
@@ -33,6 +33,13 @@
   - Intelligent isTVPlaying calculation based on input source
   - 78.4% test coverage
   - All tests passing with race detector
+- ✅ Sleep Hygiene plugin (complete)
+  - Time-based wake-up sequences using alarmTime and schedule_config.yaml
+  - Fade-out sleep music sequence (begin_wake trigger)
+  - Full wake sequence (master bedroom lights, light flashing, cuddle announcement)
+  - Stop screens reminder (evening notification)
+  - Automatic daily trigger reset at midnight
+  - 13 unit tests (all passing with race detector)
 
 ### Critical Bug Fixes
 
