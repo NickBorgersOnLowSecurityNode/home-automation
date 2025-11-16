@@ -128,12 +128,12 @@ func main() {
 	subscribeToChanges(stateManager, logger)
 
 	// Start State Tracking Manager (MUST start before other plugins that depend on derived states)
-	stateTrackingManager := statetracking.NewManager(stateManager, logger)
+	stateTrackingManager := statetracking.NewManager(client, stateManager, logger, readOnly)
 	if err := stateTrackingManager.Start(); err != nil {
 		logger.Fatal("Failed to start State Tracking Manager", zap.Error(err))
 	}
 	defer stateTrackingManager.Stop()
-	logger.Info("State Tracking Manager started - computing derived states")
+	logger.Info("State Tracking Manager started - computing derived states and sleep detection")
 
 	// Create day phase calculator
 	dayPhaseCalc := dayphaselib.NewCalculator(latitude, longitude, logger)
