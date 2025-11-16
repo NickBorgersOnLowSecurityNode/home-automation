@@ -508,3 +508,17 @@ func TestSleepHygieneManager_ReadOnlyMode(t *testing.T) {
 		t.Errorf("Expected no service calls in read-only mode, got %d", len(calls))
 	}
 }
+
+func TestSleepHygieneManager_HandleGoToBed(t *testing.T) {
+	logger := zap.NewNop()
+	mockHA := ha.NewMockClient()
+	stateManager := state.NewManager(mockHA, logger, false)
+	configLoader := config.NewLoader("../../../configs", logger)
+
+	manager := NewManager(mockHA, stateManager, configLoader, logger, false, nil)
+
+	// Test the placeholder function - should not error
+	manager.handleGoToBed()
+
+	// No assertions needed - just testing that it runs without errors
+}
