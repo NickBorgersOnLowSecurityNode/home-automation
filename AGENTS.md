@@ -77,11 +77,13 @@ make generate-screenshots
 
 ### Required Reading
 1. **[docs/architecture/IMPLEMENTATION_PLAN.md](./docs/architecture/IMPLEMENTATION_PLAN.md)** - Complete architecture, design decisions, and migration strategy
-2. **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation user guide
-3. **[HA_SYNC_README.md](./HA_SYNC_README.md)** - Home Assistant synchronization details
-4. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide
-5. **[docs/development/CONCURRENCY_LESSONS.md](./docs/development/CONCURRENCY_LESSONS.md)** - Concurrency patterns and lessons learned
-6. **[docs/development/BRANCH_PROTECTION.md](./docs/development/BRANCH_PROTECTION.md)** - PR requirements and branch protection setup (NEW)
+2. **[docs/architecture/VISUAL_ARCHITECTURE.md](./docs/architecture/VISUAL_ARCHITECTURE.md)** - Mermaid diagrams visualizing system architecture and plugin logic (NEW)
+3. **[docs/DIAGRAM_QUICK_START.md](./docs/DIAGRAM_QUICK_START.md)** - Quick guide to navigating visual documentation (NEW)
+4. **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation user guide
+5. **[HA_SYNC_README.md](./HA_SYNC_README.md)** - Home Assistant synchronization details
+6. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide
+7. **[docs/development/CONCURRENCY_LESSONS.md](./docs/development/CONCURRENCY_LESSONS.md)** - Concurrency patterns and lessons learned
+8. **[docs/development/BRANCH_PROTECTION.md](./docs/development/BRANCH_PROTECTION.md)** - PR requirements and branch protection setup
 
 ### External Documentation
 - [Go Documentation](https://go.dev/doc/)
