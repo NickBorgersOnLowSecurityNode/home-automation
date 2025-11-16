@@ -15,12 +15,9 @@ permissions:
   pull-requests: read
 
 jobs:
-  go-style-check:
-    name: Go Code Style Check
+  go-style-and-tests:
+    name: Go Style Check & Tests (via make pre-commit)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./homeautomation-go
 
     steps:
       - name: Checkout code
@@ -32,90 +29,31 @@ jobs:
           go-version: '1.23'
           cache-dependency-path: homeautomation-go/go.sum
 
-      - name: Install style checking tools
+      - name: Run make pre-commit
         run: |
-          echo "Installing Go style checking tools..."
-          go install golang.org/x/tools/cmd/goimports@latest
-          go install honnef.co/go/tools/cmd/staticcheck@latest
+          echo "════════════════════════════════════════════════════════════════════"
+          echo "Running 'make pre-commit' - Same checks as git pre-commit hook"
+          echo "════════════════════════════════════════════════════════════════════"
+          echo ""
+          make pre-commit
 
-      - name: Check gofmt formatting
-        run: |
-          echo "Checking gofmt formatting..."
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "❌ ERROR: The following files are not formatted with gofmt:"
-            echo "$unformatted"
-            echo ""
-            echo "Please run 'gofmt -w .' to format the code"
-            exit 1
-          fi
-          echo "✅ All files are properly formatted with gofmt"
-
-      - name: Check goimports formatting
-        run: |
-          echo "Checking goimports formatting..."
-          unformatted=$(goimports -l .)
-          if [ -n "$unformatted" ]; then
-            echo "❌ ERROR: The following files have import formatting issues:"
-            echo "$unformatted"
-            echo ""
-            echo "Please run 'goimports -w .' to fix imports"
-            exit 1
-          fi
-          echo "✅ All files have properly formatted imports"
-
-      - name: Run go vet
-        run: |
-          echo "Running go vet static analysis..."
-          if ! go vet ./...; then
-            echo ""
-            echo "❌ ERROR: go vet found issues"
-            echo "Please fix the issues reported above"
-            exit 1
-          fi
-          echo "✅ go vet passed - no issues found"
-
-      - name: Run staticcheck
-        run: |
-          echo "Running staticcheck advanced linting..."
-          if ! staticcheck ./...; then
-            echo ""
-            echo "❌ ERROR: staticcheck found issues"
-            echo "Please fix the issues reported above"
-            exit 1
-          fi
-          echo "✅ staticcheck passed - no issues found"
-
-      - name: Check for common Go anti-patterns
-        run: |
-          echo "Checking for common anti-patterns..."
-
-          # Check for debug prints that should be removed
-          if grep -r "fmt.Println" --include="*.go" --exclude="*_test.go" . ; then
-            echo "❌ WARNING: Found fmt.Println in non-test code (use logger instead)"
-            # Not failing on this, just warning
-          fi
-
-          # Check for TODO comments (informational only)
-          todos=$(grep -r "TODO" --include="*.go" . || true)
-          if [ -n "$todos" ]; then
-            echo "ℹ️  INFO: Found TODO comments:"
-            echo "$todos"
-          fi
-
-          echo "✅ Anti-pattern check complete"
-
-      - name: Style Check Summary
+      - name: Overall Summary
         if: always()
         run: |
-          echo "==============================================="
-          echo "        GO CODE STYLE CHECK SUMMARY"
-          echo "==============================================="
-          echo "✅ gofmt formatting check passed"
-          echo "✅ goimports formatting check passed"
-          echo "✅ go vet static analysis passed"
-          echo "✅ staticcheck linting passed"
-          echo "✅ Anti-pattern check complete"
           echo ""
-          echo "✅ ALL STYLE CHECKS PASSED"
-          echo "==============================================="
+          echo "════════════════════════════════════════════════════════════════════"
+          echo "                   CI VALIDATION COMPLETE"
+          echo "════════════════════════════════════════════════════════════════════"
+          echo ""
+          echo "This workflow runs 'make pre-commit' which executes:"
+          echo "  • gofmt formatting check"
+          echo "  • goimports import organization check"
+          echo "  • go vet static analysis"
+          echo "  • staticcheck linting"
+          echo "  • Build verification (go build ./...)"
+          echo "  • All unit and integration tests"
+          echo "  • Race detector (go test -race ./...)"
+          echo ""
+          echo "These are the SAME checks enforced by the git pre-commit hook."
+          echo "To run locally: make pre-commit"
+          echo "════════════════════════════════════════════════════════════════════"
