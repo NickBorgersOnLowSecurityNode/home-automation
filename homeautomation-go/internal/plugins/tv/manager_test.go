@@ -12,34 +12,34 @@ import (
 
 func TestTVManager_AppleTVStateChange(t *testing.T) {
 	tests := []struct {
-		name             string
-		appleTVState     string
+		name              string
+		appleTVState      string
 		expectedIsPlaying bool
-		description      string
+		description       string
 	}{
 		{
-			name:             "Apple TV playing",
-			appleTVState:     "playing",
+			name:              "Apple TV playing",
+			appleTVState:      "playing",
 			expectedIsPlaying: true,
-			description:      "When Apple TV state is 'playing', isAppleTVPlaying should be true",
+			description:       "When Apple TV state is 'playing', isAppleTVPlaying should be true",
 		},
 		{
-			name:             "Apple TV paused",
-			appleTVState:     "paused",
+			name:              "Apple TV paused",
+			appleTVState:      "paused",
 			expectedIsPlaying: false,
-			description:      "When Apple TV state is 'paused', isAppleTVPlaying should be false",
+			description:       "When Apple TV state is 'paused', isAppleTVPlaying should be false",
 		},
 		{
-			name:             "Apple TV idle",
-			appleTVState:     "idle",
+			name:              "Apple TV idle",
+			appleTVState:      "idle",
 			expectedIsPlaying: false,
-			description:      "When Apple TV state is 'idle', isAppleTVPlaying should be false",
+			description:       "When Apple TV state is 'idle', isAppleTVPlaying should be false",
 		},
 		{
-			name:             "Apple TV off",
-			appleTVState:     "off",
+			name:              "Apple TV off",
+			appleTVState:      "off",
 			expectedIsPlaying: false,
-			description:      "When Apple TV state is 'off', isAppleTVPlaying should be false",
+			description:       "When Apple TV state is 'off', isAppleTVPlaying should be false",
 		},
 	}
 
@@ -75,22 +75,22 @@ func TestTVManager_AppleTVStateChange(t *testing.T) {
 
 func TestTVManager_SyncBoxPowerChange(t *testing.T) {
 	tests := []struct {
-		name          string
-		syncBoxState  string
+		name           string
+		syncBoxState   string
 		expectedIsTVOn bool
-		description   string
+		description    string
 	}{
 		{
-			name:          "Sync box on",
-			syncBoxState:  "on",
+			name:           "Sync box on",
+			syncBoxState:   "on",
 			expectedIsTVOn: true,
-			description:   "When sync box is on, isTVon should be true",
+			description:    "When sync box is on, isTVon should be true",
 		},
 		{
-			name:          "Sync box off",
-			syncBoxState:  "off",
+			name:           "Sync box off",
+			syncBoxState:   "off",
 			expectedIsTVOn: false,
-			description:   "When sync box is off, isTVon should be false",
+			description:    "When sync box is off, isTVon should be false",
 		},
 	}
 
@@ -158,11 +158,11 @@ func TestTVManager_SyncBoxOff_SetsTVPlayingFalse(t *testing.T) {
 
 func TestTVManager_HDMIInputChange(t *testing.T) {
 	tests := []struct {
-		name                 string
-		hdmiInput            string
-		isAppleTVPlaying     bool
-		expectedIsTVPlaying  bool
-		description          string
+		name                string
+		hdmiInput           string
+		isAppleTVPlaying    bool
+		expectedIsTVPlaying bool
+		description         string
 	}{
 		{
 			name:                "Apple TV input - Apple TV playing",

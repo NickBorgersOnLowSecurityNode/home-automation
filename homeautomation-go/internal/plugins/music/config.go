@@ -14,15 +14,15 @@ type MusicConfig struct {
 
 // MusicMode represents a specific music mode (morning, day, evening, etc.)
 type MusicMode struct {
-	Participants     []Participant     `yaml:"participants"`
-	PlaybackOptions  []PlaybackOption  `yaml:"playback_options"`
+	Participants    []Participant    `yaml:"participants"`
+	PlaybackOptions []PlaybackOption `yaml:"playback_options"`
 }
 
 // Participant represents a Sonos speaker configuration for a music mode
 type Participant struct {
-	PlayerName    string          `yaml:"player_name"`
-	BaseVolume    int             `yaml:"base_volume"`
-	LeaveMutedIf  []MuteCondition `yaml:"leave_muted_if"`
+	PlayerName   string          `yaml:"player_name"`
+	BaseVolume   int             `yaml:"base_volume"`
+	LeaveMutedIf []MuteCondition `yaml:"leave_muted_if"`
 }
 
 // MuteCondition represents a condition under which a speaker should be muted

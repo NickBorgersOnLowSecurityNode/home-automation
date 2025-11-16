@@ -18,8 +18,8 @@ type Manager struct {
 	readOnly     bool
 
 	// Subscriptions for cleanup
-	appleTVSub  ha.Subscription
-	syncBoxSub  ha.Subscription
+	appleTVSub   ha.Subscription
+	syncBoxSub   ha.Subscription
 	hdmiInputSub ha.Subscription
 }
 

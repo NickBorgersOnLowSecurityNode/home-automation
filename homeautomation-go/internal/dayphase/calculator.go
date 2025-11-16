@@ -25,12 +25,12 @@ const (
 type DayPhase string
 
 const (
-	DayPhaseMorning   DayPhase = "morning"
-	DayPhaseDay       DayPhase = "day"
-	DayPhaseSunset    DayPhase = "sunset"
-	DayPhaseDusk      DayPhase = "dusk"
-	DayPhaseWinddown  DayPhase = "winddown"
-	DayPhaseNight     DayPhase = "night"
+	DayPhaseMorning  DayPhase = "morning"
+	DayPhaseDay      DayPhase = "day"
+	DayPhaseSunset   DayPhase = "sunset"
+	DayPhaseDusk     DayPhase = "dusk"
+	DayPhaseWinddown DayPhase = "winddown"
+	DayPhaseNight    DayPhase = "night"
 )
 
 // Calculator manages sun event tracking and day phase calculation

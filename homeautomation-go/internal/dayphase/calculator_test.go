@@ -224,7 +224,7 @@ func TestCalculator_AutoUpdateSunTimes(t *testing.T) {
 
 	// Test that it doesn't update if recent
 	lastUpdate := calc.lastUpdate
-	sunEvent = calc.GetSunEvent()
+	_ = calc.GetSunEvent()
 	assert.Equal(t, lastUpdate, calc.lastUpdate, "Should not update if recent")
 }
 

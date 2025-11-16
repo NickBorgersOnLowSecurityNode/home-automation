@@ -57,13 +57,12 @@ type ParsedSchedule struct {
 
 // Loader manages configuration file loading and reloading
 type Loader struct {
-	configDir     string
-	logger        *zap.Logger
-	musicConfig   *MusicConfig
-	hueConfig     *HueConfig
+	configDir      string
+	logger         *zap.Logger
+	musicConfig    *MusicConfig
+	hueConfig      *HueConfig
 	scheduleConfig *ScheduleConfig
-	reloadTicker  *time.Ticker
-	stopChan      chan struct{}
+	stopChan       chan struct{}
 }
 
 // NewLoader creates a new configuration loader
