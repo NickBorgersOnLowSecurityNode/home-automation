@@ -770,8 +770,75 @@ func (m *Manager) callService(domain, service string, serviceData map[string]int
 func (m *Manager) Reset() error {
 	m.logger.Info("Resetting Music - re-selecting appropriate music mode")
 
-	// Re-evaluate which music mode should be playing
-	m.selectAppropriateMusicMode()
+	// Get current day phase to determine appropriate mode
+	dayPhase, err := m.stateManager.GetString("dayPhase")
+	if err != nil {
+		m.logger.Error("Failed to get dayPhase", zap.Error(err))
+		return err
+	}
+
+	// Get current music type
+	currentMusicType, err := m.stateManager.GetString("musicPlaybackType")
+	if err != nil {
+		m.logger.Error("Failed to get musicPlaybackType", zap.Error(err))
+		return err
+	}
+
+	// Determine music mode (no trigger key or wake-up event for reset)
+	musicMode := m.determineMusicModeFromDayPhase(dayPhase, currentMusicType, "", false)
+
+	m.logger.Info("Reset selected music mode",
+		zap.String("day_phase", dayPhase),
+		zap.String("current_music_type", currentMusicType),
+		zap.String("new_music_mode", musicMode))
+
+	// Check rate limiting (max 1 playback per 10 seconds)
+	// If rate-limited, silently drop the reset (matches Node-RED behavior)
+	m.mu.Lock()
+	timeSinceLastPlayback := m.timeProvider.Now().Sub(m.lastPlaybackTime)
+	if timeSinceLastPlayback < 10*time.Second && !m.lastPlaybackTime.IsZero() {
+		m.mu.Unlock()
+		m.logger.Warn("Rate limiting: dropping reset request (too soon after last playback)",
+			zap.Duration("time_since_last", timeSinceLastPlayback),
+			zap.String("music_mode", musicMode))
+		return nil
+	}
+	m.lastPlaybackTime = m.timeProvider.Now()
+
+	// Clear currentlyPlaying to allow restart of same mode
+	m.currentlyPlaying = nil
+	m.mu.Unlock()
+
+	// If empty mode, stop playback
+	if musicMode == "" {
+		m.logger.Info("Stopping music playback on reset")
+		m.stopPlayback()
+
+		// Update state variable
+		if err := m.setMusicPlaybackType(""); err != nil {
+			if !errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Error("Failed to set music playback type", zap.Error(err))
+			}
+		}
+
+		m.logger.Info("Successfully reset Music")
+		return nil
+	}
+
+	// Update the music playback type state variable
+	if err := m.setMusicPlaybackType(musicMode); err != nil {
+		if !errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Error("Failed to set music playback type", zap.Error(err))
+		}
+	}
+
+	// Directly trigger playback (even if same mode - that's what reset means)
+	if err := m.orchestratePlayback(musicMode); err != nil {
+		m.logger.Error("Failed to orchestrate playback on reset",
+			zap.String("type", musicMode),
+			zap.Error(err))
+		return err
+	}
 
 	m.logger.Info("Successfully reset Music")
 	return nil
