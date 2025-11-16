@@ -337,3 +337,23 @@ func (m *Manager) checkThermostatHoldState() (bool, error) {
 
 	return houseOn || suiteOn, nil
 }
+
+// Reset re-evaluates current energy level and applies appropriate thermostat control
+func (m *Manager) Reset() error {
+	m.logger.Info("Resetting Load Shedding - re-evaluating thermostat control based on current energy level")
+
+	// Get current energy level
+	currentLevel, err := m.stateManager.GetString("currentEnergyLevel")
+	if err != nil {
+		return fmt.Errorf("failed to get current energy level: %w", err)
+	}
+
+	m.logger.Info("Re-processing energy level for reset",
+		zap.String("energy_level", currentLevel))
+
+	// Re-evaluate load shedding based on current energy level
+	m.handleEnergyChange("currentEnergyLevel", "", currentLevel)
+
+	m.logger.Info("Successfully reset Load Shedding")
+	return nil
+}

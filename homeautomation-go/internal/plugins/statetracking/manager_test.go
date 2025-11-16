@@ -706,3 +706,42 @@ func TestStateTrackingManager_GuestAsleepAutoSync_InitialSync(t *testing.T) {
 		t.Errorf("Expected isEveryoneAsleep=true after initial sync, got %v", isEveryoneAsleep)
 	}
 }
+
+func TestStateTrackingManager_Reset(t *testing.T) {
+	// Test that Reset() re-calculates derived states
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup initial state
+	if err := stateMgr.SetBool("isNickHome", true); err != nil {
+		t.Fatalf("Failed to set isNickHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
+		t.Fatalf("Failed to set isCarolineHome: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(mockHA, stateMgr, logger, false)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify initial derived state
+	isAnyOwnerHome, _ := stateMgr.GetBool("isAnyOwnerHome")
+	if isAnyOwnerHome != true {
+		t.Errorf("Expected isAnyOwnerHome=true initially, got %v", isAnyOwnerHome)
+	}
+
+	// Call Reset() - should re-calculate all derived states
+	if err := manager.Reset(); err != nil {
+		t.Fatalf("Reset() failed: %v", err)
+	}
+
+	// Verify derived state is still correct after reset
+	isAnyOwnerHome, _ = stateMgr.GetBool("isAnyOwnerHome")
+	if isAnyOwnerHome != true {
+		t.Errorf("Expected isAnyOwnerHome=true after reset, got %v", isAnyOwnerHome)
+	}
+}

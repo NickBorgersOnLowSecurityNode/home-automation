@@ -765,3 +765,14 @@ func (m *Manager) callService(domain, service string, serviceData map[string]int
 
 	return nil
 }
+
+// Reset re-evaluates appropriate music mode and triggers playback
+func (m *Manager) Reset() error {
+	m.logger.Info("Resetting Music - re-selecting appropriate music mode")
+
+	// Re-evaluate which music mode should be playing
+	m.selectAppropriateMusicMode()
+
+	m.logger.Info("Successfully reset Music")
+	return nil
+}

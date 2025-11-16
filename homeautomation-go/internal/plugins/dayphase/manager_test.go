@@ -234,3 +234,31 @@ func TestManagerStopBeforeStart(t *testing.T) {
 		manager.Stop()
 	})
 }
+
+func TestManagerReset(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	configLoader := config.NewLoader("../../../configs", logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
+
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+
+	// Start the manager
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Reset should re-calculate sun event and day phase
+	err = manager.Reset()
+	assert.NoError(t, err)
+
+	// Verify sun event and day phase are set
+	sunEvent, err := stateManager.GetString("sunevent")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, sunEvent)
+
+	dayPhase, err := stateManager.GetString("dayPhase")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, dayPhase)
+}

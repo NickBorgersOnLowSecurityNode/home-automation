@@ -452,3 +452,23 @@ func TestLightingManager_Stop(t *testing.T) {
 	// Verify subscriptions were cleaned up
 	assert.Nil(t, manager.subscriptions, "Subscriptions should be nil after Stop")
 }
+
+func TestManagerReset(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	hueConfig := createTestConfig()
+
+	// Set day phase
+	stateManager.SetString("dayPhase", "morning")
+
+	manager := NewManager(mockClient, stateManager, hueConfig, logger, false)
+
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Reset should re-apply lighting scenes for all rooms
+	err = manager.Reset()
+	assert.NoError(t, err)
+}
