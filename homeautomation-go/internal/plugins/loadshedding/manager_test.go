@@ -352,3 +352,22 @@ func TestLoadShedding_RedToGreenTransition(t *testing.T) {
 	assert.True(t, foundTurnOn, "Should have turn_on from red state")
 	assert.True(t, foundTurnOff, "Should have turn_off from green state")
 }
+
+func TestManagerReset(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set up initial state
+	stateManager.SetString("currentEnergyLevel", "high")
+
+	manager := NewManager(mockClient, stateManager, logger, false)
+
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Reset should re-evaluate thermostat control
+	err = manager.Reset()
+	assert.NoError(t, err)
+}

@@ -1046,3 +1046,37 @@ func TestBuildSpeakerGroup(t *testing.T) {
 		t.Errorf("buildSpeakerGroup() failed: %v", err)
 	}
 }
+
+func TestManagerReset(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create minimal music config
+	musicConfig := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {},
+		},
+	}
+
+	// Set up initial state
+	stateManager.SetString("dayPhase", "morning")
+	stateManager.SetBool("isMasterAsleep", false)
+	stateManager.SetBool("isGuestAsleep", false)
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isAnyoneAsleep", false)
+
+	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &RealTimeProvider{})
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Reset should re-select appropriate music mode
+	err = manager.Reset()
+	if err != nil {
+		t.Fatalf("Reset() failed: %v", err)
+	}
+}
