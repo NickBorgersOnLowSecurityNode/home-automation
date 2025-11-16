@@ -25,6 +25,14 @@
   - Room-specific conditional logic (on_if_true, on_if_false, etc.)
   - 72.8% test coverage
   - All tests passing with race detector
+- ✅ TV Monitoring and Manipulation plugin (complete)
+  - Monitors Apple TV media player state (media_player.big_beautiful_oled)
+  - Monitors sync box power state (switch.sync_box_power)
+  - Monitors HDMI input selector (select.sync_box_hdmi_input)
+  - Manages isAppleTVPlaying, isTVon, and isTVPlaying state variables
+  - Intelligent isTVPlaying calculation based on input source
+  - 78.4% test coverage
+  - All tests passing with race detector
 
 ### Critical Bug Fixes
 
@@ -109,11 +117,14 @@ homeautomation-go/
 │       │   ├── manager.go           # ✅ Energy level calculations
 │       │   ├── config.go            # ✅ Energy config loader
 │       │   └── manager_test.go      # ✅ Unit tests
-│       └── lighting/                # ✅ Lighting Control plugin
-│           ├── manager.go           # ✅ Scene activation logic
-│           ├── config.go            # ✅ Hue config loader
-│           ├── manager_test.go      # ✅ Unit tests (72.8% coverage)
-│           └── config_test.go       # ✅ Config tests
+│       ├── lighting/                # ✅ Lighting Control plugin
+│       │   ├── manager.go           # ✅ Scene activation logic
+│       │   ├── config.go            # ✅ Hue config loader
+│       │   ├── manager_test.go      # ✅ Unit tests (72.8% coverage)
+│       │   └── config_test.go       # ✅ Config tests
+│       └── tv/                      # ✅ TV Monitoring and Manipulation plugin
+│           ├── manager.go           # ✅ TV state monitoring logic
+│           └── manager_test.go      # ✅ Unit tests (78.4% coverage)
 ├── test/
 │   └── integration/                 # ✅ Integration test suite
 │       ├── integration_test.go      # ✅ 11 comprehensive test scenarios
