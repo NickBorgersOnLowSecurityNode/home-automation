@@ -1384,3 +1384,25 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 		t.Error("Expected at least 1 volume_set call for media_player.bedroom_left")
 	}
 }
+
+func TestManagerReset(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	configLoader := config.NewLoader("../../../configs", logger)
+	timeProvider := RealTimeProvider{}
+
+	manager := NewManager(mockClient, stateManager, configLoader, logger, false, timeProvider)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Reset should not error (currently just logs a message)
+	err = manager.Reset()
+	if err != nil {
+		t.Fatalf("Reset() failed: %v", err)
+	}
+}

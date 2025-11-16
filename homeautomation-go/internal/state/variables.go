@@ -22,7 +22,7 @@ type StateVariable struct {
 
 // AllVariables contains all 30 state variables (28 synced with HA + 2 local-only)
 var AllVariables = []StateVariable{
-	// Booleans (18)
+	// Booleans (19)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},
 	{Key: "isCarolineHome", EntityID: "input_boolean.caroline_home", Type: TypeBool, Default: false},
 	{Key: "isToriHere", EntityID: "input_boolean.tori_here", Type: TypeBool, Default: false},
@@ -41,6 +41,7 @@ var AllVariables = []StateVariable{
 	{Key: "isFreeEnergyAvailable", EntityID: "input_boolean.free_energy_available", Type: TypeBool, Default: false},
 	{Key: "isGridAvailable", EntityID: "input_boolean.grid_available", Type: TypeBool, Default: true},
 	{Key: "isExpectingSomeone", EntityID: "input_boolean.expecting_someone", Type: TypeBool, Default: false},
+	{Key: "reset", EntityID: "input_boolean.reset", Type: TypeBool, Default: false},
 
 	// Numbers (3)
 	{Key: "alarmTime", EntityID: "input_number.alarm_time", Type: TypeNumber, Default: 0.0},

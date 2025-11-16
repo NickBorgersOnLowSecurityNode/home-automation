@@ -542,3 +542,33 @@ func TestTimezoneHandling(t *testing.T) {
 		// but we've verified the timezone is set correctly
 	})
 }
+
+func TestManagerReset(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	// Set up initial state
+	mockClient.SetState("sensor.battery_energy_level", "50", map[string]interface{}{})
+	mockClient.SetState("sensor.solar_production_energy_level", "75", map[string]interface{}{})
+	mockClient.Connect()
+
+	err := stateManager.SyncFromHA()
+	assert.NoError(t, err)
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	err = manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Reset should re-check free energy and recalculate levels
+	err = manager.Reset()
+	assert.NoError(t, err)
+
+	// Verify energy levels are set
+	currentLevel, err := stateManager.GetString("currentEnergyLevel")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, currentLevel)
+}

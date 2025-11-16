@@ -193,3 +193,15 @@ func (m *Manager) updateSunEventAndDayPhase() error {
 
 	return nil
 }
+
+// Reset re-calculates and updates sun event and day phase
+func (m *Manager) Reset() error {
+	m.logger.Info("Resetting Day Phase - re-calculating sun event and day phase")
+
+	if err := m.updateSunEventAndDayPhase(); err != nil {
+		return fmt.Errorf("failed to reset day phase: %w", err)
+	}
+
+	m.logger.Info("Successfully reset Day Phase")
+	return nil
+}

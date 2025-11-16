@@ -458,3 +458,23 @@ func (m *Manager) turnOffRoom(room *RoomConfig) {
 	m.logger.Info("Room turned off successfully",
 		zap.String("room", room.HueGroup))
 }
+
+// Reset re-applies lighting scenes for all rooms based on current day phase
+func (m *Manager) Reset() error {
+	m.logger.Info("Resetting Lighting Control - re-applying scenes for all rooms")
+
+	// Get current day phase
+	dayPhase, err := m.stateManager.GetString("dayPhase")
+	if err != nil {
+		return fmt.Errorf("failed to get dayPhase: %w", err)
+	}
+
+	m.logger.Info("Re-activating scenes for current day phase",
+		zap.String("day_phase", dayPhase))
+
+	// Re-apply scenes for all rooms (like the comment says: "like reset in Node-RED")
+	m.activateScenesForAllRooms(dayPhase, "reset")
+
+	m.logger.Info("Successfully reset Lighting Control")
+	return nil
+}
