@@ -19,24 +19,24 @@ func createTestConfig() *HueConfig {
 	return &HueConfig{
 		Rooms: []RoomConfig{
 			{
-				HueGroup:                  "Living Room",
-				HASSAreaID:                "living_room_2",
-				OnIfTrue:                  "isAnyoneHome",
-				OnIfFalse:                 "isTVPlaying",
-				OffIfTrue:                 "isEveryoneAsleep",
-				OffIfFalse:                "isAnyoneHome",
-				IncreaseBrightnessIfTrue:  "isHaveGuests",
-				TransitionSeconds:         &transition30,
+				HueGroup:                 "Living Room",
+				HASSAreaID:               "living_room_2",
+				OnIfTrue:                 "isAnyoneHome",
+				OnIfFalse:                "isTVPlaying",
+				OffIfTrue:                "isEveryoneAsleep",
+				OffIfFalse:               "isAnyoneHome",
+				IncreaseBrightnessIfTrue: "isHaveGuests",
+				TransitionSeconds:        &transition30,
 			},
 			{
-				HueGroup:                  "Primary Suite",
-				HASSAreaID:                "master_bedroom",
-				OnIfTrue:                  nil,
-				OnIfFalse:                 "isMasterAsleep",
-				OffIfTrue:                 "isMasterAsleep",
-				OffIfFalse:                "isNickHome",
-				IncreaseBrightnessIfTrue:  nil,
-				TransitionSeconds:         &transition180,
+				HueGroup:                 "Primary Suite",
+				HASSAreaID:               "master_bedroom",
+				OnIfTrue:                 nil,
+				OnIfFalse:                "isMasterAsleep",
+				OffIfTrue:                "isMasterAsleep",
+				OffIfFalse:               "isNickHome",
+				IncreaseBrightnessIfTrue: nil,
+				TransitionSeconds:        &transition180,
 			},
 		},
 	}
@@ -96,7 +96,6 @@ func TestEvaluateOnConditions(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	manager := NewManager(mockClient, stateManager, config, logger, false)
-
 
 	tests := []struct {
 		name           string
@@ -165,7 +164,6 @@ func TestEvaluateOffConditions(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	manager := NewManager(mockClient, stateManager, config, logger, false)
-
 
 	tests := []struct {
 		name           string
@@ -316,7 +314,6 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	manager := NewManager(mockClient, stateManager, config, logger, false)
-
 
 	tests := []struct {
 		name              string

@@ -19,7 +19,7 @@ type Manager struct {
 	readOnly     bool
 
 	// Rate limiting for notifications
-	lastDoorbellNotification      time.Time
+	lastDoorbellNotification       time.Time
 	lastVehicleArrivalNotification time.Time
 	mu                             sync.Mutex
 }
@@ -295,10 +295,10 @@ func (m *Manager) sendTTSNotification(message string) {
 	}
 
 	if err := m.haClient.CallService("tts", "speak", map[string]interface{}{
-		"entity_id":               "tts.google_translate_en_com",
-		"media_player_entity_id":  speakers,
-		"message":                 message,
-		"cache":                   true,
+		"entity_id":              "tts.google_translate_en_com",
+		"media_player_entity_id": speakers,
+		"message":                message,
+		"cache":                  true,
 	}); err != nil {
 		m.logger.Error("Failed to send TTS notification", zap.Error(err), zap.String("message", message))
 	} else {

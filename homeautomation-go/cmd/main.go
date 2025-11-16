@@ -316,4 +316,3 @@ func startLightingManager(client ha.HAClient, stateManager *state.Manager, logge
 	logger.Info("Lighting Manager started successfully")
 	return lightingManager, nil
 }
-

@@ -94,54 +94,54 @@ func TestRoomConfigGetters(t *testing.T) {
 		name     string
 		room     RoomConfig
 		expected struct {
-			onIfTrue                  []string
-			onIfFalse                 []string
-			offIfTrue                 []string
-			offIfFalse                []string
-			increaseBrightnessIfTrue  []string
+			onIfTrue                 []string
+			onIfFalse                []string
+			offIfTrue                []string
+			offIfFalse               []string
+			increaseBrightnessIfTrue []string
 		}
 	}{
 		{
 			name: "Single string conditions",
 			room: RoomConfig{
-				OnIfTrue:                  "isAnyoneHomeAndAwake",
-				OnIfFalse:                 "isTVPlaying",
-				OffIfTrue:                 "isEveryoneAsleep",
-				OffIfFalse:                "isAnyoneHome",
-				IncreaseBrightnessIfTrue:  "isHaveGuests",
+				OnIfTrue:                 "isAnyoneHomeAndAwake",
+				OnIfFalse:                "isTVPlaying",
+				OffIfTrue:                "isEveryoneAsleep",
+				OffIfFalse:               "isAnyoneHome",
+				IncreaseBrightnessIfTrue: "isHaveGuests",
 			},
 			expected: struct {
-				onIfTrue                  []string
-				onIfFalse                 []string
-				offIfTrue                 []string
-				offIfFalse                []string
-				increaseBrightnessIfTrue  []string
+				onIfTrue                 []string
+				onIfFalse                []string
+				offIfTrue                []string
+				offIfFalse               []string
+				increaseBrightnessIfTrue []string
 			}{
-				onIfTrue:                  []string{"isAnyoneHomeAndAwake"},
-				onIfFalse:                 []string{"isTVPlaying"},
-				offIfTrue:                 []string{"isEveryoneAsleep"},
-				offIfFalse:                []string{"isAnyoneHome"},
-				increaseBrightnessIfTrue:  []string{"isHaveGuests"},
+				onIfTrue:                 []string{"isAnyoneHomeAndAwake"},
+				onIfFalse:                []string{"isTVPlaying"},
+				offIfTrue:                []string{"isEveryoneAsleep"},
+				offIfFalse:               []string{"isAnyoneHome"},
+				increaseBrightnessIfTrue: []string{"isHaveGuests"},
 			},
 		},
 		{
 			name: "Array conditions",
 			room: RoomConfig{
-				OnIfTrue: []interface{}{"isHaveGuests", "didOwnerJustReturnHome"},
+				OnIfTrue:   []interface{}{"isHaveGuests", "didOwnerJustReturnHome"},
 				OffIfFalse: []interface{}{"isHaveGuests", "didOwnerJustReturnHome"},
 			},
 			expected: struct {
-				onIfTrue                  []string
-				onIfFalse                 []string
-				offIfTrue                 []string
-				offIfFalse                []string
-				increaseBrightnessIfTrue  []string
+				onIfTrue                 []string
+				onIfFalse                []string
+				offIfTrue                []string
+				offIfFalse               []string
+				increaseBrightnessIfTrue []string
 			}{
-				onIfTrue:                  []string{"isHaveGuests", "didOwnerJustReturnHome"},
-				onIfFalse:                 []string{},
-				offIfTrue:                 []string{},
-				offIfFalse:                []string{"isHaveGuests", "didOwnerJustReturnHome"},
-				increaseBrightnessIfTrue:  []string{},
+				onIfTrue:                 []string{"isHaveGuests", "didOwnerJustReturnHome"},
+				onIfFalse:                []string{},
+				offIfTrue:                []string{},
+				offIfFalse:               []string{"isHaveGuests", "didOwnerJustReturnHome"},
+				increaseBrightnessIfTrue: []string{},
 			},
 		},
 		{
@@ -151,17 +151,17 @@ func TestRoomConfigGetters(t *testing.T) {
 				OnIfFalse: nil,
 			},
 			expected: struct {
-				onIfTrue                  []string
-				onIfFalse                 []string
-				offIfTrue                 []string
-				offIfFalse                []string
-				increaseBrightnessIfTrue  []string
+				onIfTrue                 []string
+				onIfFalse                []string
+				offIfTrue                []string
+				offIfFalse               []string
+				increaseBrightnessIfTrue []string
 			}{
-				onIfTrue:                  []string{},
-				onIfFalse:                 []string{},
-				offIfTrue:                 []string{},
-				offIfFalse:                []string{},
-				increaseBrightnessIfTrue:  []string{},
+				onIfTrue:                 []string{},
+				onIfFalse:                []string{},
+				offIfTrue:                []string{},
+				offIfFalse:               []string{},
+				increaseBrightnessIfTrue: []string{},
 			},
 		},
 		{
@@ -171,17 +171,17 @@ func TestRoomConfigGetters(t *testing.T) {
 				OnIfFalse: "",
 			},
 			expected: struct {
-				onIfTrue                  []string
-				onIfFalse                 []string
-				offIfTrue                 []string
-				offIfFalse                []string
-				increaseBrightnessIfTrue  []string
+				onIfTrue                 []string
+				onIfFalse                []string
+				offIfTrue                []string
+				offIfFalse               []string
+				increaseBrightnessIfTrue []string
 			}{
-				onIfTrue:                  []string{},
-				onIfFalse:                 []string{},
-				offIfTrue:                 []string{},
-				offIfFalse:                []string{},
-				increaseBrightnessIfTrue:  []string{},
+				onIfTrue:                 []string{},
+				onIfFalse:                []string{},
+				offIfTrue:                []string{},
+				offIfFalse:               []string{},
+				increaseBrightnessIfTrue: []string{},
 			},
 		},
 	}

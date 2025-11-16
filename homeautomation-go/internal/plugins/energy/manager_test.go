@@ -106,13 +106,13 @@ func TestDetermineSolarEnergyLevel(t *testing.T) {
 		remainingKWH float64
 		expected     string
 	}{
-		{"No production", 0, 0, "yellow"}, // Yellow has 0 requirements
-		{"Low production", 1, 5, "yellow"}, // Yellow has 0 requirements
+		{"No production", 0, 0, "yellow"},              // Yellow has 0 requirements
+		{"Low production", 1, 5, "yellow"},             // Yellow has 0 requirements
 		{"Meets green kW but not kWh", 5, 5, "yellow"}, // Doesn't meet green's 10 kWh requirement
 		{"Meets green kWh but not kW", 2, 15, "green"}, // Meets green: 0 kW and 10 kWh
-		{"Meets green thresholds", 5, 15, "green"}, // Meets green: 0 kW and 10 kWh
+		{"Meets green thresholds", 5, 15, "green"},     // Meets green: 0 kW and 10 kWh
 		{"Meets white kW but not kWh", 5, 15, "green"}, // Doesn't meet white's 20 kWh requirement
-		{"Meets white thresholds", 5, 25, "white"}, // Meets white: 4 kW and 20 kWh
+		{"Meets white thresholds", 5, 25, "white"},     // Meets white: 4 kW and 20 kWh
 	}
 
 	for _, tt := range tests {
