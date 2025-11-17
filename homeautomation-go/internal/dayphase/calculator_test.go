@@ -336,7 +336,13 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
 				Night:     now.Add(2 * time.Hour), // Schedule night time in the future
 			},
-			expected: DayPhaseWinddown,
+			// Expected phase depends on current time: Night if hour < 6, otherwise Winddown
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseWinddown
+			}(),
 		},
 		{
 			name: "night without schedule - late night",
