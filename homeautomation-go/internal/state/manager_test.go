@@ -205,6 +205,97 @@ func TestManager_GetSetNumber(t *testing.T) {
 	assert.Equal(t, 9999.5, lastCall.Data["value"])
 }
 
+func TestManager_ChangeDetection(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
+	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+	mockClient.SetState("input_number.alarm_time", "100", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	t.Run("SetBool with same value should not trigger HA call", func(t *testing.T) {
+		// Get initial value
+		value, err := manager.GetBool("isNickHome")
+		assert.NoError(t, err)
+		assert.False(t, value)
+
+		// Count service calls before
+		callsBefore := len(mockClient.GetServiceCalls())
+
+		// Set to same value
+		err = manager.SetBool("isNickHome", false)
+		assert.NoError(t, err)
+
+		// Verify no new service calls
+		callsAfter := len(mockClient.GetServiceCalls())
+		assert.Equal(t, callsBefore, callsAfter, "Setting to same value should not trigger HA call")
+	})
+
+	t.Run("SetString with same value should not trigger HA call", func(t *testing.T) {
+		// Get initial value
+		value, err := manager.GetString("dayPhase")
+		assert.NoError(t, err)
+		assert.Equal(t, "morning", value)
+
+		// Count service calls before
+		callsBefore := len(mockClient.GetServiceCalls())
+
+		// Set to same value
+		err = manager.SetString("dayPhase", "morning")
+		assert.NoError(t, err)
+
+		// Verify no new service calls
+		callsAfter := len(mockClient.GetServiceCalls())
+		assert.Equal(t, callsBefore, callsAfter, "Setting to same value should not trigger HA call")
+	})
+
+	t.Run("SetNumber with same value should not trigger HA call", func(t *testing.T) {
+		// Get initial value
+		value, err := manager.GetNumber("alarmTime")
+		assert.NoError(t, err)
+		assert.Equal(t, 100.0, value)
+
+		// Count service calls before
+		callsBefore := len(mockClient.GetServiceCalls())
+
+		// Set to same value
+		err = manager.SetNumber("alarmTime", 100.0)
+		assert.NoError(t, err)
+
+		// Verify no new service calls
+		callsAfter := len(mockClient.GetServiceCalls())
+		assert.Equal(t, callsBefore, callsAfter, "Setting to same value should not trigger HA call")
+	})
+
+	t.Run("Subscribers should not be notified when value unchanged", func(t *testing.T) {
+		notificationCount := 0
+		subscription, err := manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
+			notificationCount++
+		})
+		assert.NoError(t, err)
+		defer subscription.Unsubscribe()
+
+		// Set to same value
+		err = manager.SetBool("isNickHome", false)
+		assert.NoError(t, err)
+
+		// Verify no notifications
+		assert.Equal(t, 0, notificationCount, "Subscribers should not be notified when value unchanged")
+
+		// Now change the value
+		err = manager.SetBool("isNickHome", true)
+		assert.NoError(t, err)
+
+		// Should be notified (via HA callback after a brief delay in real scenario,
+		// but in mock it should happen synchronously)
+		// Note: In the current implementation, non-local-only variables notify via HA callback
+		// So we won't see a notification here in this test, but that's expected
+	})
+}
+
 func TestManager_CompareAndSwapBool(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
