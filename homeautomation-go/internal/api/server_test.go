@@ -141,3 +141,156 @@ func TestHandleHealth(t *testing.T) {
 		t.Errorf("Expected status 'ok', got '%s'", response["status"])
 	}
 }
+
+func TestHandleSitemap(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	server := NewServer(stateManager, logger, 8080)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+
+	server.handleSitemap(w, req)
+
+	// Should return 404 status for automation compatibility
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", w.Code)
+	}
+
+	// Check content type
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "text/plain; charset=utf-8" {
+		t.Errorf("Expected Content-Type text/plain; charset=utf-8, got %s", contentType)
+	}
+
+	// Check body contains expected content
+	body := w.Body.String()
+	expectedStrings := []string{
+		"Home Automation API",
+		"/api/state",
+		"/health",
+		"GET",
+		"curl",
+	}
+
+	for _, expected := range expectedStrings {
+		if len(body) == 0 || len(expected) == 0 {
+			t.Errorf("Body or expected string is empty")
+			continue
+		}
+		found := false
+		for i := 0; i <= len(body)-len(expected); i++ {
+			if body[i:i+len(expected)] == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected body to contain '%s', got:\n%s", expected, body)
+		}
+	}
+}
+
+func TestHandleSitemapHTML(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	server := NewServer(stateManager, logger, 8080)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+
+	server.handleSitemap(w, req)
+
+	// Should return 404 status for automation compatibility
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", w.Code)
+	}
+
+	// Check content type
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "text/html; charset=utf-8" {
+		t.Errorf("Expected Content-Type text/html; charset=utf-8, got %s", contentType)
+	}
+
+	// Check body contains HTML
+	body := w.Body.String()
+	htmlElements := []string{
+		"<!DOCTYPE html>",
+		"<html>",
+		"<title>Home Automation API</title>",
+		"<h1>Home Automation API</h1>",
+		"/api/state",
+		"/health",
+	}
+
+	for _, expected := range htmlElements {
+		if len(body) == 0 || len(expected) == 0 {
+			t.Errorf("Body or expected string is empty")
+			continue
+		}
+		found := false
+		for i := 0; i <= len(body)-len(expected); i++ {
+			if body[i:i+len(expected)] == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected HTML body to contain '%s'", expected)
+		}
+	}
+}
+
+func TestHandleSitemapMethodNotAllowed(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	server := NewServer(stateManager, logger, 8080)
+
+	// Test POST method (should be rejected)
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	w := httptest.NewRecorder()
+
+	server.handleSitemap(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405, got %d", w.Code)
+	}
+}
+
+func TestHandleSitemapNonRootPath(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	server := NewServer(stateManager, logger, 8080)
+
+	// Test non-root path (should return 404 without sitemap)
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
+	w := httptest.NewRecorder()
+
+	server.handleSitemap(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", w.Code)
+	}
+
+	// Should not contain sitemap content
+	body := w.Body.String()
+	if len(body) > 0 {
+		// Simple check - standard 404 from http.NotFound
+		found := false
+		searchStr := "Home Automation API"
+		for i := 0; i <= len(body)-len(searchStr); i++ {
+			if body[i:i+len(searchStr)] == searchStr {
+				found = true
+				break
+			}
+		}
+		if found {
+			t.Error("Non-root path should not return sitemap content")
+		}
+	}
+}
