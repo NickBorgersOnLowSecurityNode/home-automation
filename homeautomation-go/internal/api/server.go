@@ -29,6 +29,7 @@ func NewServer(stateManager *state.Manager, logger *zap.Logger, port int) *Serve
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleSitemap)
 	mux.HandleFunc("/api/state", s.handleGetState)
+	mux.HandleFunc("/api/states", s.handleGetStatesByPlugin)
 	mux.HandleFunc("/health", s.handleHealth)
 
 	s.server = &http.Server{
@@ -120,6 +121,193 @@ func (s *Server) handleGetState(w http.ResponseWriter, r *http.Request) {
 		zap.String("remote_addr", r.RemoteAddr))
 }
 
+// PluginMetadata describes which state variables a plugin uses
+type PluginMetadata struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Reads       []string `json:"reads"`
+	Writes      []string `json:"writes"`
+}
+
+// PluginStateValue represents a state variable value with type information
+type PluginStateValue struct {
+	Value interface{} `json:"value"`
+	Type  string      `json:"type"`
+}
+
+// PluginStatesResponse represents the response for /api/states endpoint
+type PluginStatesResponse struct {
+	Plugins map[string]map[string]PluginStateValue `json:"plugins"`
+}
+
+// pluginRegistry defines which state variables each plugin reads/writes
+var pluginRegistry = []PluginMetadata{
+	{
+		Name:        "statetracking",
+		Description: "Tracks presence and sleep states, computes derived states",
+		Reads:       []string{"isNickHome", "isCarolineHome", "isToriHere"},
+		Writes:      []string{"isAnyOwnerHome", "isAnyoneHome", "isAnyoneAsleep", "isEveryoneAsleep", "isMasterAsleep", "isGuestAsleep", "didOwnerJustReturnHome"},
+	},
+	{
+		Name:        "dayphase",
+		Description: "Tracks time of day and sun position",
+		Reads:       []string{},
+		Writes:      []string{"dayPhase", "sunevent"},
+	},
+	{
+		Name:        "music",
+		Description: "Manages music playback mode and Sonos control",
+		Reads:       []string{"dayPhase", "isAnyoneAsleep", "isAnyoneHome", "musicPlaybackType"},
+		Writes:      []string{"musicPlaybackType", "currentlyPlayingMusicUri"},
+	},
+	{
+		Name:        "lighting",
+		Description: "Controls lighting scenes based on time, presence, and activity",
+		Reads:       []string{"dayPhase", "sunevent", "isAnyoneHome", "isTVPlaying", "isEveryoneAsleep", "isMasterAsleep", "isHaveGuests"},
+		Writes:      []string{},
+	},
+	{
+		Name:        "tv",
+		Description: "Monitors TV and Apple TV playback state",
+		Reads:       []string{"isAppleTVPlaying"},
+		Writes:      []string{"isAppleTVPlaying", "isTVon", "isTVPlaying"},
+	},
+	{
+		Name:        "energy",
+		Description: "Monitors battery, solar production, and grid availability",
+		Reads:       []string{"isGridAvailable", "batteryEnergyLevel", "solarProductionEnergyLevel", "isFreeEnergyAvailable"},
+		Writes:      []string{"batteryEnergyLevel", "thisHourSolarGeneration", "remainingSolarGeneration", "solarProductionEnergyLevel", "currentEnergyLevel", "isFreeEnergyAvailable"},
+	},
+	{
+		Name:        "loadshedding",
+		Description: "Controls thermostat based on available energy",
+		Reads:       []string{"currentEnergyLevel"},
+		Writes:      []string{},
+	},
+	{
+		Name:        "sleephygiene",
+		Description: "Manages wake-up sequences and bedtime routines",
+		Reads:       []string{"alarmTime"},
+		Writes:      []string{"isFadeOutInProgress", "currentlyPlayingMusic", "musicPlaybackType"},
+	},
+	{
+		Name:        "security",
+		Description: "Manages security automation based on presence and sleep",
+		Reads:       []string{"isEveryoneAsleep", "isAnyoneHome", "didOwnerJustReturnHome", "isExpectingSomeone"},
+		Writes:      []string{},
+	},
+	{
+		Name:        "reset",
+		Description: "Coordinates system-wide state resets",
+		Reads:       []string{"reset"},
+		Writes:      []string{},
+	},
+}
+
+// handleGetStatesByPlugin returns state variables grouped by which plugins use them
+func (s *Server) handleGetStatesByPlugin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := PluginStatesResponse{
+		Plugins: make(map[string]map[string]PluginStateValue),
+	}
+
+	// For each plugin, collect the state variables it uses
+	for _, plugin := range pluginRegistry {
+		pluginStates := make(map[string]PluginStateValue)
+
+		// Collect all unique variables (both reads and writes)
+		variableSet := make(map[string]bool)
+		for _, v := range plugin.Reads {
+			variableSet[v] = true
+		}
+		for _, v := range plugin.Writes {
+			variableSet[v] = true
+		}
+
+		// Get the current value of each variable
+		for varName := range variableSet {
+			value, varType := s.getStateVariableValue(varName)
+			if varType != "" {
+				pluginStates[varName] = PluginStateValue{
+					Value: value,
+					Type:  varType,
+				}
+			}
+		}
+
+		response.Plugins[plugin.Name] = pluginStates
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Debug("States by plugin request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// getStateVariableValue retrieves a state variable's value and type
+func (s *Server) getStateVariableValue(key string) (interface{}, string) {
+	// Find the variable definition to determine its type
+	for _, variable := range state.AllVariables {
+		if variable.Key != key {
+			continue
+		}
+
+		switch variable.Type {
+		case state.TypeBool:
+			value, err := s.stateManager.GetBool(key)
+			if err != nil {
+				s.logger.Error("Failed to get boolean variable",
+					zap.String("key", key),
+					zap.Error(err))
+				return nil, ""
+			}
+			return value, "boolean"
+
+		case state.TypeNumber:
+			value, err := s.stateManager.GetNumber(key)
+			if err != nil {
+				s.logger.Error("Failed to get number variable",
+					zap.String("key", key),
+					zap.Error(err))
+				return nil, ""
+			}
+			return value, "number"
+
+		case state.TypeString:
+			value, err := s.stateManager.GetString(key)
+			if err != nil {
+				s.logger.Error("Failed to get string variable",
+					zap.String("key", key),
+					zap.Error(err))
+				return nil, ""
+			}
+			return value, "string"
+
+		case state.TypeJSON:
+			var value map[string]interface{}
+			if err := s.stateManager.GetJSON(key, &value); err != nil {
+				s.logger.Error("Failed to get JSON variable",
+					zap.String("key", key),
+					zap.Error(err))
+				return nil, ""
+			}
+			return value, "json"
+		}
+	}
+
+	s.logger.Warn("Unknown state variable requested", zap.String("key", key))
+	return nil, ""
+}
+
 // handleHealth returns a simple health check response
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -163,7 +351,12 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 		{
 			Path:        "/api/state",
 			Method:      "GET",
-			Description: "Get all state variables (booleans, numbers, strings, jsons)",
+			Description: "Get all state variables grouped by type (booleans, numbers, strings, jsons)",
+		},
+		{
+			Path:        "/api/states",
+			Method:      "GET",
+			Description: "Get state variables grouped by plugin - shows which plugins use which variables",
 		},
 		{
 			Path:        "/health",
@@ -221,8 +414,12 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, `    <h2>Examples</h2>
     <div class="endpoint">
-        <div>Get all state variables:</div>
+        <div>Get all state variables (by type):</div>
         <div class="description">curl <a href="/api/state">http://localhost:8081/api/state</a></div>
+    </div>
+    <div class="endpoint">
+        <div>Get state variables by plugin:</div>
+        <div class="description">curl <a href="/api/states">http://localhost:8081/api/states</a></div>
     </div>
     <div class="endpoint">
         <div>Health check:</div>
@@ -241,12 +438,14 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "  %-10s %-20s %s\n", ep.Method, ep.Path, ep.Description)
 		}
 		fmt.Fprintf(w, "\nExamples:\n\n")
-		fmt.Fprintf(w, "  Get all state variables:\n")
+		fmt.Fprintf(w, "  Get all state variables (by type):\n")
 		fmt.Fprintf(w, "    curl http://localhost:8081/api/state\n\n")
+		fmt.Fprintf(w, "  Get state variables by plugin:\n")
+		fmt.Fprintf(w, "    curl http://localhost:8081/api/states\n\n")
 		fmt.Fprintf(w, "  Health check:\n")
 		fmt.Fprintf(w, "    curl http://localhost:8081/health\n\n")
 		fmt.Fprintf(w, "  Pretty print JSON:\n")
-		fmt.Fprintf(w, "    curl http://localhost:8081/api/state | jq\n\n")
+		fmt.Fprintf(w, "    curl http://localhost:8081/api/states | jq\n\n")
 	}
 
 	s.logger.Debug("Sitemap request served",

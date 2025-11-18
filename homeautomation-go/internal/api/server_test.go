@@ -294,3 +294,257 @@ func TestHandleSitemapNonRootPath(t *testing.T) {
 		}
 	}
 }
+
+func TestHandleGetStatesByPlugin(t *testing.T) {
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create mock HA client
+	mockClient := ha.NewMockClient()
+
+	// Create state manager
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set some test values for different plugins
+	stateManager.SetBool("isNickHome", true)
+	stateManager.SetBool("isCarolineHome", false)
+	stateManager.SetBool("isToriHere", true)
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isAnyoneAsleep", false)
+	stateManager.SetString("dayPhase", "evening")
+	stateManager.SetString("sunevent", "dusk")
+	stateManager.SetString("musicPlaybackType", "default")
+	stateManager.SetNumber("alarmTime", 7.5)
+	stateManager.SetString("currentEnergyLevel", "green")
+
+	// Create API server
+	server := NewServer(stateManager, logger, 8080)
+
+	// Create test request
+	req := httptest.NewRequest(http.MethodGet, "/api/states", nil)
+	w := httptest.NewRecorder()
+
+	// Handle request
+	server.handleGetStatesByPlugin(w, req)
+
+	// Check status code
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	// Check content type
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("Expected Content-Type application/json, got %s", contentType)
+	}
+
+	// Parse response
+	var response PluginStatesResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify we have plugin data
+	if len(response.Plugins) == 0 {
+		t.Error("Expected plugin data, got empty response")
+	}
+
+	// Verify statetracking plugin has expected variables
+	statetrackingStates, ok := response.Plugins["statetracking"]
+	if !ok {
+		t.Error("Expected statetracking plugin in response")
+	} else {
+		// Check it has the variables it reads
+		if _, ok := statetrackingStates["isNickHome"]; !ok {
+			t.Error("Expected statetracking to have isNickHome")
+		}
+		if _, ok := statetrackingStates["isCarolineHome"]; !ok {
+			t.Error("Expected statetracking to have isCarolineHome")
+		}
+		// Check it has the variables it writes
+		if _, ok := statetrackingStates["isAnyoneHome"]; !ok {
+			t.Error("Expected statetracking to have isAnyoneHome")
+		}
+
+		// Verify value and type
+		if val, ok := statetrackingStates["isNickHome"]; ok {
+			if val.Type != "boolean" {
+				t.Errorf("Expected isNickHome type to be boolean, got %s", val.Type)
+			}
+			if val.Value != true {
+				t.Errorf("Expected isNickHome value to be true, got %v", val.Value)
+			}
+		}
+	}
+
+	// Verify music plugin has expected variables
+	musicStates, ok := response.Plugins["music"]
+	if !ok {
+		t.Error("Expected music plugin in response")
+	} else {
+		// Check it has dayPhase (read)
+		if _, ok := musicStates["dayPhase"]; !ok {
+			t.Error("Expected music to have dayPhase")
+		}
+		// Check it has musicPlaybackType (read and write)
+		if _, ok := musicStates["musicPlaybackType"]; !ok {
+			t.Error("Expected music to have musicPlaybackType")
+		}
+
+		// Verify value and type
+		if val, ok := musicStates["dayPhase"]; ok {
+			if val.Type != "string" {
+				t.Errorf("Expected dayPhase type to be string, got %s", val.Type)
+			}
+			if val.Value != "evening" {
+				t.Errorf("Expected dayPhase value to be 'evening', got %v", val.Value)
+			}
+		}
+	}
+
+	// Verify dayphase plugin has expected variables
+	dayphaseStates, ok := response.Plugins["dayphase"]
+	if !ok {
+		t.Error("Expected dayphase plugin in response")
+	} else {
+		// Check it has sunevent (write)
+		if _, ok := dayphaseStates["sunevent"]; !ok {
+			t.Error("Expected dayphase to have sunevent")
+		}
+		// Check it has dayPhase (write)
+		if _, ok := dayphaseStates["dayPhase"]; !ok {
+			t.Error("Expected dayphase to have dayPhase")
+		}
+	}
+
+	// Verify sleephygiene plugin has alarmTime
+	sleepStates, ok := response.Plugins["sleephygiene"]
+	if !ok {
+		t.Error("Expected sleephygiene plugin in response")
+	} else {
+		if val, ok := sleepStates["alarmTime"]; ok {
+			if val.Type != "number" {
+				t.Errorf("Expected alarmTime type to be number, got %s", val.Type)
+			}
+			if val.Value != 7.5 {
+				t.Errorf("Expected alarmTime value to be 7.5, got %v", val.Value)
+			}
+		} else {
+			t.Error("Expected sleephygiene to have alarmTime")
+		}
+	}
+
+	// Verify loadshedding plugin has currentEnergyLevel
+	loadsheddingStates, ok := response.Plugins["loadshedding"]
+	if !ok {
+		t.Error("Expected loadshedding plugin in response")
+	} else {
+		if _, ok := loadsheddingStates["currentEnergyLevel"]; !ok {
+			t.Error("Expected loadshedding to have currentEnergyLevel")
+		}
+	}
+}
+
+func TestHandleGetStatesByPluginMethodNotAllowed(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	server := NewServer(stateManager, logger, 8080)
+
+	// Test POST method (should be rejected)
+	req := httptest.NewRequest(http.MethodPost, "/api/states", nil)
+	w := httptest.NewRecorder()
+
+	server.handleGetStatesByPlugin(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405, got %d", w.Code)
+	}
+}
+
+func TestHandleGetStatesByPluginEmptyState(t *testing.T) {
+	// Test with default/empty state values
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	server := NewServer(stateManager, logger, 8080)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/states", nil)
+	w := httptest.NewRecorder()
+
+	server.handleGetStatesByPlugin(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	var response PluginStatesResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Should still have plugin data even with default values
+	if len(response.Plugins) == 0 {
+		t.Error("Expected plugin data, got empty response")
+	}
+
+	// Each plugin should have its variables with default values
+	for pluginName, pluginStates := range response.Plugins {
+		if len(pluginStates) == 0 {
+			// Plugins with no variables (only reading/writing) are ok
+			continue
+		}
+		// Verify at least one variable has a type
+		hasType := false
+		for _, stateVal := range pluginStates {
+			if stateVal.Type != "" {
+				hasType = true
+				break
+			}
+		}
+		if !hasType && len(pluginStates) > 0 {
+			t.Errorf("Plugin %s has variables but none have types", pluginName)
+		}
+	}
+}
+
+func TestPluginRegistryCompleteness(t *testing.T) {
+	// Verify that all plugins in the registry have valid metadata
+	for _, plugin := range pluginRegistry {
+		if plugin.Name == "" {
+			t.Error("Found plugin with empty name")
+		}
+		if plugin.Description == "" {
+			t.Errorf("Plugin %s has empty description", plugin.Name)
+		}
+		// At least one of Reads or Writes should be non-empty
+		if len(plugin.Reads) == 0 && len(plugin.Writes) == 0 {
+			t.Errorf("Plugin %s has no reads or writes", plugin.Name)
+		}
+	}
+
+	// Verify expected plugins are present
+	expectedPlugins := []string{
+		"statetracking",
+		"dayphase",
+		"music",
+		"lighting",
+		"tv",
+		"energy",
+		"loadshedding",
+		"sleephygiene",
+		"security",
+		"reset",
+	}
+
+	pluginMap := make(map[string]bool)
+	for _, plugin := range pluginRegistry {
+		pluginMap[plugin.Name] = true
+	}
+
+	for _, expected := range expectedPlugins {
+		if !pluginMap[expected] {
+			t.Errorf("Expected plugin %s not found in registry", expected)
+		}
+	}
+}
