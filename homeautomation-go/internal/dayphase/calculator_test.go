@@ -237,7 +237,6 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			name: "morning period",
 			setupSunTimes: func(c *Calculator) {
 				// Set sun times so current time falls in morning sun event
-				// Note: If current hour >= 12, it will transition to day
 				c.dawn = now.Add(-2 * time.Hour)
 				c.sunrise = now.Add(-1 * time.Hour)
 				c.sunriseEnd = now.Add(1 * time.Hour) // Still in morning sun event
@@ -247,13 +246,7 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				c.lastUpdate = now
 			},
 			schedule: schedule,
-			// If running after noon, morning sun event becomes day phase
-			expected: func() DayPhase {
-				if now.Hour() >= 12 {
-					return DayPhaseDay
-				}
-				return DayPhaseMorning
-			}(),
+			expected: DayPhaseMorning,
 		},
 		{
 			name: "day phase",
@@ -385,8 +378,7 @@ func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 
 	now := time.Now()
 
-	// Test morning sun event transitioning to day after noon
-	// We need to set up the test to run when hour >= 12
+	// Test day sun event - sun has already risen (sunriseEnd in past)
 	calc.dawn = now.Add(-8 * time.Hour)
 	calc.sunrise = now.Add(-7 * time.Hour)
 	calc.sunriseEnd = now.Add(-6 * time.Hour)
@@ -395,9 +387,8 @@ func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 	calc.dusk = now.Add(8 * time.Hour)
 	calc.lastUpdate = now
 
-	// If current hour >= 12 and sun is still up, it should be day
+	// Since sun times show we're in "day" period (after sunriseEnd), it should be day
 	phase := calc.CalculateDayPhase(nil)
-	// Since sun times show we're in "day" period, this should be DayPhaseDay
 	assert.Equal(t, DayPhaseDay, phase)
 }
 
