@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -200,7 +201,13 @@ func TestLoader_GetTodaysSchedule(t *testing.T) {
 	// Sunday (0): 05:00, Monday (1): 05:30, Tue-Fri (2-5): 05:00, Sat-Sun (6): 06:00
 	hour := schedule.BeginWake.Hour()
 	assert.True(t, hour >= 5 && hour <= 6, "Begin wake hour should be between 5 and 6")
-	assert.Equal(t, 0, schedule.BeginWake.Minute())
+
+	// Expected minute depends on day of week: Monday has 30, all other days have 0
+	expectedMinute := 0
+	if schedule.BeginWake.Weekday() == time.Monday {
+		expectedMinute = 30
+	}
+	assert.Equal(t, expectedMinute, schedule.BeginWake.Minute())
 }
 
 func TestLoader_MissingFile(t *testing.T) {
@@ -228,8 +235,50 @@ func TestLoader_GetTodaysSchedule_InvalidTime(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	tmpDir := t.TempDir()
 
-	// Create schedule config with invalid time format
+	// Create schedule config with invalid time format (7 entries for all days of the week)
 	scheduleConfig := `schedule:
+  - begin_wake: "invalid"
+    wake: "07:00"
+    dusk: "18:00"
+    winddown: "21:00"
+    stop_screens: "22:00"
+    go_to_bed: "22:30"
+    night: "23:00"
+  - begin_wake: "invalid"
+    wake: "07:00"
+    dusk: "18:00"
+    winddown: "21:00"
+    stop_screens: "22:00"
+    go_to_bed: "22:30"
+    night: "23:00"
+  - begin_wake: "invalid"
+    wake: "07:00"
+    dusk: "18:00"
+    winddown: "21:00"
+    stop_screens: "22:00"
+    go_to_bed: "22:30"
+    night: "23:00"
+  - begin_wake: "invalid"
+    wake: "07:00"
+    dusk: "18:00"
+    winddown: "21:00"
+    stop_screens: "22:00"
+    go_to_bed: "22:30"
+    night: "23:00"
+  - begin_wake: "invalid"
+    wake: "07:00"
+    dusk: "18:00"
+    winddown: "21:00"
+    stop_screens: "22:00"
+    go_to_bed: "22:30"
+    night: "23:00"
+  - begin_wake: "invalid"
+    wake: "07:00"
+    dusk: "18:00"
+    winddown: "21:00"
+    stop_screens: "22:00"
+    go_to_bed: "22:30"
+    night: "23:00"
   - begin_wake: "invalid"
     wake: "07:00"
     dusk: "18:00"
@@ -293,15 +342,23 @@ func TestLoader_Stop_MultipleCalls(t *testing.T) {
 func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 
+	// Helper to create 7 identical schedule entries (one for each day of week)
+	makeScheduleWithSevenEntries := func(entry string) string {
+		result := "schedule:\n"
+		for i := 0; i < 7; i++ {
+			result += entry
+		}
+		return result
+	}
+
 	testCases := []struct {
-		name         string
-		scheduleYAML string
-		errorField   string
+		name       string
+		entryYAML  string
+		errorField string
 	}{
 		{
 			name: "invalid wake time",
-			scheduleYAML: `schedule:
-  - begin_wake: "05:00"
+			entryYAML: `  - begin_wake: "05:00"
     wake: "invalid"
     dusk: "18:00"
     winddown: "21:00"
@@ -313,8 +370,7 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		},
 		{
 			name: "invalid dusk time",
-			scheduleYAML: `schedule:
-  - begin_wake: "05:00"
+			entryYAML: `  - begin_wake: "05:00"
     wake: "07:00"
     dusk: "99:99"
     winddown: "21:00"
@@ -326,8 +382,7 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		},
 		{
 			name: "invalid winddown time",
-			scheduleYAML: `schedule:
-  - begin_wake: "05:00"
+			entryYAML: `  - begin_wake: "05:00"
     wake: "07:00"
     dusk: "18:00"
     winddown: "not a time"
@@ -339,8 +394,7 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		},
 		{
 			name: "invalid stop_screens time",
-			scheduleYAML: `schedule:
-  - begin_wake: "05:00"
+			entryYAML: `  - begin_wake: "05:00"
     wake: "07:00"
     dusk: "18:00"
     winddown: "21:00"
@@ -352,8 +406,7 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		},
 		{
 			name: "invalid go_to_bed time",
-			scheduleYAML: `schedule:
-  - begin_wake: "05:00"
+			entryYAML: `  - begin_wake: "05:00"
     wake: "07:00"
     dusk: "18:00"
     winddown: "21:00"
@@ -365,8 +418,7 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		},
 		{
 			name: "invalid night time",
-			scheduleYAML: `schedule:
-  - begin_wake: "05:00"
+			entryYAML: `  - begin_wake: "05:00"
     wake: "07:00"
     dusk: "18:00"
     winddown: "21:00"
@@ -381,7 +433,8 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			err := os.WriteFile(filepath.Join(tmpDir, "schedule_config.yaml"), []byte(tc.scheduleYAML), 0644)
+			scheduleYAML := makeScheduleWithSevenEntries(tc.entryYAML)
+			err := os.WriteFile(filepath.Join(tmpDir, "schedule_config.yaml"), []byte(scheduleYAML), 0644)
 			require.NoError(t, err)
 
 			loader := NewLoader(tmpDir, logger)
