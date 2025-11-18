@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"sync"
@@ -307,9 +308,18 @@ func (m *Manager) SetBool(key string, value bool) error {
 		return err
 	}
 
-	// Update cache
+	// Check if value has actually changed
 	m.cacheMu.Lock()
-	oldValue := m.cache[key]
+	oldValue, ok := m.cache[key]
+	if ok {
+		if oldBool, isBool := oldValue.(bool); isBool && oldBool == value {
+			// Value hasn't changed, skip update
+			m.cacheMu.Unlock()
+			return nil
+		}
+	}
+
+	// Update cache
 	m.cache[key] = value
 	m.cacheMu.Unlock()
 
@@ -373,9 +383,18 @@ func (m *Manager) SetString(key string, value string) error {
 		return err
 	}
 
-	// Update cache
+	// Check if value has actually changed
 	m.cacheMu.Lock()
-	oldValue := m.cache[key]
+	oldValue, ok := m.cache[key]
+	if ok {
+		if oldStr, isStr := oldValue.(string); isStr && oldStr == value {
+			// Value hasn't changed, skip update
+			m.cacheMu.Unlock()
+			return nil
+		}
+	}
+
+	// Update cache
 	m.cache[key] = value
 	m.cacheMu.Unlock()
 
@@ -439,9 +458,18 @@ func (m *Manager) SetNumber(key string, value float64) error {
 		return err
 	}
 
-	// Update cache
+	// Check if value has actually changed
 	m.cacheMu.Lock()
-	oldValue := m.cache[key]
+	oldValue, ok := m.cache[key]
+	if ok {
+		if oldNum, isNum := oldValue.(float64); isNum && oldNum == value {
+			// Value hasn't changed, skip update
+			m.cacheMu.Unlock()
+			return nil
+		}
+	}
+
+	// Update cache
 	m.cache[key] = value
 	m.cacheMu.Unlock()
 
@@ -510,9 +538,16 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 		return err
 	}
 
-	// Update cache
+	// Check if value has actually changed (using deep equality for JSON)
 	m.cacheMu.Lock()
-	oldValue := m.cache[key]
+	oldValue, ok := m.cache[key]
+	if ok && reflect.DeepEqual(oldValue, value) {
+		// Value hasn't changed, skip update
+		m.cacheMu.Unlock()
+		return nil
+	}
+
+	// Update cache
 	m.cache[key] = value
 	m.cacheMu.Unlock()
 
