@@ -27,6 +27,7 @@ func NewServer(stateManager *state.Manager, logger *zap.Logger, port int) *Serve
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleSitemap)
 	mux.HandleFunc("/api/state", s.handleGetState)
 	mux.HandleFunc("/health", s.handleHealth)
 
@@ -131,6 +132,126 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "ok",
 	})
+}
+
+// Endpoint represents an API endpoint with its documentation
+type Endpoint struct {
+	Path        string `json:"path"`
+	Method      string `json:"method"`
+	Description string `json:"description"`
+}
+
+// handleSitemap returns a list of all available API endpoints
+func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
+	// Only handle requests to the root path
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	endpoints := []Endpoint{
+		{
+			Path:        "/",
+			Method:      "GET",
+			Description: "This sitemap - lists all available API endpoints",
+		},
+		{
+			Path:        "/api/state",
+			Method:      "GET",
+			Description: "Get all state variables (booleans, numbers, strings, jsons)",
+		},
+		{
+			Path:        "/health",
+			Method:      "GET",
+			Description: "Health check endpoint - returns {\"status\": \"ok\"}",
+		},
+	}
+
+	// Determine if the request is from a browser (check Accept header)
+	acceptHeader := r.Header.Get("Accept")
+	preferHTML := false
+	if acceptHeader != "" {
+		// Simple check - if Accept contains text/html, prefer HTML
+		for _, part := range []string{"text/html", "*/*"} {
+			if len(acceptHeader) > 0 && (acceptHeader == part || len(acceptHeader) > len(part) && acceptHeader[:len(part)] == part) {
+				preferHTML = true
+				break
+			}
+		}
+	}
+
+	// Return 404 status code (for automation compatibility) but with helpful body
+	w.WriteHeader(http.StatusNotFound)
+
+	if preferHTML {
+		// HTML format for browsers
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+    <title>Home Automation API</title>
+    <style>
+        body { font-family: monospace; margin: 40px; background: #1e1e1e; color: #d4d4d4; }
+        h1 { color: #4ec9b0; }
+        h2 { color: #569cd6; margin-top: 30px; }
+        .endpoint { background: #2d2d2d; padding: 15px; margin: 10px 0; border-left: 3px solid #007acc; }
+        .method { color: #4ec9b0; font-weight: bold; }
+        .path { color: #ce9178; }
+        .description { color: #9cdcfe; margin-top: 5px; }
+        a { color: #569cd6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>Home Automation API</h1>
+    <p>Welcome! This API provides access to the home automation system state.</p>
+    <h2>Available Endpoints</h2>
+`)
+		for _, ep := range endpoints {
+			fmt.Fprintf(w, `    <div class="endpoint">
+        <div><span class="method">%s</span> <span class="path">%s</span></div>
+        <div class="description">%s</div>
+    </div>
+`, ep.Method, ep.Path, ep.Description)
+		}
+		fmt.Fprintf(w, `    <h2>Examples</h2>
+    <div class="endpoint">
+        <div>Get all state variables:</div>
+        <div class="description">curl <a href="/api/state">http://localhost:8081/api/state</a></div>
+    </div>
+    <div class="endpoint">
+        <div>Health check:</div>
+        <div class="description">curl <a href="/health">http://localhost:8081/health</a></div>
+    </div>
+</body>
+</html>
+`)
+	} else {
+		// Plain text format for terminal
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "Home Automation API\n")
+		fmt.Fprintf(w, "===================\n\n")
+		fmt.Fprintf(w, "Available endpoints:\n\n")
+		for _, ep := range endpoints {
+			fmt.Fprintf(w, "  %-10s %-20s %s\n", ep.Method, ep.Path, ep.Description)
+		}
+		fmt.Fprintf(w, "\nExamples:\n\n")
+		fmt.Fprintf(w, "  Get all state variables:\n")
+		fmt.Fprintf(w, "    curl http://localhost:8081/api/state\n\n")
+		fmt.Fprintf(w, "  Health check:\n")
+		fmt.Fprintf(w, "    curl http://localhost:8081/health\n\n")
+		fmt.Fprintf(w, "  Pretty print JSON:\n")
+		fmt.Fprintf(w, "    curl http://localhost:8081/api/state | jq\n\n")
+	}
+
+	s.logger.Debug("Sitemap request served",
+		zap.String("remote_addr", r.RemoteAddr),
+		zap.Bool("html_format", preferHTML))
 }
 
 // Start begins serving HTTP requests
