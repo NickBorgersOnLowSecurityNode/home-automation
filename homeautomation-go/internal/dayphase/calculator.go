@@ -135,10 +135,6 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 
 	switch sunEvent {
 	case SunEventMorning:
-		// Stay in morning until noon, then switch to day
-		if now.Hour() >= 12 {
-			return DayPhaseDay
-		}
 		return DayPhaseMorning
 
 	case SunEventDay:
