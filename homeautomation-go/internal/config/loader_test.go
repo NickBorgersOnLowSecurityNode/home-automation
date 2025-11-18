@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -200,7 +201,13 @@ func TestLoader_GetTodaysSchedule(t *testing.T) {
 	// Sunday (0): 05:00, Monday (1): 05:30, Tue-Fri (2-5): 05:00, Sat-Sun (6): 06:00
 	hour := schedule.BeginWake.Hour()
 	assert.True(t, hour >= 5 && hour <= 6, "Begin wake hour should be between 5 and 6")
-	assert.Equal(t, 0, schedule.BeginWake.Minute())
+
+	// Expected minute depends on day of week: Monday has 30, all other days have 0
+	expectedMinute := 0
+	if schedule.BeginWake.Weekday() == time.Monday {
+		expectedMinute = 30
+	}
+	assert.Equal(t, expectedMinute, schedule.BeginWake.Minute())
 }
 
 func TestLoader_MissingFile(t *testing.T) {
