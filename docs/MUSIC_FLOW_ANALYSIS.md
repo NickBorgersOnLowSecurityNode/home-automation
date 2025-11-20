@@ -129,7 +129,7 @@ Currently active playback info:
 
 ### 3. **Prevent re-activation of already active music** (ID: 595573f8f9ee970d)
 **Purpose**: Stops double-triggering the same music type
-**Logic**: 
+**Logic**:
 - Compares incoming musicPlaybackType with currentlyPlayingMusic.type
 - Returns null if already playing (blocks flow)
 - Returns msg otherwise (allows flow)
