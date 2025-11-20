@@ -4,11 +4,11 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Migration Summary
 
-- **Total Node Red state variables**: 58
+- **Total Node Red state variables**: 64
 - **Variables in disabled flows (SKIP)**: 25
-- **Active variables to migrate**: 33
+- **Active variables to migrate**: 39
 - **Already exist in Home Assistant**: 10
-- **Need to create**: 23
+- **Need to create**: 29
 
 ---
 
@@ -31,7 +31,7 @@ These entities already exist in Home Assistant and will be synchronized with Nod
 
 ---
 
-## 🆕 NEED TO CREATE - Boolean Variables (13)
+## 🆕 NEED TO CREATE - Boolean Variables (19)
 
 | Node Red Variable | Home Assistant Entity | Description | Action |
 |------------------|----------------------|-------------|--------|
@@ -48,6 +48,12 @@ These entities already exist in Home Assistant and will be synchronized with Nod
 | isMasterAsleep | input_boolean.master_asleep | Master bedroom sleep status | Create & sync |
 | isTVPlaying | input_boolean.tv_playing | TV playback status | Create & sync |
 | isTVon | input_boolean.tv_on | TV power status | Create & sync |
+| isNickOfficeOccupied | input_boolean.nick_office_occupied | Nick's office occupancy sensor | Create & sync |
+| isKitchenOccupied | input_boolean.kitchen_occupied | Kitchen occupancy sensor | Create & sync |
+| isPrimaryBedroomDoorOpen | input_boolean.primary_bedroom_door_open | Primary bedroom door state | Create & sync |
+| isNickNearHome | input_boolean.nick_near_home | Nick proximity geofence trigger | Create & sync |
+| isCarolineNearHome | input_boolean.caroline_near_home | Caroline proximity geofence trigger | Create & sync |
+| isLockdown | input_boolean.lockdown | Security lockdown momentary trigger | Create & sync |
 
 ---
 
@@ -113,6 +119,40 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 
 ---
 
+## ⚠️ Special Variable Behaviors
+
+### isLockdown - Momentary Security Trigger
+
+**Behavior**: Acts as a momentary "pulse" trigger for security actions
+
+- **Trigger**: Automatically activated when `isEveryoneAsleep` becomes `true`
+- **Auto-Reset**: Stays `true` for **5 seconds**, then automatically resets to `false`
+- **Purpose**: Triggers security measures (garage door close, door locks, etc.) when everyone goes to sleep
+- **Implementation**: Node-RED uses a 5-second delay before auto-resetting
+- **Flow**: Security flow (`7097dab4eb91af0f`)
+
+### isNickNearHome / isCarolineNearHome - Proximity Geofence
+
+**Behavior**: Geofence triggers that activate home presence
+
+- **Trigger**: Set by Home Assistant proximity/geofence sensors
+- **Effect**: When `true`, these variables set `isNickHome` / `isCarolineHome` to `true`
+- **Important**: Automations (announcements, lights, music) trigger on `isHome`, **NOT** `isNearHome`
+- **Purpose**: Provides advance warning before someone arrives home, allowing preparation time
+- **Implementation**: `isNearHome` is input-only, `isHome` is the computed output used by automations
+- **Flow**: State Tracking flow (`d7a3510d.e93d98`)
+
+### Room Occupancy Sensors
+
+**Behavior**: Direct sensor inputs for room presence
+
+- **isNickOfficeOccupied**: Used by lighting plugin to control N Office lights (2-second transition)
+- **isKitchenOccupied**: Used by lighting plugin to control Kitchen lights (5-second transition)
+- **Purpose**: Enable instant lighting control based on room occupancy
+- **Configuration**: See `configs/hue_config.yaml` for room-specific lighting rules
+
+---
+
 ## Implementation Notes
 
 ### Entity Creation
@@ -122,6 +162,6 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 - input_text: Text entities for strings and JSON-serialized objects
 
 ### Synchronization Strategy
-1. **On Node Red startup**: Read all 33 variables from Home Assistant → initialize Node Red state
+1. **On Node Red startup**: Read all 39 variables from Home Assistant → initialize Node Red state
 2. **On Node Red variable change**: Write value to corresponding Home Assistant entity
 3. **During migration**: Both systems share state via Home Assistant entities
