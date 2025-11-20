@@ -38,7 +38,11 @@ type Manager struct {
 	// Timers for sleep/wake detection
 	masterSleepTimer *time.Timer
 	masterWakeTimer  *time.Timer
-	timerMutex       sync.Mutex
+
+	// Timer for owner return home auto-reset
+	ownerReturnHomeTimer *time.Timer
+
+	timerMutex sync.Mutex
 }
 
 // NewManager creates a new State Tracking manager
@@ -113,6 +117,9 @@ func (m *Manager) Start() error {
 			"input_boolean.nick_home (arrival → TTS)",
 			"input_boolean.caroline_home (arrival → TTS)",
 			"input_boolean.tori_here (arrival → TTS)",
+		}),
+		zap.Strings("ownerReturnHome", []string{
+			"isNickHome/isCarolineHome (arrival → didOwnerJustReturnHome=true, 10min auto-reset)",
 		}))
 	return nil
 }
@@ -130,6 +137,10 @@ func (m *Manager) Stop() {
 	if m.masterWakeTimer != nil {
 		m.masterWakeTimer.Stop()
 		m.masterWakeTimer = nil
+	}
+	if m.ownerReturnHomeTimer != nil {
+		m.ownerReturnHomeTimer.Stop()
+		m.ownerReturnHomeTimer = nil
 	}
 	m.timerMutex.Unlock()
 
@@ -276,6 +287,9 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
 
+		// Set didOwnerJustReturnHome for garage automation
+		m.setOwnerJustReturnedHome()
+
 		// Check if anyone else was already home (Caroline or Tori)
 		// We check the OLD value of isAnyoneHome before Nick arrived
 		wasAnyoneHome := false
@@ -297,6 +311,9 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 		} else {
 			m.logger.Debug("Nobody else was home, not announcing Nick's arrival")
 		}
+	} else if newState.State != "on" && oldState.State == "on" {
+		// Nick left home - clear didOwnerJustReturnHome
+		m.clearOwnerJustReturnedHome()
 	}
 }
 
@@ -312,6 +329,9 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 			zap.String("entity_id", entityID),
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
+
+		// Set didOwnerJustReturnHome for garage automation
+		m.setOwnerJustReturnedHome()
 
 		// Check if anyone else was already home (Nick or Tori)
 		wasAnyoneHome := false
@@ -334,6 +354,9 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 		} else {
 			m.logger.Debug("Nobody else was home, not announcing Caroline's arrival")
 		}
+	} else if newState.State != "on" && oldState.State == "on" {
+		// Caroline left home - clear didOwnerJustReturnHome
+		m.clearOwnerJustReturnedHome()
 	}
 }
 
@@ -402,6 +425,65 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 		m.logger.Error("Failed to announce arrival via TTS",
 			zap.String("person", person),
 			zap.Error(err))
+	}
+}
+
+// setOwnerJustReturnedHome sets didOwnerJustReturnHome to true and starts/restarts the 10-minute auto-reset timer
+func (m *Manager) setOwnerJustReturnedHome() {
+	m.logger.Info("Owner just returned home, setting didOwnerJustReturnHome=true")
+
+	// Set the state variable
+	if err := m.stateManager.SetBool("didOwnerJustReturnHome", true); err != nil {
+		m.logger.Error("Failed to set didOwnerJustReturnHome", zap.Error(err))
+		return
+	}
+
+	// Start/restart the 10-minute auto-reset timer
+	m.timerMutex.Lock()
+	defer m.timerMutex.Unlock()
+
+	// Cancel existing timer if any (extends timer if second owner arrives)
+	if m.ownerReturnHomeTimer != nil {
+		m.ownerReturnHomeTimer.Stop()
+	}
+
+	// Start 10-minute timer for auto-reset
+	m.logger.Debug("Starting 10-minute auto-reset timer for didOwnerJustReturnHome")
+	m.ownerReturnHomeTimer = time.AfterFunc(10*time.Minute, func() {
+		m.resetOwnerJustReturnedHome()
+	})
+}
+
+// clearOwnerJustReturnedHome immediately sets didOwnerJustReturnHome to false (when owner leaves)
+func (m *Manager) clearOwnerJustReturnedHome() {
+	m.logger.Debug("Owner left home, clearing didOwnerJustReturnHome")
+
+	// Cancel any pending auto-reset timer
+	m.timerMutex.Lock()
+	if m.ownerReturnHomeTimer != nil {
+		m.ownerReturnHomeTimer.Stop()
+		m.ownerReturnHomeTimer = nil
+	}
+	m.timerMutex.Unlock()
+
+	// Clear the state variable
+	if err := m.stateManager.SetBool("didOwnerJustReturnHome", false); err != nil {
+		m.logger.Error("Failed to clear didOwnerJustReturnHome", zap.Error(err))
+	}
+}
+
+// resetOwnerJustReturnedHome is called by the auto-reset timer after 10 minutes
+func (m *Manager) resetOwnerJustReturnedHome() {
+	m.logger.Info("Auto-resetting didOwnerJustReturnHome to false (10 minutes elapsed)")
+
+	// Clear the timer reference
+	m.timerMutex.Lock()
+	m.ownerReturnHomeTimer = nil
+	m.timerMutex.Unlock()
+
+	// Reset the state variable
+	if err := m.stateManager.SetBool("didOwnerJustReturnHome", false); err != nil {
+		m.logger.Error("Failed to reset didOwnerJustReturnHome", zap.Error(err))
 	}
 }
 
