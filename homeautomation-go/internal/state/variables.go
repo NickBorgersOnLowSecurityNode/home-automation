@@ -21,9 +21,9 @@ type StateVariable struct {
 	ComputedOutput bool        // If true, can be written even in read-only mode (for computed values)
 }
 
-// AllVariables contains all 31 state variables (29 synced with HA + 2 local-only)
+// AllVariables contains all 37 state variables (35 synced with HA + 2 local-only)
 var AllVariables = []StateVariable{
-	// Booleans (19)
+	// Booleans (25)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},
 	{Key: "isCarolineHome", EntityID: "input_boolean.caroline_home", Type: TypeBool, Default: false},
 	{Key: "isToriHere", EntityID: "input_boolean.tori_here", Type: TypeBool, Default: false},
@@ -43,6 +43,12 @@ var AllVariables = []StateVariable{
 	{Key: "isFreeEnergyAvailable", EntityID: "input_boolean.free_energy_available", Type: TypeBool, Default: false},
 	{Key: "isGridAvailable", EntityID: "input_boolean.grid_available", Type: TypeBool, Default: true},
 	{Key: "isExpectingSomeone", EntityID: "input_boolean.expecting_someone", Type: TypeBool, Default: false},
+	{Key: "isNickOfficeOccupied", EntityID: "input_boolean.nick_office_occupied", Type: TypeBool, Default: false},
+	{Key: "isKitchenOccupied", EntityID: "input_boolean.kitchen_occupied", Type: TypeBool, Default: false},
+	{Key: "isPrimaryBedroomDoorOpen", EntityID: "input_boolean.primary_bedroom_door_open", Type: TypeBool, Default: false},
+	{Key: "isNickNearHome", EntityID: "input_boolean.nick_near_home", Type: TypeBool, Default: false},
+	{Key: "isCarolineNearHome", EntityID: "input_boolean.caroline_near_home", Type: TypeBool, Default: false},
+	{Key: "isLockdown", EntityID: "input_boolean.lockdown", Type: TypeBool, Default: false},
 	{Key: "reset", EntityID: "input_boolean.reset", Type: TypeBool, Default: false},
 
 	// Numbers (3)
