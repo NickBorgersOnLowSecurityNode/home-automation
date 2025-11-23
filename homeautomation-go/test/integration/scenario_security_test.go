@@ -193,6 +193,10 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 // TestScenario_MultipleArrivalsWithin10Minutes tests edge case where both owners
 // arrive within 10 minutes - the timer should extend
 func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping 2-minute wait test in short mode")
+	}
+
 	server, _, _, manager, cleanup := setupSecurityScenarioTest(t)
 	defer cleanup()
 
