@@ -115,8 +115,8 @@ jobs:
       - name: Run all tests with coverage and race detector
         run: |
           echo "Running all tests (unit + integration) with race detector and coverage..."
-          echo "Using -short to skip long-running tests (e.g., 10-minute timer tests)"
-          go test ./... -race -v -short -coverprofile=coverage.out -covermode=atomic -timeout=5m
+          echo "Time-dependent tests use mock clocks for instant execution"
+          go test ./... -race -v -coverprofile=coverage.out -covermode=atomic -timeout=5m
 
       - name: Check minimum test coverage (≥70%)
         run: |

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/plugins/security"
 	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/state"
@@ -35,6 +36,35 @@ func setupSecurityScenarioTest(t *testing.T) (*MockHAServer, *statetracking.Mana
 	}
 
 	return server, stateTracking, securityManager, stateManager, cleanup
+}
+
+// setupSecurityScenarioTestWithMockClock creates a test environment with a mock clock for time-based tests
+func setupSecurityScenarioTestWithMockClock(t *testing.T) (*MockHAServer, *statetracking.Manager, *security.Manager, *state.Manager, *clock.MockClock, func()) {
+	server, client, stateManager, baseCleanup := setupTest(t)
+
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create mock clock
+	mockClock := clock.NewMockClock(time.Now())
+
+	// Create and start State Tracking plugin with mock clock
+	stateTracking := statetracking.NewManager(client, stateManager, logger, false)
+	stateTracking.SetClock(mockClock)
+	require.NoError(t, stateTracking.Start(), "State Tracking manager should start successfully")
+
+	// Create and start Security plugin with mock clock
+	securityManager := security.NewManager(client, stateManager, logger, false)
+	securityManager.SetClock(mockClock)
+	require.NoError(t, securityManager.Start(), "Security manager should start successfully")
+
+	cleanup := func() {
+		securityManager.Stop()
+		stateTracking.Stop()
+		baseCleanup()
+	}
+
+	return server, stateTracking, securityManager, stateManager, mockClock, cleanup
 }
 
 // ============================================================================
@@ -153,20 +183,16 @@ func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
 // TestScenario_DidOwnerJustReturnHomeAutoReset tests that didOwnerJustReturnHome
 // automatically resets to false after 10 minutes
 func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping 10-minute timer test in short mode")
-	}
-
-	server, _, _, manager, cleanup := setupSecurityScenarioTest(t)
+	server, _, _, manager, mockClock, cleanup := setupSecurityScenarioTestWithMockClock(t)
 	defer cleanup()
 
 	t.Log("GIVEN: Nick arrives home")
 
 	server.SetState("input_boolean.nick_home", "off", nil)
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond) // Real sleep for event processing
 
 	t.Log("THEN: didOwnerJustReturnHome should be true initially")
 
@@ -174,12 +200,11 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, didReturn, "didOwnerJustReturnHome should be true after arrival")
 
-	t.Log("WHEN: 10 minutes pass")
+	t.Log("WHEN: 10 minutes pass (simulated via mock clock)")
 
-	// In real implementation, this would be 10 minutes
-	// For testing, we'll use a shorter duration in the implementation
-	// but document the expected behavior here
-	time.Sleep(11 * time.Minute)
+	// Use mock clock to advance time instantly instead of real sleep
+	mockClock.Advance(11 * time.Minute)
+	time.Sleep(100 * time.Millisecond) // Allow timer callback to execute
 
 	t.Log("THEN: didOwnerJustReturnHome should auto-reset to false")
 
@@ -193,32 +218,30 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 // TestScenario_MultipleArrivalsWithin10Minutes tests edge case where both owners
 // arrive within 10 minutes - the timer should extend
 func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping 2-minute wait test in short mode")
-	}
-
-	server, _, _, manager, cleanup := setupSecurityScenarioTest(t)
+	server, _, _, manager, mockClock, cleanup := setupSecurityScenarioTestWithMockClock(t)
 	defer cleanup()
 
 	t.Log("GIVEN: Nick arrives home first")
 
 	server.SetState("input_boolean.nick_home", "off", nil)
 	server.SetState("input_boolean.caroline_home", "off", nil)
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond) // Real sleep for event processing
 
 	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
 	require.NoError(t, err)
 	assert.True(t, didReturn, "didOwnerJustReturnHome should be true after Nick arrives")
 
-	t.Log("WHEN: Caroline arrives 2 minutes later")
+	t.Log("WHEN: Caroline arrives 2 minutes later (simulated)")
 
-	time.Sleep(2 * time.Minute)
+	// Use mock clock to advance time instantly
+	mockClock.Advance(2 * time.Minute)
+	time.Sleep(100 * time.Millisecond) // Allow any timer callbacks
 
 	server.SetState("input_boolean.caroline_home", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond) // Real sleep for event processing
 
 	t.Log("THEN: didOwnerJustReturnHome should still be true")
 
@@ -227,8 +250,24 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 	assert.True(t, didReturn, "didOwnerJustReturnHome should still be true")
 
 	t.Log("AND: Timer should have been extended (10 minutes from Caroline's arrival)")
-	// This tests that the timer restarts when the second owner arrives
-	// Full timer validation would require waiting the full duration
+
+	// Advance 9 minutes - should still be true (timer was reset by Caroline's arrival)
+	mockClock.Advance(9 * time.Minute)
+	time.Sleep(100 * time.Millisecond)
+
+	didReturn, err = manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	assert.True(t, didReturn, "didOwnerJustReturnHome should still be true after 9 more minutes")
+
+	// Advance 2 more minutes - should now be false (10+ minutes from Caroline's arrival)
+	mockClock.Advance(2 * time.Minute)
+	time.Sleep(100 * time.Millisecond)
+
+	didReturn, err = manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	assert.False(t, didReturn, "didOwnerJustReturnHome should be false after 10+ minutes from Caroline's arrival")
+
+	t.Log("✓ Timer correctly extended by second owner arrival")
 }
 
 // TestScenario_OwnerLeavesAndReturns tests that leaving and returning
