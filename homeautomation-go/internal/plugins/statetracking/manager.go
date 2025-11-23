@@ -6,10 +6,23 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
+)
+
+// Timer duration constants (can be overridden in tests via MockClock)
+const (
+	// SleepDetectionDelay is how long lights must be off before marking master asleep
+	SleepDetectionDelay = 1 * time.Minute
+
+	// WakeDetectionDelay is how long bedroom door must be open before marking master awake
+	WakeDetectionDelay = 20 * time.Second
+
+	// OwnerReturnHomeResetDelay is how long before didOwnerJustReturnHome auto-resets
+	OwnerReturnHomeResetDelay = 10 * time.Minute
 )
 
 // Manager handles automatic computation of derived state variables.
@@ -31,16 +44,17 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	helper       *state.DerivedStateHelper
+	clock        clock.Clock
 
 	// Subscriptions for cleanup
 	haSubscriptions []ha.Subscription
 
 	// Timers for sleep/wake detection
-	masterSleepTimer *time.Timer
-	masterWakeTimer  *time.Timer
+	masterSleepTimer clock.Timer
+	masterWakeTimer  clock.Timer
 
 	// Timer for owner return home auto-reset
-	ownerReturnHomeTimer *time.Timer
+	ownerReturnHomeTimer clock.Timer
 
 	timerMutex sync.Mutex
 }
@@ -52,8 +66,14 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		stateManager:    stateManager,
 		logger:          logger.Named("statetracking"),
 		readOnly:        readOnly,
+		clock:           clock.NewRealClock(),
 		haSubscriptions: make([]ha.Subscription, 0),
 	}
+}
+
+// SetClock sets the clock implementation (useful for testing)
+func (m *Manager) SetClock(c clock.Clock) {
+	m.clock = c
 }
 
 // Start begins computing and maintaining derived states.
@@ -181,7 +201,7 @@ func (m *Manager) handlePrimarySuiteLightsChange(entityID string, oldState, newS
 	if lightsOff {
 		// Start 1-minute timer for sleep detection
 		m.logger.Debug("Primary suite lights turned off, starting 1-minute sleep detection timer")
-		m.masterSleepTimer = time.AfterFunc(1*time.Minute, func() {
+		m.masterSleepTimer = m.clock.AfterFunc(SleepDetectionDelay, func() {
 			m.detectMasterAsleep()
 		})
 	} else {
@@ -253,7 +273,7 @@ func (m *Manager) handlePrimaryBedroomDoorChange(entityID string, oldState, newS
 	if doorOpen {
 		// Start 20-second timer for wake detection
 		m.logger.Debug("Primary bedroom door opened, starting 20-second wake detection timer")
-		m.masterWakeTimer = time.AfterFunc(20*time.Second, func() {
+		m.masterWakeTimer = m.clock.AfterFunc(WakeDetectionDelay, func() {
 			m.detectMasterAwake()
 		})
 	} else {
@@ -449,7 +469,7 @@ func (m *Manager) setOwnerJustReturnedHome() {
 
 	// Start 10-minute timer for auto-reset
 	m.logger.Debug("Starting 10-minute auto-reset timer for didOwnerJustReturnHome")
-	m.ownerReturnHomeTimer = time.AfterFunc(10*time.Minute, func() {
+	m.ownerReturnHomeTimer = m.clock.AfterFunc(OwnerReturnHomeResetDelay, func() {
 		m.resetOwnerJustReturnedHome()
 	})
 }

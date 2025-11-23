@@ -415,10 +415,6 @@ func TestCompareAndSwapRaceCondition(t *testing.T) {
 
 // TestReconnection tests client reconnection behavior
 func TestReconnection(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping reconnection test in short mode")
-	}
-
 	logger, _ := zap.NewDevelopment()
 
 	// Start server
@@ -468,10 +464,6 @@ func TestReconnection(t *testing.T) {
 // TestReconnectionMessageIDReset tests that message IDs are reset after reconnection
 // This prevents the "id_reuse - Identifier values have to increase" error from HA
 func TestReconnectionMessageIDReset(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping reconnection message ID test in short mode")
-	}
-
 	logger, _ := zap.NewDevelopment()
 
 	// Start server

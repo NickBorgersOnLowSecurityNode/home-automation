@@ -5,10 +5,26 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
+)
+
+// Timer duration constants
+const (
+	// LockdownResetDelay is how long to wait before auto-resetting lockdown
+	LockdownResetDelay = 5 * time.Second
+
+	// DoorbellRateLimit is the minimum time between doorbell notifications
+	DoorbellRateLimit = 20 * time.Second
+
+	// DoorbellFlashDelay is the delay between light flashes for doorbell
+	DoorbellFlashDelay = 2 * time.Second
+
+	// VehicleArrivalRateLimit is the minimum time between vehicle arrival notifications
+	VehicleArrivalRateLimit = 20 * time.Second
 )
 
 // Manager handles security-related automation
@@ -17,6 +33,7 @@ type Manager struct {
 	stateManager *state.Manager
 	logger       *zap.Logger
 	readOnly     bool
+	clock        clock.Clock
 
 	// Subscriptions for cleanup
 	haSubscriptions    []ha.Subscription
@@ -35,9 +52,15 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		stateManager:       stateManager,
 		logger:             logger.Named("security"),
 		readOnly:           readOnly,
+		clock:              clock.NewRealClock(),
 		haSubscriptions:    make([]ha.Subscription, 0),
 		stateSubscriptions: make([]state.Subscription, 0),
 	}
+}
+
+// SetClock sets the clock implementation (useful for testing)
+func (m *Manager) SetClock(c clock.Clock) {
+	m.clock = c
 }
 
 // Start begins monitoring security-related events
@@ -159,7 +182,7 @@ func (m *Manager) handleLockdownActivated(entity string, oldState, newState *ha.
 
 		// Wait 5 seconds, then reset
 		go func() {
-			time.Sleep(5 * time.Second)
+			m.clock.Sleep(LockdownResetDelay)
 
 			if m.readOnly {
 				m.logger.Info("READ-ONLY: Would reset lockdown")
@@ -227,12 +250,12 @@ func (m *Manager) openGarageDoor() {
 func (m *Manager) handleDoorbellPressed(entity string, oldState, newState *ha.State) {
 	// Rate limit: max 1 notification per 20 seconds
 	m.mu.Lock()
-	if time.Since(m.lastDoorbellNotification) < 20*time.Second {
+	if m.clock.Since(m.lastDoorbellNotification) < DoorbellRateLimit {
 		m.logger.Info("Doorbell notification rate limited")
 		m.mu.Unlock()
 		return
 	}
-	m.lastDoorbellNotification = time.Now()
+	m.lastDoorbellNotification = m.clock.Now()
 	m.mu.Unlock()
 
 	m.logger.Info("Doorbell pressed, sending notifications")
@@ -256,7 +279,7 @@ func (m *Manager) flashLightsForDoorbell() {
 	m.flashLights(lights)
 
 	// Wait 2 seconds
-	time.Sleep(2 * time.Second)
+	m.clock.Sleep(DoorbellFlashDelay)
 
 	// Second flash
 	m.flashLights(lights)
@@ -293,12 +316,12 @@ func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.St
 
 	// Rate limit: max 1 notification per 20 seconds
 	m.mu.Lock()
-	if time.Since(m.lastVehicleArrivalNotification) < 20*time.Second {
+	if m.clock.Since(m.lastVehicleArrivalNotification) < VehicleArrivalRateLimit {
 		m.logger.Info("Vehicle arrival notification rate limited")
 		m.mu.Unlock()
 		return
 	}
-	m.lastVehicleArrivalNotification = time.Now()
+	m.lastVehicleArrivalNotification = m.clock.Now()
 	m.mu.Unlock()
 
 	m.logger.Info("Expected vehicle has arrived, sending notification")
