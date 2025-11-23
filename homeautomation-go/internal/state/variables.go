@@ -29,7 +29,7 @@ var AllVariables = []StateVariable{
 	{Key: "isToriHere", EntityID: "input_boolean.tori_here", Type: TypeBool, Default: false},
 	{Key: "isAnyOwnerHome", EntityID: "input_boolean.any_owner_home", Type: TypeBool, Default: false},
 	{Key: "isAnyoneHome", EntityID: "input_boolean.anyone_home", Type: TypeBool, Default: false},
-	{Key: "isAnyoneHomeAndAwake", EntityID: "input_boolean.anyone_home_and_awake", Type: TypeBool, Default: false},
+	{Key: "isAnyoneHomeAndAwake", EntityID: "input_boolean.anyone_home_and_awake", Type: TypeBool, Default: false, ComputedOutput: true},
 	{Key: "isMasterAsleep", EntityID: "input_boolean.master_asleep", Type: TypeBool, Default: false},
 	{Key: "isGuestAsleep", EntityID: "input_boolean.guest_asleep", Type: TypeBool, Default: false},
 	{Key: "isAnyoneAsleep", EntityID: "input_boolean.anyone_asleep", Type: TypeBool, Default: false},
