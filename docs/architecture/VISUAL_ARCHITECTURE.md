@@ -182,7 +182,15 @@ flowchart TD
     UseString --> UpdateCache
     ParseJSON --> UpdateCache
 
-    UpdateCache[Update State Manager Cache] --> NotifyPlugins{Any Plugin<br/>Subscriptions?}
+    UpdateCache[Update State Manager Cache] --> RecomputeDerived{Triggers<br/>Computed State?}
+
+    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>e.g. isAnyoneHomeAndAwake =<br/>isAnyoneHome && !isAnyoneAsleep]
+    RecomputeDerived -->|No| NotifyPlugins
+
+    Recompute --> SyncDerived[Sync Derived Value to HA]
+    SyncDerived --> NotifyPlugins
+
+    NotifyPlugins{Any Plugin<br/>Subscriptions?}
 
     NotifyPlugins -->|No| End2([End])
     NotifyPlugins -->|Yes| CallPluginHandlers[Call Plugin Handlers]
@@ -203,6 +211,8 @@ flowchart TD
 
     style Start fill:#e1f5ff
     style UpdateCache fill:#fff3e0
+    style RecomputeDerived fill:#fff3e0
+    style Recompute fill:#e8f5e9
     style PluginLogic fill:#e8f5e9
     style CallService fill:#ffebee
 ```
@@ -461,6 +471,7 @@ graph LR
         AnyoneHome[isAnyoneHome]
         AnyoneAsleep[isAnyoneAsleep]
         EveryoneAsleep[isEveryoneAsleep]
+        AnyoneHomeAndAwake[isAnyoneHomeAndAwake]
         DayPhase[dayPhase]
         BatteryLevel[batteryEnergyLevel]
         CurrentEnergy[currentEnergyLevel]
@@ -495,6 +506,9 @@ graph LR
     StateTracking --> AnyoneAsleep
     StateTracking --> EveryoneAsleep
 
+    AnyoneHome --> AnyoneHomeAndAwake
+    AnyoneAsleep --> AnyoneHomeAndAwake
+
     DayPhasePlugin --> DayPhase
 
     AnyoneHome --> Music
@@ -506,6 +520,7 @@ graph LR
     DayPhase --> Lighting
     AnyoneHome --> Lighting
     AnyoneAsleep --> Lighting
+    AnyoneHomeAndAwake --> Lighting
     TVPlaying --> Lighting
 
     BatteryPercent --> Energy
@@ -529,6 +544,7 @@ graph LR
     style AnyoneHome fill:#fff3e0
     style AnyoneAsleep fill:#fff3e0
     style EveryoneAsleep fill:#fff3e0
+    style AnyoneHomeAndAwake fill:#fff3e0
     style DayPhase fill:#fff3e0
     style BatteryLevel fill:#fff3e0
     style CurrentEnergy fill:#fff3e0
