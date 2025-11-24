@@ -40,7 +40,7 @@ The State Tracking tab is the **operational heart** of the home automation syste
 
 **Flow Logic:**
 ```
-HomeKit Input → set-shared-state → get-shared-state → 
+HomeKit Input → set-shared-state → get-shared-state →
 Are either of us home? (function) → isAnyoneHome (set-shared-state)
 ```
 
@@ -67,7 +67,7 @@ Move On → value (change node)
     ↓
 set-shared-state: "Master Asleep"
     ↓
-ALSO: get-shared-state → Move value to On → 
+ALSO: get-shared-state → Move value to On →
        HomeKit (bidirectional sync)
 ```
 
@@ -134,7 +134,7 @@ return msg  // Pass through - all conditions met
 
 **Pattern 1: HomeKit Bidirectional Sync**
 ```
-State Variable 
+State Variable
   ↓
 get-shared-state (triggers on change)
   ↓
@@ -395,7 +395,7 @@ schedule:
 - **Provides to Music Control**:
   - `isAnyoneHome`, `isEveryoneAsleep` (prevent music when sleeping/nobody home)
   - `isMasterAsleep`, `isGuestAsleep` (sleep-specific music behavior)
-  
+
 - **Provides to Lighting**:
   - `isAnyoneHome` (turn on/off lights based on presence)
   - `isMasterAsleep`, `isEveryoneAsleep` (night lighting modes)
@@ -404,11 +404,11 @@ schedule:
 ### Configuration → Other Tabs
 - **Provides to Music Control**:
   - `musicConfig` (speaker lists, playlists, volume settings)
-  
+
 - **Provides to Lighting Control**:
   - `hueConfig` (light IDs, group configurations, scene settings)
   - `dayPhase` (determines which lighting scene to apply)
-  
+
 - **Provides to Automation**:
   - `schedule` (timing for automated actions)
   - `dayPhase` (context for what automation should run)
