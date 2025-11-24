@@ -156,25 +156,55 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 // TestScenario_GridAvailability_RecalculatesFreeEnergy validates that when
 // grid availability changes, isFreeEnergyAvailable recalculates
 func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
-	_, _, manager, _, cleanup := setupEnergyScenarioTest(t)
-	defer cleanup()
+	// This test needs a controlled timezone to ensure consistent behavior.
+	// We use a timezone that makes current time 12:00 noon (outside free energy window 21:00-07:00).
+	// This is done by creating a custom setup instead of using setupEnergyScenarioTest.
 
-	// GIVEN: Grid is available, but not in free energy time window
-	t.Log("GIVEN: Grid is available, outside free energy time window")
-	err := manager.SetBool("isGridAvailable", true)
-	require.NoError(t, err)
+	server, client, manager, baseCleanup := setupTest(t)
+	defer baseCleanup()
+
+	// Load test energy config
+	configPath := filepath.Join("testdata", "energy_config_test.yaml")
+	energyConfig, err := energy.LoadConfig(configPath)
+	require.NoError(t, err, "Failed to load test energy config")
+
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create a timezone that makes current time 12:00 noon (clearly outside 21:00-07:00 window)
+	now := time.Now()
+	_, currentOffset := now.Zone()
+	// We want local time to be 12:00 noon
+	targetHour := 12
+	hoursToAdd := targetHour - now.Hour()
+	testTimezone := time.FixedZone("TEST_NOON", currentOffset+hoursToAdd*3600)
+
+	// Create energy plugin (NOT read-only so it can set states)
+	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone)
+	err = energyMgr.Start()
+	require.NoError(t, err, "Failed to start energy manager")
+	defer energyMgr.Stop()
+
+	// Give the plugin time to initialize
 	time.Sleep(300 * time.Millisecond)
 
-	// Check initial free energy state (should be false since we're in UTC daytime)
+	// GIVEN: Grid is available, outside free energy time window (12:00 noon)
+	t.Log("GIVEN: Grid is available, outside free energy time window (12:00 noon)")
+	err = manager.SetBool("isGridAvailable", true)
+	require.NoError(t, err)
+	time.Sleep(500 * time.Millisecond)
+
+	// Check initial free energy state - should be false since we're at noon (outside 21:00-07:00)
 	isFreeEnergy, err := manager.GetBool("isFreeEnergyAvailable")
 	require.NoError(t, err)
 	t.Logf("Initial free energy state: %v", isFreeEnergy)
+	assert.False(t, isFreeEnergy, "Free energy should be false at noon (outside 21:00-07:00 window)")
 
 	// WHEN: Grid goes offline
 	t.Log("WHEN: Grid goes offline")
 	err = manager.SetBool("isGridAvailable", false)
 	require.NoError(t, err)
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	// THEN: Free energy should be false (no grid = no free energy)
 	t.Log("THEN: Free energy should be false")
@@ -186,23 +216,55 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	t.Log("WHEN: Grid comes back online")
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
-	// THEN: Free energy recalculates based on time window
-	t.Log("THEN: Free energy recalculates")
-	_, err = manager.GetBool("isFreeEnergyAvailable")
+	// THEN: Free energy should still be false (we're at noon, outside the window)
+	t.Log("THEN: Free energy should still be false (noon is outside 21:00-07:00)")
+	isFreeEnergy, err = manager.GetBool("isFreeEnergyAvailable")
 	require.NoError(t, err)
-	// The actual value depends on the current time relative to free energy window (21:00-07:00)
+	assert.False(t, isFreeEnergy, "Free energy should be false at noon even with grid online")
+
+	// Verify service call was made
+	calls := server.GetServiceCalls()
+	t.Logf("Total service calls made: %d", len(calls))
 }
 
 // TestScenario_OverallEnergyLevel_ReflectsWorstState validates that the
 // currentEnergyLevel correctly reflects the worst state across battery/solar
 func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
-	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
-	defer cleanup()
+	// This test needs a controlled timezone to ensure we're outside the free energy window.
+	// During free energy time (21:00-07:00), currentEnergyLevel would be "white" instead of
+	// the expected battery/solar-derived levels.
+
+	server, client, manager, baseCleanup := setupTest(t)
+	defer baseCleanup()
+
+	// Load test energy config
+	configPath := filepath.Join("testdata", "energy_config_test.yaml")
+	energyConfig, err := energy.LoadConfig(configPath)
+	require.NoError(t, err, "Failed to load test energy config")
+
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create a timezone that makes current time 12:00 noon (clearly outside 21:00-07:00 window)
+	now := time.Now()
+	_, currentOffset := now.Zone()
+	targetHour := 12
+	hoursToAdd := targetHour - now.Hour()
+	testTimezone := time.FixedZone("TEST_NOON", currentOffset+hoursToAdd*3600)
+
+	// Create energy plugin
+	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone)
+	err = energyMgr.Start()
+	require.NoError(t, err, "Failed to start energy manager")
+	defer energyMgr.Stop()
+
+	// Give the plugin time to initialize
+	time.Sleep(300 * time.Millisecond)
 
 	// GIVEN: Battery at green (85%), solar at green (2kW, 15kWh)
-	t.Log("GIVEN: Battery green, solar green")
+	t.Log("GIVEN: Battery green, solar green (at noon, outside free energy window)")
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
@@ -214,10 +276,10 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	})
 	time.Sleep(500 * time.Millisecond)
 
-	// Verify overall level is green
+	// Verify overall level is green (not white, since we're outside free energy window)
 	overallLevel, err := manager.GetString("currentEnergyLevel")
 	require.NoError(t, err)
-	assert.Equal(t, "green", overallLevel, "Overall level should be green when both are green")
+	assert.Equal(t, "green", overallLevel, "Overall level should be green when both are green (outside free energy window)")
 
 	// WHEN: Battery drops to red (15%), solar still green
 	t.Log("WHEN: Battery drops to red, solar stays green")
