@@ -16,10 +16,11 @@ const (
 	minActionInterval = 1 * time.Hour
 
 	// Energy states
-	energyStateRed   = "red"
-	energyStateBlack = "black"
-	energyStateGreen = "green"
-	energyStateWhite = "white"
+	energyStateRed    = "red"
+	energyStateBlack  = "black"
+	energyStateYellow = "yellow"
+	energyStateGreen  = "green"
+	energyStateWhite  = "white"
 
 	// Thermostat entities
 	thermostatHoldHouse = "switch.most_of_house_thermostat_hold"
@@ -123,11 +124,15 @@ func (m *Manager) handleEnergyChange(key string, oldValue, newValue interface{})
 		zap.String("new_level", newLevel))
 
 	// Determine action based on new state
+	// Yellow is a hysteresis buffer - maintain current state to prevent rapid toggling
 	switch newLevel {
 	case energyStateRed, energyStateBlack:
 		m.enableLoadShedding(newLevel)
 	case energyStateGreen, energyStateWhite:
 		m.disableLoadShedding(newLevel)
+	case energyStateYellow:
+		m.logger.Info("Energy state is yellow - maintaining current load shedding state",
+			zap.String("reason", "Hysteresis buffer to prevent rapid toggling"))
 	default:
 		m.logger.Warn("Unknown energy state",
 			zap.String("state", newLevel))
