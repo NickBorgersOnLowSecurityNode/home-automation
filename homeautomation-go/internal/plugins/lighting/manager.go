@@ -118,6 +118,9 @@ func (m *Manager) handleDayPhaseChange(key string, oldValue, newValue interface{
 		return
 	}
 
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	m.logger.Info("Day phase changed, activating scenes",
 		zap.Any("old", oldValue),
 		zap.String("new", newPhase))
@@ -134,6 +137,9 @@ func (m *Manager) handleSunEventChange(key string, oldValue, newValue interface{
 		m.logger.Warn("Sun event value is not a string", zap.Any("value", newValue))
 		return
 	}
+
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
 
 	m.logger.Info("Sun event changed",
 		zap.Any("old", oldValue),
@@ -153,6 +159,9 @@ func (m *Manager) handleSunEventChange(key string, oldValue, newValue interface{
 
 // handlePresenceChange processes presence changes
 func (m *Manager) handlePresenceChange(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	m.logger.Info("Presence state changed",
 		zap.String("key", key),
 		zap.Any("old", oldValue),
@@ -170,6 +179,9 @@ func (m *Manager) handlePresenceChange(key string, oldValue, newValue interface{
 
 // handleTVStateChange processes TV state changes
 func (m *Manager) handleTVStateChange(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	m.logger.Info("TV state changed",
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
@@ -186,6 +198,9 @@ func (m *Manager) handleTVStateChange(key string, oldValue, newValue interface{}
 
 // handleSleepStateChange processes sleep state changes
 func (m *Manager) handleSleepStateChange(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	m.logger.Info("Sleep state changed",
 		zap.String("key", key),
 		zap.Any("old", oldValue),
