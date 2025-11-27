@@ -134,6 +134,11 @@ func main() {
 		logger.Fatal("Failed to sync state from HA", zap.Error(err))
 	}
 
+	// Setup computed state variables
+	if err := stateManager.SetupComputedState(); err != nil {
+		logger.Fatal("Failed to setup computed state", zap.Error(err))
+	}
+
 	// Create Shadow State Tracker
 	shadowTracker := shadowstate.NewTracker()
 	logger.Info("Shadow State Tracker created")
@@ -260,7 +265,7 @@ func displayState(manager *state.Manager, logger *zap.Logger) {
 	logger.Info("--- Boolean Variables ---")
 	boolVars := []string{
 		"isNickHome", "isCarolineHome", "isToriHere",
-		"isAnyOwnerHome", "isAnyoneHome",
+		"isAnyOwnerHome", "isAnyoneHome", "isAnyoneHomeAndAwake",
 		"isMasterAsleep", "isGuestAsleep", "isAnyoneAsleep", "isEveryoneAsleep",
 		"isGuestBedroomDoorOpen", "isHaveGuests",
 		"isAppleTVPlaying", "isTVPlaying", "isTVon",
