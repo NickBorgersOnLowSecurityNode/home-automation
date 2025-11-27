@@ -36,9 +36,9 @@ func main() {
 	}
 	defer logger.Sync()
 
-	// Load environment variables
+	// Load environment variables from .env file if present
 	if err := godotenv.Load(); err != nil {
-		logger.Warn("No .env file found, using environment variables")
+		logger.Info("No .env file found, using environment variables")
 	}
 
 	haURL := os.Getenv("HA_URL")
