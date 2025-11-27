@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -14,22 +15,26 @@ import (
 
 // Server provides HTTP API endpoints for the home automation system
 type Server struct {
-	stateManager *state.Manager
-	logger       *zap.Logger
-	server       *http.Server
+	stateManager  *state.Manager
+	shadowTracker *shadowstate.Tracker
+	logger        *zap.Logger
+	server        *http.Server
 }
 
 // NewServer creates a new API server
-func NewServer(stateManager *state.Manager, logger *zap.Logger, port int) *Server {
+func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, logger *zap.Logger, port int) *Server {
 	s := &Server{
-		stateManager: stateManager,
-		logger:       logger,
+		stateManager:  stateManager,
+		shadowTracker: shadowTracker,
+		logger:        logger,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleSitemap)
 	mux.HandleFunc("/api/state", s.handleGetState)
 	mux.HandleFunc("/api/states", s.handleGetStatesByPlugin)
+	mux.HandleFunc("/api/shadow", s.handleGetAllShadowStates)
+	mux.HandleFunc("/api/shadow/lighting", s.handleGetLightingShadowState)
 	mux.HandleFunc("/health", s.handleHealth)
 
 	s.server = &http.Server{
@@ -359,6 +364,16 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Description: "Get state variables grouped by plugin - shows which plugins use which variables",
 		},
 		{
+			Path:        "/api/shadow",
+			Method:      "GET",
+			Description: "Get shadow state for all plugins - shows current inputs, inputs at last action, and outputs",
+		},
+		{
+			Path:        "/api/shadow/lighting",
+			Method:      "GET",
+			Description: "Get shadow state for lighting plugin - shows room states and lighting decisions",
+		},
+		{
 			Path:        "/health",
 			Method:      "GET",
 			Description: "Health check endpoint - returns {\"status\": \"ok\"}",
@@ -451,6 +466,77 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Sitemap request served",
 		zap.String("remote_addr", r.RemoteAddr),
 		zap.Bool("html_format", preferHTML))
+}
+
+// handleGetLightingShadowState returns the shadow state for the lighting plugin
+func (s *Server) handleGetLightingShadowState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	state, ok := s.shadowTracker.GetPluginState("lighting")
+	if !ok {
+		http.Error(w, "Lighting shadow state not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Debug("Lighting shadow state request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// AllShadowStatesResponse represents the response for /api/shadow endpoint
+type AllShadowStatesResponse struct {
+	Plugins  map[string]interface{} `json:"plugins"`
+	Metadata ShadowMetadata         `json:"metadata"`
+}
+
+// ShadowMetadata contains metadata about the shadow state response
+type ShadowMetadata struct {
+	Timestamp time.Time `json:"timestamp"`
+	Version   string    `json:"version"`
+}
+
+// handleGetAllShadowStates returns shadow states for all plugins
+func (s *Server) handleGetAllShadowStates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	allStates := s.shadowTracker.GetAllPluginStates()
+
+	// Convert to map[string]interface{} for JSON encoding
+	pluginsData := make(map[string]interface{})
+	for name, state := range allStates {
+		pluginsData[name] = state
+	}
+
+	response := AllShadowStatesResponse{
+		Plugins: pluginsData,
+		Metadata: ShadowMetadata{
+			Timestamp: time.Now(),
+			Version:   "1.0.0",
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode shadow states response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Debug("All shadow states request served",
+		zap.String("remote_addr", r.RemoteAddr),
+		zap.Int("plugin_count", len(allStates)))
 }
 
 // Start begins serving HTTP requests
