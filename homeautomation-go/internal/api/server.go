@@ -36,6 +36,7 @@ func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, 
 	mux.HandleFunc("/api/shadow", s.handleGetAllShadowStates)
 	mux.HandleFunc("/api/shadow/lighting", s.handleGetLightingShadowState)
 	mux.HandleFunc("/api/shadow/music", s.handleGetMusicShadowState)
+	mux.HandleFunc("/api/shadow/security", s.handleGetSecurityShadowState)
 	mux.HandleFunc("/health", s.handleHealth)
 
 	s.server = &http.Server{
@@ -380,6 +381,11 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Description: "Get shadow state for music plugin - shows current mode, playlist, speaker group, and playback state",
 		},
 		{
+			Path:        "/api/shadow/security",
+			Method:      "GET",
+			Description: "Get shadow state for security plugin - shows lockdown status, doorbell events, and garage actions",
+		},
+		{
 			Path:        "/health",
 			Method:      "GET",
 			Description: "Health check endpoint - returns {\"status\": \"ok\"}",
@@ -519,6 +525,30 @@ func (s *Server) handleGetMusicShadowState(w http.ResponseWriter, r *http.Reques
 	}
 
 	s.logger.Debug("Music shadow state request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// handleGetSecurityShadowState returns the shadow state for the security plugin
+func (s *Server) handleGetSecurityShadowState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	state, ok := s.shadowTracker.GetPluginState("security")
+	if !ok {
+		http.Error(w, "Security shadow state not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Debug("Security shadow state request served",
 		zap.String("remote_addr", r.RemoteAddr))
 }
 

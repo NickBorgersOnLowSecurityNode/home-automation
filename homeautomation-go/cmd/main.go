@@ -19,6 +19,7 @@ import (
 	"homeautomation/internal/plugins/loadshedding"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/reset"
+	"homeautomation/internal/plugins/security"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/shadowstate"
@@ -210,6 +211,20 @@ func main() {
 	})
 	logger.Info("Registered lighting shadow state with tracker")
 
+	// Start Security Manager
+	securityManager := security.NewManager(client, stateManager, logger, readOnly)
+	if err := securityManager.Start(); err != nil {
+		logger.Fatal("Failed to start Security Manager", zap.Error(err))
+	}
+	defer securityManager.Stop()
+	logger.Info("Security Manager started successfully")
+
+	// Register security shadow state provider with tracker
+	shadowTracker.RegisterPluginProvider("security", func() shadowstate.PluginShadowState {
+		return securityManager.GetShadowState()
+	})
+	logger.Info("Registered security shadow state with tracker")
+
 	// Start Sleep Hygiene Manager
 	sleepHygieneManager, err := startSleepHygieneManager(client, stateManager, logger, readOnly, configDir)
 	if err != nil {
@@ -233,6 +248,7 @@ func main() {
 		{Name: "Load Shedding", Plugin: loadSheddingManager},
 		{Name: "Lighting", Plugin: lightingManager},
 		{Name: "Music", Plugin: musicManager},
+		{Name: "Security", Plugin: securityManager},
 		{Name: "Sleep Hygiene", Plugin: sleepHygieneManager},
 	})
 	if err := resetCoordinator.Start(); err != nil {

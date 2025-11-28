@@ -112,6 +112,20 @@ type MusicInputs struct {
 	AtLastAction map[string]interface{} `json:"atLastAction"`
 }
 
+// SecurityShadowState represents the shadow state for the security plugin
+type SecurityShadowState struct {
+	Plugin   string          `json:"plugin"`
+	Inputs   SecurityInputs  `json:"inputs"`
+	Outputs  SecurityOutputs `json:"outputs"`
+	Metadata StateMetadata   `json:"metadata"`
+}
+
+// SecurityInputs tracks current and last-action input values
+type SecurityInputs struct {
+	Current      map[string]interface{} `json:"current"`
+	AtLastAction map[string]interface{} `json:"atLastAction"`
+}
+
 // MusicOutputs tracks the state of music control outputs
 type MusicOutputs struct {
 	CurrentMode      string         `json:"currentMode,omitempty"` // e.g., "morning", "working", "evening"
@@ -176,6 +190,85 @@ func NewMusicShadowState() *MusicShadowState {
 		Metadata: StateMetadata{
 			LastUpdated: time.Now(),
 			PluginName:  "music",
+		},
+	}
+}
+
+// SecurityOutputs tracks the state of security control outputs
+type SecurityOutputs struct {
+	Lockdown       LockdownState        `json:"lockdown"`
+	LastDoorbell   *DoorbellEvent       `json:"lastDoorbell,omitempty"`
+	LastVehicle    *VehicleArrivalEvent `json:"lastVehicle,omitempty"`
+	LastGarageOpen *GarageOpenEvent     `json:"lastGarageOpen,omitempty"`
+	LastActionTime time.Time            `json:"lastActionTime"`
+}
+
+// LockdownState represents the current lockdown status
+type LockdownState struct {
+	Active      bool      `json:"active"`
+	Reason      string    `json:"reason,omitempty"`
+	ActivatedAt time.Time `json:"activatedAt,omitempty"`
+	WillResetAt time.Time `json:"willResetAt,omitempty"`
+}
+
+// DoorbellEvent represents a doorbell press event
+type DoorbellEvent struct {
+	Timestamp     time.Time `json:"timestamp"`
+	RateLimited   bool      `json:"rateLimited"`
+	TTSSent       bool      `json:"ttsSent"`
+	LightsFlashed bool      `json:"lightsFlashed"`
+}
+
+// VehicleArrivalEvent represents a vehicle arrival notification
+type VehicleArrivalEvent struct {
+	Timestamp    time.Time `json:"timestamp"`
+	RateLimited  bool      `json:"rateLimited"`
+	TTSSent      bool      `json:"ttsSent"`
+	WasExpecting bool      `json:"wasExpecting"`
+}
+
+// GarageOpenEvent represents a garage auto-open event
+type GarageOpenEvent struct {
+	Timestamp      time.Time `json:"timestamp"`
+	Reason         string    `json:"reason"`
+	GarageWasEmpty bool      `json:"garageWasEmpty"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (s *SecurityShadowState) GetCurrentInputs() map[string]interface{} {
+	return s.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (s *SecurityShadowState) GetLastActionInputs() map[string]interface{} {
+	return s.Inputs.AtLastAction
+}
+
+// GetOutputs implements PluginShadowState
+func (s *SecurityShadowState) GetOutputs() interface{} {
+	return s.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (s *SecurityShadowState) GetMetadata() StateMetadata {
+	return s.Metadata
+}
+
+// NewSecurityShadowState creates a new security shadow state
+func NewSecurityShadowState() *SecurityShadowState {
+	return &SecurityShadowState{
+		Plugin: "security",
+		Inputs: SecurityInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: SecurityOutputs{
+			Lockdown:       LockdownState{},
+			LastActionTime: time.Time{},
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "security",
 		},
 	}
 }
