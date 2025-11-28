@@ -21,6 +21,7 @@ import (
 	"homeautomation/internal/plugins/reset"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/plugins/statetracking"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"github.com/joho/godotenv"
@@ -138,8 +139,12 @@ func main() {
 		logger.Fatal("Failed to setup computed state", zap.Error(err))
 	}
 
+	// Create Shadow State Tracker
+	shadowTracker := shadowstate.NewTracker()
+	logger.Info("Shadow State Tracker created")
+
 	// Start HTTP API server
-	apiServer := api.NewServer(stateManager, logger, httpPort)
+	apiServer := api.NewServer(stateManager, shadowTracker, logger, httpPort)
 	if err := apiServer.Start(); err != nil {
 		logger.Fatal("Failed to start HTTP API server", zap.Error(err))
 	}
@@ -192,6 +197,12 @@ func main() {
 		logger.Fatal("Failed to start Lighting Manager", zap.Error(err))
 	}
 	defer lightingManager.Stop()
+
+	// Register lighting shadow state provider with tracker
+	shadowTracker.RegisterPluginProvider("lighting", func() shadowstate.PluginShadowState {
+		return lightingManager.GetShadowState()
+	})
+	logger.Info("Registered lighting shadow state with tracker")
 
 	// Start Sleep Hygiene Manager
 	sleepHygieneManager, err := startSleepHygieneManager(client, stateManager, logger, readOnly, configDir)

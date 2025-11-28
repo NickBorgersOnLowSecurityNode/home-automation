@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -30,7 +31,8 @@ func TestHandleGetState(t *testing.T) {
 	stateManager.SetString("musicPlaybackType", "default")
 
 	// Create API server
-	server := NewServer(stateManager, logger, 8080)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/state", nil)
@@ -104,7 +106,8 @@ func TestHandleGetStateMethodNotAllowed(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	server := NewServer(stateManager, logger, 8080)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/api/state", nil)
@@ -121,7 +124,8 @@ func TestHandleHealth(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	server := NewServer(stateManager, logger, 8080)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
@@ -146,7 +150,8 @@ func TestHandleSitemap(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	server := NewServer(stateManager, logger, 8080)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -196,7 +201,8 @@ func TestHandleSitemapHTML(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	server := NewServer(stateManager, logger, 8080)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "text/html")
@@ -248,7 +254,8 @@ func TestHandleSitemapMethodNotAllowed(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	server := NewServer(stateManager, logger, 8080)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -265,7 +272,8 @@ func TestHandleSitemapNonRootPath(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	server := NewServer(stateManager, logger, 8080)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
 
 	// Test non-root path (should return 404 without sitemap)
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
@@ -318,7 +326,8 @@ func TestHandleGetStatesByPlugin(t *testing.T) {
 	stateManager.SetString("currentEnergyLevel", "green")
 
 	// Create API server
-	server := NewServer(stateManager, logger, 8080)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/states", nil)
@@ -449,7 +458,8 @@ func TestHandleGetStatesByPluginMethodNotAllowed(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	server := NewServer(stateManager, logger, 8080)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/api/states", nil)
@@ -467,7 +477,8 @@ func TestHandleGetStatesByPluginEmptyState(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	server := NewServer(stateManager, logger, 8080)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/states", nil)
 	w := httptest.NewRecorder()

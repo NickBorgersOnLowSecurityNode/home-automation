@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -13,11 +14,12 @@ import (
 
 // Manager handles lighting control and scene activation
 type Manager struct {
-	haClient     ha.HAClient
-	stateManager *state.Manager
-	config       *HueConfig
-	logger       *zap.Logger
-	readOnly     bool
+	haClient      ha.HAClient
+	stateManager  *state.Manager
+	config        *HueConfig
+	logger        *zap.Logger
+	readOnly      bool
+	shadowTracker *shadowstate.LightingTracker
 
 	// Subscriptions for cleanup
 	subscriptions []state.Subscription
@@ -31,6 +33,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueCo
 		config:        config,
 		logger:        logger.Named("lighting"),
 		readOnly:      readOnly,
+		shadowTracker: shadowstate.NewLightingTracker(),
 		subscriptions: make([]state.Subscription, 0),
 	}
 }
@@ -38,6 +41,9 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueCo
 // Start begins monitoring lighting state and triggers
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Lighting Control Manager")
+
+	// Initialize shadow state with current input values
+	m.updateShadowInputs()
 
 	// Subscribe to day phase changes
 	sub, err := m.stateManager.Subscribe("dayPhase", m.handleDayPhaseChange)
@@ -112,6 +118,9 @@ func (m *Manager) handleDayPhaseChange(key string, oldValue, newValue interface{
 		return
 	}
 
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	m.logger.Info("Day phase changed, activating scenes",
 		zap.Any("old", oldValue),
 		zap.String("new", newPhase))
@@ -128,6 +137,9 @@ func (m *Manager) handleSunEventChange(key string, oldValue, newValue interface{
 		m.logger.Warn("Sun event value is not a string", zap.Any("value", newValue))
 		return
 	}
+
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
 
 	m.logger.Info("Sun event changed",
 		zap.Any("old", oldValue),
@@ -147,6 +159,9 @@ func (m *Manager) handleSunEventChange(key string, oldValue, newValue interface{
 
 // handlePresenceChange processes presence changes
 func (m *Manager) handlePresenceChange(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	m.logger.Info("Presence state changed",
 		zap.String("key", key),
 		zap.Any("old", oldValue),
@@ -164,6 +179,9 @@ func (m *Manager) handlePresenceChange(key string, oldValue, newValue interface{
 
 // handleTVStateChange processes TV state changes
 func (m *Manager) handleTVStateChange(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	m.logger.Info("TV state changed",
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
@@ -180,6 +198,9 @@ func (m *Manager) handleTVStateChange(key string, oldValue, newValue interface{}
 
 // handleSleepStateChange processes sleep state changes
 func (m *Manager) handleSleepStateChange(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	m.logger.Info("Sleep state changed",
 		zap.String("key", key),
 		zap.Any("old", oldValue),
@@ -421,6 +442,11 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
 		zap.String("room", room.HueGroup),
 		zap.String("scene", dayPhase),
 		zap.String("entity_id", sceneEntityID))
+
+	// Record action in shadow state
+	m.recordAction(room.HueGroup, "activate_scene",
+		fmt.Sprintf("Activated scene '%s'", dayPhase),
+		dayPhase, false)
 }
 
 // turnOffRoom turns off lights in a room
@@ -457,6 +483,9 @@ func (m *Manager) turnOffRoom(room *RoomConfig) {
 
 	m.logger.Info("Room turned off successfully",
 		zap.String("room", room.HueGroup))
+
+	// Record action in shadow state
+	m.recordAction(room.HueGroup, "turn_off", "Turned off room", "", true)
 }
 
 // Reset re-applies lighting scenes for all rooms based on current day phase
@@ -477,4 +506,51 @@ func (m *Manager) Reset() error {
 
 	m.logger.Info("Successfully reset Lighting Control")
 	return nil
+}
+
+// updateShadowInputs updates the current shadow state inputs
+func (m *Manager) updateShadowInputs() {
+	inputs := make(map[string]interface{})
+
+	// Get all subscribed variables
+	if val, err := m.stateManager.GetString("dayPhase"); err == nil {
+		inputs["dayPhase"] = val
+	}
+	if val, err := m.stateManager.GetString("sunevent"); err == nil {
+		inputs["sunevent"] = val
+	}
+	if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
+		inputs["isAnyoneHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isTVPlaying"); err == nil {
+		inputs["isTVPlaying"] = val
+	}
+	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
+		inputs["isEveryoneAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
+		inputs["isMasterAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isHaveGuests"); err == nil {
+		inputs["isHaveGuests"] = val
+	}
+
+	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
+// recordAction captures the current inputs and records an action in shadow state
+func (m *Manager) recordAction(roomName string, actionType string, reason string, activeScene string, turnedOff bool) {
+	// First, update current inputs
+	m.updateShadowInputs()
+
+	// Snapshot inputs for this action
+	m.shadowTracker.SnapshotInputsForAction()
+
+	// Record the action
+	m.shadowTracker.RecordRoomAction(roomName, actionType, reason, activeScene, turnedOff)
+}
+
+// GetShadowState returns the current shadow state
+func (m *Manager) GetShadowState() *shadowstate.LightingShadowState {
+	return m.shadowTracker.GetState()
 }
