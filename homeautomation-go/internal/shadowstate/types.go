@@ -272,3 +272,91 @@ func NewSecurityShadowState() *SecurityShadowState {
 		},
 	}
 }
+
+// SleepHygieneShadowState represents the shadow state for the sleep hygiene plugin
+type SleepHygieneShadowState struct {
+	Plugin   string              `json:"plugin"`
+	Inputs   SleepHygieneInputs  `json:"inputs"`
+	Outputs  SleepHygieneOutputs `json:"outputs"`
+	Metadata StateMetadata       `json:"metadata"`
+}
+
+// SleepHygieneInputs tracks current and last-action input values
+type SleepHygieneInputs struct {
+	Current      map[string]interface{} `json:"current"`
+	AtLastAction map[string]interface{} `json:"atLastAction"`
+}
+
+// SleepHygieneOutputs tracks the state of sleep hygiene outputs
+type SleepHygieneOutputs struct {
+	WakeSequenceStatus  string                    `json:"wakeSequenceStatus"` // "inactive", "begin_wake", "wake_in_progress", "complete"
+	FadeOutProgress     map[string]SpeakerFadeOut `json:"fadeOutProgress"`    // Speaker entity ID -> fade out state
+	LastTTSAnnouncement *TTSAnnouncement          `json:"lastTTSAnnouncement,omitempty"`
+	StopScreensReminder *ReminderTrigger          `json:"stopScreensReminder,omitempty"`
+	GoToBedReminder     *ReminderTrigger          `json:"goToBedReminder,omitempty"`
+	LastActionTime      time.Time                 `json:"lastActionTime"`
+	LastActionType      string                    `json:"lastActionType,omitempty"` // "begin_wake", "wake", "stop_screens", "go_to_bed", "cancel_wake"
+	LastActionReason    string                    `json:"lastActionReason,omitempty"`
+}
+
+// SpeakerFadeOut represents the fade-out state of a single speaker
+type SpeakerFadeOut struct {
+	SpeakerEntityID string    `json:"speakerEntityID"`
+	CurrentVolume   int       `json:"currentVolume"`
+	StartVolume     int       `json:"startVolume"`
+	IsActive        bool      `json:"isActive"` // Is fade-out currently in progress
+	StartTime       time.Time `json:"startTime"`
+	LastUpdate      time.Time `json:"lastUpdate"`
+}
+
+// TTSAnnouncement represents a TTS announcement that was made
+type TTSAnnouncement struct {
+	Message   string    `json:"message"`
+	Speaker   string    `json:"speaker"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// ReminderTrigger represents a reminder trigger (screen stop or bedtime)
+type ReminderTrigger struct {
+	Triggered bool      `json:"triggered"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (s *SleepHygieneShadowState) GetCurrentInputs() map[string]interface{} {
+	return s.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (s *SleepHygieneShadowState) GetLastActionInputs() map[string]interface{} {
+	return s.Inputs.AtLastAction
+}
+
+// GetOutputs implements PluginShadowState
+func (s *SleepHygieneShadowState) GetOutputs() interface{} {
+	return s.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (s *SleepHygieneShadowState) GetMetadata() StateMetadata {
+	return s.Metadata
+}
+
+// NewSleepHygieneShadowState creates a new sleep hygiene shadow state
+func NewSleepHygieneShadowState() *SleepHygieneShadowState {
+	return &SleepHygieneShadowState{
+		Plugin: "sleephygiene",
+		Inputs: SleepHygieneInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: SleepHygieneOutputs{
+			WakeSequenceStatus: "inactive",
+			FadeOutProgress:    make(map[string]SpeakerFadeOut),
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "sleephygiene",
+		},
+	}
+}

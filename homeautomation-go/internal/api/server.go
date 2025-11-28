@@ -37,6 +37,7 @@ func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, 
 	mux.HandleFunc("/api/shadow/lighting", s.handleGetLightingShadowState)
 	mux.HandleFunc("/api/shadow/music", s.handleGetMusicShadowState)
 	mux.HandleFunc("/api/shadow/security", s.handleGetSecurityShadowState)
+	mux.HandleFunc("/api/shadow/sleephygiene", s.handleGetSleepHygieneShadowState)
 	mux.HandleFunc("/health", s.handleHealth)
 
 	s.server = &http.Server{
@@ -386,6 +387,11 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Description: "Get shadow state for security plugin - shows lockdown status, doorbell events, and garage actions",
 		},
 		{
+			Path:        "/api/shadow/sleephygiene",
+			Method:      "GET",
+			Description: "Get shadow state for sleep hygiene plugin - shows wake sequence status, fade-out progress, TTS announcements, and reminders",
+		},
+		{
 			Path:        "/health",
 			Method:      "GET",
 			Description: "Health check endpoint - returns {\"status\": \"ok\"}",
@@ -549,6 +555,30 @@ func (s *Server) handleGetSecurityShadowState(w http.ResponseWriter, r *http.Req
 	}
 
 	s.logger.Debug("Security shadow state request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// handleGetSleepHygieneShadowState returns the sleep hygiene plugin shadow state
+func (s *Server) handleGetSleepHygieneShadowState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	state, ok := s.shadowTracker.GetPluginState("sleephygiene")
+	if !ok {
+		http.Error(w, "Sleep hygiene shadow state not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Debug("Sleep hygiene shadow state request served",
 		zap.String("remote_addr", r.RemoteAddr))
 }
 

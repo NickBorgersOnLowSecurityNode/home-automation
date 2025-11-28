@@ -232,6 +232,12 @@ func main() {
 	}
 	defer sleepHygieneManager.Stop()
 
+	// Register sleep hygiene shadow state provider with tracker
+	shadowTracker.RegisterPluginProvider("sleephygiene", func() shadowstate.PluginShadowState {
+		return sleepHygieneManager.GetShadowState()
+	})
+	logger.Info("Registered sleep hygiene shadow state with tracker")
+
 	// Start Load Shedding Manager
 	loadSheddingManager := loadshedding.NewManager(client, stateManager, logger, readOnly)
 	if err := loadSheddingManager.Start(); err != nil {
