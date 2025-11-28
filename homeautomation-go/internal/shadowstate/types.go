@@ -429,3 +429,286 @@ func NewSleepHygieneShadowState() *SleepHygieneShadowState {
 		},
 	}
 }
+
+// ============================================================================
+// Phase 6: Read-Heavy Plugin Shadow States
+// ============================================================================
+
+// EnergyShadowState represents the shadow state for the energy plugin
+type EnergyShadowState struct {
+	Plugin   string        `json:"plugin"`
+	Inputs   EnergyInputs  `json:"inputs"`
+	Outputs  EnergyOutputs `json:"outputs"`
+	Metadata StateMetadata `json:"metadata"`
+}
+
+// EnergyInputs tracks current sensor values (no at-last-action for read-heavy plugins)
+type EnergyInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// EnergyOutputs tracks computed energy state values
+type EnergyOutputs struct {
+	BatteryEnergyLevel         string               `json:"batteryEnergyLevel"`
+	SolarProductionEnergyLevel string               `json:"solarProductionEnergyLevel"`
+	CurrentEnergyLevel         string               `json:"currentEnergyLevel"`
+	IsFreeEnergyAvailable      bool                 `json:"isFreeEnergyAvailable"`
+	LastComputations           EnergyComputations   `json:"lastComputations"`
+	SensorReadings             EnergySensorReadings `json:"sensorReadings"`
+}
+
+// EnergyComputations tracks when various energy calculations were last performed
+type EnergyComputations struct {
+	LastBatteryLevelCalc time.Time `json:"lastBatteryLevelCalc,omitempty"`
+	LastSolarLevelCalc   time.Time `json:"lastSolarLevelCalc,omitempty"`
+	LastFreeEnergyCheck  time.Time `json:"lastFreeEnergyCheck,omitempty"`
+	LastOverallLevelCalc time.Time `json:"lastOverallLevelCalc,omitempty"`
+}
+
+// EnergySensorReadings tracks raw sensor values from Home Assistant
+type EnergySensorReadings struct {
+	BatteryPercentage           float64   `json:"batteryPercentage"`
+	ThisHourSolarGenerationKW   float64   `json:"thisHourSolarGenerationKW"`
+	RemainingSolarGenerationKWH float64   `json:"remainingSolarGenerationKWH"`
+	IsGridAvailable             bool      `json:"isGridAvailable"`
+	LastUpdate                  time.Time `json:"lastUpdate"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (e *EnergyShadowState) GetCurrentInputs() map[string]interface{} {
+	return e.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+// For read-heavy plugins, this returns the same as current (no actions to track)
+func (e *EnergyShadowState) GetLastActionInputs() map[string]interface{} {
+	return e.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (e *EnergyShadowState) GetOutputs() interface{} {
+	return e.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (e *EnergyShadowState) GetMetadata() StateMetadata {
+	return e.Metadata
+}
+
+// NewEnergyShadowState creates a new energy shadow state
+func NewEnergyShadowState() *EnergyShadowState {
+	return &EnergyShadowState{
+		Plugin: "energy",
+		Inputs: EnergyInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: EnergyOutputs{
+			LastComputations: EnergyComputations{},
+			SensorReadings:   EnergySensorReadings{},
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "energy",
+		},
+	}
+}
+
+// StateTrackingShadowState represents the shadow state for the state tracking plugin
+type StateTrackingShadowState struct {
+	Plugin   string               `json:"plugin"`
+	Inputs   StateTrackingInputs  `json:"inputs"`
+	Outputs  StateTrackingOutputs `json:"outputs"`
+	Metadata StateMetadata        `json:"metadata"`
+}
+
+// StateTrackingInputs tracks current input sensor states
+type StateTrackingInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// StateTrackingOutputs tracks computed derived states and timer states
+type StateTrackingOutputs struct {
+	DerivedStates    DerivedStates        `json:"derivedStates"`
+	TimerStates      StateTrackingTimers  `json:"timerStates"`
+	LastAnnouncement *ArrivalAnnouncement `json:"lastAnnouncement,omitempty"`
+	LastComputation  time.Time            `json:"lastComputation"`
+}
+
+// DerivedStates tracks the computed presence/sleep states
+type DerivedStates struct {
+	IsAnyOwnerHome   bool `json:"isAnyOwnerHome"`
+	IsAnyoneHome     bool `json:"isAnyoneHome"`
+	IsAnyoneAsleep   bool `json:"isAnyoneAsleep"`
+	IsEveryoneAsleep bool `json:"isEveryoneAsleep"`
+}
+
+// StateTrackingTimers tracks the status of detection timers
+type StateTrackingTimers struct {
+	SleepDetectionActive    bool      `json:"sleepDetectionActive"`
+	SleepDetectionStarted   time.Time `json:"sleepDetectionStarted,omitempty"`
+	WakeDetectionActive     bool      `json:"wakeDetectionActive"`
+	WakeDetectionStarted    time.Time `json:"wakeDetectionStarted,omitempty"`
+	OwnerReturnResetActive  bool      `json:"ownerReturnResetActive"`
+	OwnerReturnResetStarted time.Time `json:"ownerReturnResetStarted,omitempty"`
+}
+
+// ArrivalAnnouncement tracks the last TTS arrival announcement made
+type ArrivalAnnouncement struct {
+	Person    string    `json:"person"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (s *StateTrackingShadowState) GetCurrentInputs() map[string]interface{} {
+	return s.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (s *StateTrackingShadowState) GetLastActionInputs() map[string]interface{} {
+	return s.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (s *StateTrackingShadowState) GetOutputs() interface{} {
+	return s.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (s *StateTrackingShadowState) GetMetadata() StateMetadata {
+	return s.Metadata
+}
+
+// NewStateTrackingShadowState creates a new state tracking shadow state
+func NewStateTrackingShadowState() *StateTrackingShadowState {
+	return &StateTrackingShadowState{
+		Plugin: "statetracking",
+		Inputs: StateTrackingInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: StateTrackingOutputs{
+			DerivedStates: DerivedStates{},
+			TimerStates:   StateTrackingTimers{},
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "statetracking",
+		},
+	}
+}
+
+// DayPhaseShadowState represents the shadow state for the day phase plugin
+type DayPhaseShadowState struct {
+	Plugin   string          `json:"plugin"`
+	Inputs   DayPhaseInputs  `json:"inputs"`
+	Outputs  DayPhaseOutputs `json:"outputs"`
+	Metadata StateMetadata   `json:"metadata"`
+}
+
+// DayPhaseInputs tracks current time and sun position inputs
+type DayPhaseInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// DayPhaseOutputs tracks computed day phase and sun event values
+type DayPhaseOutputs struct {
+	SunEvent            string    `json:"sunevent"`
+	DayPhase            string    `json:"dayPhase"`
+	LastSunEventCalc    time.Time `json:"lastSunEventCalc,omitempty"`
+	LastDayPhaseCalc    time.Time `json:"lastDayPhaseCalc,omitempty"`
+	NextTransitionTime  time.Time `json:"nextTransitionTime,omitempty"`
+	NextTransitionPhase string    `json:"nextTransitionPhase,omitempty"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (d *DayPhaseShadowState) GetCurrentInputs() map[string]interface{} {
+	return d.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (d *DayPhaseShadowState) GetLastActionInputs() map[string]interface{} {
+	return d.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (d *DayPhaseShadowState) GetOutputs() interface{} {
+	return d.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (d *DayPhaseShadowState) GetMetadata() StateMetadata {
+	return d.Metadata
+}
+
+// NewDayPhaseShadowState creates a new day phase shadow state
+func NewDayPhaseShadowState() *DayPhaseShadowState {
+	return &DayPhaseShadowState{
+		Plugin: "dayphase",
+		Inputs: DayPhaseInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: DayPhaseOutputs{},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "dayphase",
+		},
+	}
+}
+
+// TVShadowState represents the shadow state for the TV plugin
+type TVShadowState struct {
+	Plugin   string        `json:"plugin"`
+	Inputs   TVInputs      `json:"inputs"`
+	Outputs  TVOutputs     `json:"outputs"`
+	Metadata StateMetadata `json:"metadata"`
+}
+
+// TVInputs tracks current TV-related entity states
+type TVInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// TVOutputs tracks computed TV states
+type TVOutputs struct {
+	IsAppleTVPlaying bool      `json:"isAppleTVPlaying"`
+	IsTVOn           bool      `json:"isTVOn"`
+	IsTVPlaying      bool      `json:"isTVPlaying"`
+	CurrentHDMIInput string    `json:"currentHDMIInput,omitempty"`
+	AppleTVState     string    `json:"appleTVState,omitempty"`
+	LastUpdate       time.Time `json:"lastUpdate"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (t *TVShadowState) GetCurrentInputs() map[string]interface{} {
+	return t.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (t *TVShadowState) GetLastActionInputs() map[string]interface{} {
+	return t.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (t *TVShadowState) GetOutputs() interface{} {
+	return t.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (t *TVShadowState) GetMetadata() StateMetadata {
+	return t.Metadata
+}
+
+// NewTVShadowState creates a new TV shadow state
+func NewTVShadowState() *TVShadowState {
+	return &TVShadowState{
+		Plugin: "tv",
+		Inputs: TVInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: TVOutputs{},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "tv",
+		},
+	}
+}
