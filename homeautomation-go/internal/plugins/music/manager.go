@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -69,6 +70,10 @@ type Manager struct {
 	playbackInProgress bool
 	mu                 sync.RWMutex // Protects playback state
 
+	// Shadow state tracking
+	shadowState *shadowstate.MusicShadowState
+	shadowMu    sync.RWMutex // Protects shadow state
+
 	// Subscriptions for cleanup
 	subscriptions []state.Subscription
 }
@@ -87,6 +92,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Music
 		readOnly:           readOnly,
 		timeProvider:       timeProvider,
 		playlistNumbers:    make(map[string]int),
+		shadowState:        shadowstate.NewMusicShadowState(),
 		subscriptions:      make([]state.Subscription, 0),
 		playbackInProgress: false,
 	}
@@ -463,6 +469,8 @@ func (m *Manager) orchestratePlayback(musicType string) error {
 			zap.String("type", musicType),
 			zap.String("lead_player", leadPlayer),
 			zap.Int("participant_count", len(participants)))
+		// Record shadow state even in read-only mode
+		m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer)
 		return nil
 	}
 
@@ -470,6 +478,9 @@ func (m *Manager) orchestratePlayback(musicType string) error {
 	if err := m.executePlayback(musicType, playbackOption, participants, leadPlayer); err != nil {
 		return fmt.Errorf("failed to execute playback: %w", err)
 	}
+
+	// Record shadow state after successful playback
+	m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer)
 
 	return nil
 }
@@ -842,4 +853,141 @@ func (m *Manager) Reset() error {
 
 	m.logger.Info("Successfully reset Music")
 	return nil
+}
+
+// captureCurrentInputs snapshots all subscribed state variables
+func (m *Manager) captureCurrentInputs() map[string]interface{} {
+	inputs := make(map[string]interface{})
+
+	// Capture all subscribed variables
+	if val, err := m.stateManager.GetString("dayPhase"); err == nil && val != "" {
+		inputs["dayPhase"] = val
+	}
+	if val, err := m.stateManager.GetBool("isAnyoneAsleep"); err == nil {
+		inputs["isAnyoneAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
+		inputs["isAnyoneHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
+		inputs["isMasterAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
+		inputs["isEveryoneAsleep"] = val
+	}
+
+	return inputs
+}
+
+// updateShadowState records an action in the shadow state
+func (m *Manager) updateShadowState(actionType, reason string) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	// Capture current inputs
+	currentInputs := m.captureCurrentInputs()
+
+	// If this is the first action or inputs changed, snapshot at-last-action
+	if len(m.shadowState.Inputs.AtLastAction) == 0 {
+		m.shadowState.Inputs.AtLastAction = currentInputs
+	} else {
+		// Copy current inputs to at-last-action
+		m.shadowState.Inputs.AtLastAction = make(map[string]interface{})
+		for k, v := range currentInputs {
+			m.shadowState.Inputs.AtLastAction[k] = v
+		}
+	}
+
+	// Always update current inputs
+	m.shadowState.Inputs.Current = currentInputs
+
+	// Update outputs
+	m.shadowState.Outputs.LastActionTime = m.timeProvider.Now()
+	m.shadowState.Outputs.LastActionType = actionType
+	m.shadowState.Outputs.LastActionReason = reason
+
+	// Update metadata
+	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
+}
+
+// updateShadowOutputs updates the output portion of shadow state
+func (m *Manager) updateShadowOutputs(mode string, playlist *shadowstate.PlaylistInfo, speakers []shadowstate.SpeakerState) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	if mode != "" {
+		m.shadowState.Outputs.CurrentMode = mode
+	}
+	if playlist != nil {
+		m.shadowState.Outputs.ActivePlaylist = *playlist
+	}
+	if speakers != nil {
+		m.shadowState.Outputs.SpeakerGroup = speakers
+	}
+
+	// Copy playlist rotation state
+	m.mu.RLock()
+	for k, v := range m.playlistNumbers {
+		m.shadowState.Outputs.PlaylistRotation[k] = v
+	}
+	m.mu.RUnlock()
+
+	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
+}
+
+// GetShadowState returns the current shadow state (implements ShadowStateProvider)
+func (m *Manager) GetShadowState() *shadowstate.MusicShadowState {
+	m.shadowMu.RLock()
+	defer m.shadowMu.RUnlock()
+
+	// Return a deep copy to avoid race conditions
+	shadowCopy := *m.shadowState
+
+	// Deep copy maps and slices
+	shadowCopy.Inputs.Current = make(map[string]interface{})
+	for k, v := range m.shadowState.Inputs.Current {
+		shadowCopy.Inputs.Current[k] = v
+	}
+
+	shadowCopy.Inputs.AtLastAction = make(map[string]interface{})
+	for k, v := range m.shadowState.Inputs.AtLastAction {
+		shadowCopy.Inputs.AtLastAction[k] = v
+	}
+
+	shadowCopy.Outputs.SpeakerGroup = make([]shadowstate.SpeakerState, len(m.shadowState.Outputs.SpeakerGroup))
+	copy(shadowCopy.Outputs.SpeakerGroup, m.shadowState.Outputs.SpeakerGroup)
+
+	shadowCopy.Outputs.PlaylistRotation = make(map[string]int)
+	for k, v := range m.shadowState.Outputs.PlaylistRotation {
+		shadowCopy.Outputs.PlaylistRotation[k] = v
+	}
+
+	return &shadowCopy
+}
+
+// recordPlaybackShadowState records shadow state after playback orchestration
+func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption PlaybackOption, participants []ParticipantWithVolume, leadPlayer string) {
+	// Convert participants to shadow state speaker format
+	speakers := make([]shadowstate.SpeakerState, 0, len(participants))
+	for _, p := range participants {
+		speakers = append(speakers, shadowstate.SpeakerState{
+			PlayerName:    p.PlayerName,
+			Volume:        p.Volume,
+			BaseVolume:    p.BaseVolume,
+			DefaultVolume: p.DefaultVolume,
+			IsLeader:      p.PlayerName == leadPlayer,
+		})
+	}
+
+	// Create playlist info
+	playlistInfo := &shadowstate.PlaylistInfo{
+		URI:       playbackOption.URI,
+		Name:      "", // Name is not available in PlaybackOption
+		MediaType: playbackOption.MediaType,
+	}
+
+	// Record the action
+	reason := fmt.Sprintf("Started playback of '%s' in mode '%s'", playbackOption.URI, musicType)
+	m.updateShadowState("start_playback", reason)
+	m.updateShadowOutputs(musicType, playlistInfo, speakers)
 }

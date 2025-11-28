@@ -192,6 +192,12 @@ func main() {
 	}
 	defer musicManager.Stop()
 
+	// Register music shadow state provider with tracker
+	shadowTracker.RegisterPluginProvider("music", func() shadowstate.PluginShadowState {
+		return musicManager.GetShadowState()
+	})
+	logger.Info("Registered music shadow state with tracker")
+
 	// Start Lighting Manager
 	lightingManager, err := startLightingManager(client, stateManager, logger, readOnly, configDir)
 	if err != nil {
