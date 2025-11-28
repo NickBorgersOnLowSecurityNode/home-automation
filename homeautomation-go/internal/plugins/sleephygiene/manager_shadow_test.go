@@ -372,3 +372,165 @@ func TestSleepHygieneShadowState_InterfaceImplementation(t *testing.T) {
 		t.Errorf("Expected PluginName to be 'sleephygiene', got %s", metadata.PluginName)
 	}
 }
+
+// TestSleepHygieneShadowState_CancelWake tests cancel wake shadow state tracking
+func TestSleepHygieneShadowState_CancelWake(t *testing.T) {
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
+	mockConfig := &config.Loader{}
+
+	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil)
+
+	// Set up wake sequence state
+	stateManager.SetString("musicPlaybackType", "wakeup")
+	manager.shadowTracker.UpdateWakeSequenceStatus("wake_in_progress")
+	manager.shadowTracker.RecordFadeOutStart("media_player.bedroom", 50)
+
+	// Simulate bedroom lights turning off during wake sequence
+	manager.handleBedroomLightsOff("off")
+
+	shadowState := manager.GetShadowState()
+
+	// Verify cancel wake action recorded
+	if shadowState.Outputs.LastActionType != "cancel_wake" {
+		t.Errorf("Expected LastActionType to be 'cancel_wake', got %s", shadowState.Outputs.LastActionType)
+	}
+
+	// Verify wake sequence status reset to inactive
+	if shadowState.Outputs.WakeSequenceStatus != "inactive" {
+		t.Errorf("Expected WakeSequenceStatus to be 'inactive', got %s", shadowState.Outputs.WakeSequenceStatus)
+	}
+
+	// Verify fade-out progress cleared
+	if len(shadowState.Outputs.FadeOutProgress) != 0 {
+		t.Errorf("Expected FadeOutProgress to be empty after cancel, got %d entries", len(shadowState.Outputs.FadeOutProgress))
+	}
+}
+
+// TestSleepHygieneShadowState_BedroomLightsChange tests bedroom lights change handler
+func TestSleepHygieneShadowState_BedroomLightsChange(t *testing.T) {
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
+	mockConfig := &config.Loader{}
+
+	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil)
+
+	// Set up wake sequence state
+	stateManager.SetString("musicPlaybackType", "wakeup")
+	manager.shadowTracker.UpdateWakeSequenceStatus("wake_in_progress")
+
+	// Simulate bedroom lights state change
+	newState := &ha.State{
+		EntityID: "light.master_bedroom",
+		State:    "off",
+	}
+
+	manager.handleBedroomLightsChange("light.master_bedroom", nil, newState)
+
+	shadowState := manager.GetShadowState()
+
+	// Verify cancel wake was triggered
+	if shadowState.Outputs.LastActionType != "cancel_wake" {
+		t.Errorf("Expected LastActionType to be 'cancel_wake', got %s", shadowState.Outputs.LastActionType)
+	}
+}
+
+// TestSleepHygieneShadowState_BedroomLightsNoCancel tests that cancel wake doesn't trigger inappropriately
+func TestSleepHygieneShadowState_BedroomLightsNoCancel(t *testing.T) {
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
+	mockConfig := &config.Loader{}
+
+	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil)
+
+	// Set up non-wakeup music
+	stateManager.SetString("musicPlaybackType", "sleep")
+
+	// Record an initial action
+	manager.recordAction("test_action", "test reason")
+
+	// Simulate bedroom lights turning off (should not cancel wake)
+	manager.handleBedroomLightsOff("off")
+
+	shadowState := manager.GetShadowState()
+
+	// Verify cancel wake was NOT triggered
+	if shadowState.Outputs.LastActionType == "cancel_wake" {
+		t.Error("Expected cancel_wake to not be triggered when not in wake sequence")
+	}
+}
+
+// TestSleepHygieneShadowState_HandleGoToBed tests go to bed handler with various conditions
+func TestSleepHygieneShadowState_HandleGoToBed(t *testing.T) {
+	testCases := []struct {
+		name              string
+		isAnyoneHome      bool
+		isEveryoneAsleep  bool
+		shouldTrigger     bool
+		setupStateManager func(*state.Manager)
+	}{
+		{
+			name:             "No one home - should not trigger",
+			isAnyoneHome:     false,
+			isEveryoneAsleep: false,
+			shouldTrigger:    false,
+			setupStateManager: func(sm *state.Manager) {
+				sm.SetBool("isAnyoneHome", false)
+				sm.SetBool("isEveryoneAsleep", false)
+			},
+		},
+		{
+			name:             "Everyone asleep - should not trigger",
+			isAnyoneHome:     true,
+			isEveryoneAsleep: true,
+			shouldTrigger:    false,
+			setupStateManager: func(sm *state.Manager) {
+				sm.SetBool("isAnyoneHome", true)
+				sm.SetBool("isEveryoneAsleep", true)
+			},
+		},
+		{
+			name:             "Someone home and awake - should trigger",
+			isAnyoneHome:     true,
+			isEveryoneAsleep: false,
+			shouldTrigger:    true,
+			setupStateManager: func(sm *state.Manager) {
+				sm.SetBool("isAnyoneHome", true)
+				sm.SetBool("isEveryoneAsleep", false)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := ha.NewMockClient()
+			stateManager := state.NewManager(mockClient, zap.NewNop(), false)
+			mockConfig := &config.Loader{}
+
+			manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil)
+
+			// Set up state
+			tc.setupStateManager(stateManager)
+
+			// Handle go to bed
+			manager.handleGoToBed()
+
+			shadowState := manager.GetShadowState()
+
+			if tc.shouldTrigger {
+				// Verify reminder was recorded
+				if shadowState.Outputs.GoToBedReminder == nil {
+					t.Error("Expected GoToBedReminder to be set")
+				}
+				if shadowState.Outputs.LastActionType != "go_to_bed" {
+					t.Errorf("Expected LastActionType to be 'go_to_bed', got %s", shadowState.Outputs.LastActionType)
+				}
+			} else {
+				// Verify reminder was NOT recorded
+				if shadowState.Outputs.GoToBedReminder != nil {
+					t.Error("Expected GoToBedReminder to not be set")
+				}
+			}
+		})
+	}
+}

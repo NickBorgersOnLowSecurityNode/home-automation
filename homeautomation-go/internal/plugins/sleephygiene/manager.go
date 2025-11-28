@@ -387,6 +387,10 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 		if err != nil || !isFadeOut {
 			m.logger.Info("Fade out aborted - isFadeOutInProgress is false",
 				zap.String("speaker", speakerEntityID))
+
+			// Mark fade-out as inactive in shadow state
+			m.shadowTracker.UpdateFadeOutProgress(speakerEntityID, 0)
+
 			return
 		}
 
@@ -396,6 +400,17 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 			m.logger.Info("Sleep music stopped, cancelling fade out",
 				zap.String("speaker", speakerEntityID),
 				zap.String("current_music_type", musicType))
+
+			// Clear fade-out state on abort
+			if !m.readOnly {
+				if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
+					m.logger.Error("Failed to clear isFadeOutInProgress", zap.Error(err))
+				}
+			}
+
+			// Mark fade-out as inactive in shadow state
+			m.shadowTracker.UpdateFadeOutProgress(speakerEntityID, 0)
+
 			return
 		}
 

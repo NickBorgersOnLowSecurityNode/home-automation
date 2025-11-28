@@ -383,3 +383,247 @@ func TestLightingTrackerMetadataUpdates(t *testing.T) {
 func TestLightingShadowStateImplementsInterface(t *testing.T) {
 	var _ PluginShadowState = (*LightingShadowState)(nil)
 }
+
+// SleepHygieneTracker tests
+
+func TestNewSleepHygieneTracker(t *testing.T) {
+	st := NewSleepHygieneTracker()
+	if st == nil {
+		t.Fatal("NewSleepHygieneTracker returned nil")
+	}
+	if st.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestSleepHygieneTrackerUpdateCurrentInputs(t *testing.T) {
+	st := NewSleepHygieneTracker()
+
+	inputs := map[string]interface{}{
+		"isMasterAsleep":    true,
+		"musicPlaybackType": "sleep",
+		"alarmTime":         float64(1234567890000),
+	}
+
+	st.UpdateCurrentInputs(inputs)
+
+	state := st.GetState()
+	if state.Inputs.Current["isMasterAsleep"] != true {
+		t.Errorf("Expected isMasterAsleep to be true, got %v", state.Inputs.Current["isMasterAsleep"])
+	}
+	if state.Inputs.Current["musicPlaybackType"] != "sleep" {
+		t.Errorf("Expected musicPlaybackType to be 'sleep', got %v", state.Inputs.Current["musicPlaybackType"])
+	}
+}
+
+func TestSleepHygieneTrackerSnapshotInputsForAction(t *testing.T) {
+	st := NewSleepHygieneTracker()
+
+	// Set initial inputs
+	inputs := map[string]interface{}{
+		"isMasterAsleep": true,
+	}
+	st.UpdateCurrentInputs(inputs)
+
+	// Snapshot
+	st.SnapshotInputsForAction()
+
+	// Change current inputs
+	newInputs := map[string]interface{}{
+		"isMasterAsleep": false,
+	}
+	st.UpdateCurrentInputs(newInputs)
+
+	state := st.GetState()
+
+	// Current should be false
+	if state.Inputs.Current["isMasterAsleep"] != false {
+		t.Errorf("Expected current isMasterAsleep to be false, got %v", state.Inputs.Current["isMasterAsleep"])
+	}
+
+	// At last action should be true
+	if state.Inputs.AtLastAction["isMasterAsleep"] != true {
+		t.Errorf("Expected atLastAction isMasterAsleep to be true, got %v", state.Inputs.AtLastAction["isMasterAsleep"])
+	}
+}
+
+func TestSleepHygieneTrackerRecordAction(t *testing.T) {
+	st := NewSleepHygieneTracker()
+
+	st.RecordAction("begin_wake", "Starting wake sequence")
+
+	state := st.GetState()
+
+	if state.Outputs.LastActionType != "begin_wake" {
+		t.Errorf("Expected action type 'begin_wake', got %s", state.Outputs.LastActionType)
+	}
+	if state.Outputs.LastActionReason != "Starting wake sequence" {
+		t.Errorf("Expected reason 'Starting wake sequence', got %s", state.Outputs.LastActionReason)
+	}
+	if state.Outputs.LastActionTime.IsZero() {
+		t.Error("Expected LastActionTime to be set")
+	}
+}
+
+func TestSleepHygieneTrackerUpdateWakeSequenceStatus(t *testing.T) {
+	st := NewSleepHygieneTracker()
+
+	// Initial status should be inactive
+	state := st.GetState()
+	if state.Outputs.WakeSequenceStatus != "inactive" {
+		t.Errorf("Expected initial status to be 'inactive', got %s", state.Outputs.WakeSequenceStatus)
+	}
+
+	// Update to begin_wake
+	st.UpdateWakeSequenceStatus("begin_wake")
+	state = st.GetState()
+	if state.Outputs.WakeSequenceStatus != "begin_wake" {
+		t.Errorf("Expected status to be 'begin_wake', got %s", state.Outputs.WakeSequenceStatus)
+	}
+}
+
+func TestSleepHygieneTrackerFadeOutProgress(t *testing.T) {
+	st := NewSleepHygieneTracker()
+
+	// Record fade out start
+	st.RecordFadeOutStart("media_player.bedroom", 60)
+
+	state := st.GetState()
+	fadeOut, exists := state.Outputs.FadeOutProgress["media_player.bedroom"]
+	if !exists {
+		t.Fatal("Expected fade out progress for media_player.bedroom")
+	}
+	if fadeOut.StartVolume != 60 {
+		t.Errorf("Expected start volume 60, got %d", fadeOut.StartVolume)
+	}
+	if fadeOut.CurrentVolume != 60 {
+		t.Errorf("Expected current volume 60, got %d", fadeOut.CurrentVolume)
+	}
+	if !fadeOut.IsActive {
+		t.Error("Expected IsActive to be true")
+	}
+
+	// Update progress
+	st.UpdateFadeOutProgress("media_player.bedroom", 30)
+	state = st.GetState()
+	fadeOut = state.Outputs.FadeOutProgress["media_player.bedroom"]
+	if fadeOut.CurrentVolume != 30 {
+		t.Errorf("Expected current volume 30, got %d", fadeOut.CurrentVolume)
+	}
+
+	// Complete fade out
+	st.UpdateFadeOutProgress("media_player.bedroom", 0)
+	state = st.GetState()
+	fadeOut = state.Outputs.FadeOutProgress["media_player.bedroom"]
+	if fadeOut.IsActive {
+		t.Error("Expected IsActive to be false when volume reaches 0")
+	}
+
+	// Clear fade out progress
+	st.ClearFadeOutProgress()
+	state = st.GetState()
+	if len(state.Outputs.FadeOutProgress) != 0 {
+		t.Error("Expected fade out progress to be cleared")
+	}
+}
+
+func TestSleepHygieneTrackerRecordTTSAnnouncement(t *testing.T) {
+	st := NewSleepHygieneTracker()
+
+	st.RecordTTSAnnouncement("Time to cuddle", "media_player.bedroom")
+
+	state := st.GetState()
+	if state.Outputs.LastTTSAnnouncement == nil {
+		t.Fatal("Expected TTS announcement to be set")
+	}
+	if state.Outputs.LastTTSAnnouncement.Message != "Time to cuddle" {
+		t.Errorf("Expected message 'Time to cuddle', got %s", state.Outputs.LastTTSAnnouncement.Message)
+	}
+	if state.Outputs.LastTTSAnnouncement.Speaker != "media_player.bedroom" {
+		t.Errorf("Expected speaker 'media_player.bedroom', got %s", state.Outputs.LastTTSAnnouncement.Speaker)
+	}
+}
+
+func TestSleepHygieneTrackerRecordReminders(t *testing.T) {
+	st := NewSleepHygieneTracker()
+
+	// Record stop screens reminder
+	st.RecordStopScreensReminder()
+	state := st.GetState()
+	if state.Outputs.StopScreensReminder == nil {
+		t.Fatal("Expected StopScreensReminder to be set")
+	}
+	if !state.Outputs.StopScreensReminder.Triggered {
+		t.Error("Expected StopScreensReminder.Triggered to be true")
+	}
+
+	// Record go to bed reminder
+	st.RecordGoToBedReminder()
+	state = st.GetState()
+	if state.Outputs.GoToBedReminder == nil {
+		t.Fatal("Expected GoToBedReminder to be set")
+	}
+	if !state.Outputs.GoToBedReminder.Triggered {
+		t.Error("Expected GoToBedReminder.Triggered to be true")
+	}
+}
+
+func TestSleepHygieneTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	st := NewSleepHygieneTracker()
+
+	// Set initial state
+	inputs := map[string]interface{}{
+		"isMasterAsleep": true,
+	}
+	st.UpdateCurrentInputs(inputs)
+
+	// Get state
+	state1 := st.GetState()
+
+	// Modify the returned state
+	state1.Inputs.Current["isMasterAsleep"] = false
+
+	// Get state again
+	state2 := st.GetState()
+
+	// Original should be unchanged
+	if state2.Inputs.Current["isMasterAsleep"] != true {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestSleepHygieneTrackerConcurrentAccess(t *testing.T) {
+	st := NewSleepHygieneTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				st.UpdateWakeSequenceStatus("test")
+				st.RecordFadeOutStart("media_player.test", 50)
+				st.UpdateFadeOutProgress("media_player.test", 25)
+			}
+		}()
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = st.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestSleepHygieneShadowStateImplementsInterface(t *testing.T) {
+	var _ PluginShadowState = (*SleepHygieneShadowState)(nil)
+}
