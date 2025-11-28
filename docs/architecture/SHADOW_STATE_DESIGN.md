@@ -82,12 +82,14 @@ Structure mirrors the existing plugin architecture 1:1 for maintainability.
 
 ## Implementation Phases
 
-### Phase 1: Core Infrastructure + Lighting Plugin (Pilot) ✅ COMPLETE
+### Phase 1: Core Infrastructure + Lighting Plugin (Pilot) ✅ **COMPLETE**
+
+**Status:** ✅ Merged in PR #112 (2025-11-28)
 
 **1.1 Create Shadow State Package** ✅
-- `internal/shadowstate/tracker.go` - Core tracker
-- `internal/shadowstate/types.go` - Common types (InputSnapshot, ActionRecord, etc.)
-- Thread-safe recording with mutexes
+- `internal/shadowstate/tracker.go` - Core tracker with thread-safe access
+- `internal/shadowstate/types.go` - Common types (PluginShadowState, InputSnapshot, ActionRecord, StateMetadata, LightingShadowState)
+- Thread-safe recording with RWMutex
 
 **1.2 Define Common Interfaces** ✅
 ```go
@@ -104,455 +106,59 @@ type PluginShadowState interface {
 - Snapshot inputs on every action
 - Track output state: active scene per room, last action, reason
 - Implement `GetShadowState()` on `lighting.Manager`
+- Update current inputs on EVERY state change (not just actions)
 
-**1.4 Add API Endpoint** ✅
+**1.4 Add API Endpoints** ✅
 - `/api/shadow/lighting` - Returns lighting shadow state
-- `/api/shadow` - Returns all plugin shadow states (aggregate endpoint)
+- `/api/shadow` - Returns all plugin shadow states
 - Test with existing lighting triggers
 
-**Validation:** ✅
+**Validation:**
 - ✅ Changing `dayPhase` shows up in current inputs
 - ✅ Scene activation snapshots inputs and records output
 - ✅ API returns both current and at-last-action values
+- ✅ Current inputs update on every subscribed variable change
+- ✅ Thread-safe concurrent access
 
 **Implementation Notes:**
-- Shadow state types defined in `internal/shadowstate/types.go`
-- Lighting-specific types: `LightingShadowState`, `LightingInputs`, `LightingOutputs`, `RoomState`
-- Each plugin implements the `PluginShadowState` interface
-- API endpoints registered in `internal/api/server.go`
+- Used `LightingTracker` struct to encapsulate lighting-specific shadow state logic
+- Current inputs update on EVERY subscribed variable change (via `updateShadowInputs()`)
+- Inputs snapshot taken only when actions are recorded (via `SnapshotInputsForAction()`)
+- Deep copies prevent race conditions in concurrent reads
+- Tracker supports both static registration and dynamic providers for flexibility
 
 ---
 
-### Phase 2: Music Plugin ✅ COMPLETE
-
-**2.1 Define Music Shadow State Types** ✅ (in `internal/shadowstate/types.go`)
-
-Add the following types following the lighting pattern:
-
-```go
-// MusicShadowState represents the shadow state for the music plugin
-type MusicShadowState struct {
-	Plugin   string        `json:"plugin"`
-	Inputs   MusicInputs   `json:"inputs"`
-	Outputs  MusicOutputs  `json:"outputs"`
-	Metadata StateMetadata `json:"metadata"`
-}
-
-// MusicInputs tracks current and last-action input values
-type MusicInputs struct {
-	Current      map[string]interface{} `json:"current"`
-	AtLastAction map[string]interface{} `json:"atLastAction"`
-}
-
-// MusicOutputs tracks the state of music control outputs
-type MusicOutputs struct {
-	CurrentMode        string                     `json:"currentMode,omitempty"`        // e.g., "morning", "working", "evening"
-	ActivePlaylist     PlaylistInfo               `json:"activePlaylist,omitempty"`
-	SpeakerGroup       []SpeakerState             `json:"speakerGroup,omitempty"`
-	FadeState          string                     `json:"fadeState"`                    // "idle", "fading_in", "fading_out"
-	PlaylistRotation   map[string]int             `json:"playlistRotation"`             // Music type -> playlist number
-	LastActionTime     time.Time                  `json:"lastActionTime"`
-	LastActionType     string                     `json:"lastActionType,omitempty"`     // "select_mode", "start_playback", "fade_out", etc.
-	LastActionReason   string                     `json:"lastActionReason,omitempty"`
-}
-
-// PlaylistInfo represents the currently playing playlist
-type PlaylistInfo struct {
-	URI       string `json:"uri"`
-	Name      string `json:"name,omitempty"`
-	MediaType string `json:"mediaType"`
-}
-
-// SpeakerState represents a single speaker's state
-type SpeakerState struct {
-	PlayerName    string `json:"playerName"`
-	Volume        int    `json:"volume"`
-	BaseVolume    int    `json:"baseVolume"`
-	DefaultVolume int    `json:"defaultVolume"`
-	IsLeader      bool   `json:"isLeader"`
-}
-
-// Implement PluginShadowState interface
-func (m *MusicShadowState) GetCurrentInputs() map[string]interface{} {
-	return m.Inputs.Current
-}
-
-func (m *MusicShadowState) GetLastActionInputs() map[string]interface{} {
-	return m.Inputs.AtLastAction
-}
-
-func (m *MusicShadowState) GetOutputs() interface{} {
-	return m.Outputs
-}
-
-func (m *MusicShadowState) GetMetadata() StateMetadata {
-	return m.Metadata
-}
-
-// NewMusicShadowState creates a new music shadow state
-func NewMusicShadowState() *MusicShadowState {
-	return &MusicShadowState{
-		Plugin: "music",
-		Inputs: MusicInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: MusicOutputs{
-			SpeakerGroup:     make([]SpeakerState, 0),
-			PlaylistRotation: make(map[string]int),
-			FadeState:        "idle",
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "music",
-		},
-	}
-}
-```
-
-**2.2 Add Shadow State to Music Manager** (in `internal/plugins/music/manager.go`)
-
-Add shadow state field and initialization:
-
-```go
-type Manager struct {
-	// ... existing fields ...
-
-	// Shadow state tracking
-	shadowState *shadowstate.MusicShadowState
-	shadowMu    sync.RWMutex // Protects shadow state
-}
-
-func NewManager(...) *Manager {
-	return &Manager{
-		// ... existing initialization ...
-		shadowState: shadowstate.NewMusicShadowState(),
-	}
-}
-```
-
-**2.3 Implement Shadow State Tracking Methods**
-
-Add methods to capture current inputs and record actions:
-
-```go
-// captureCurrentInputs snapshots all subscribed state variables
-func (m *Manager) captureCurrentInputs() map[string]interface{} {
-	inputs := make(map[string]interface{})
-
-	// Capture all subscribed variables
-	if val, _ := m.stateManager.GetString("dayPhase"); val != "" {
-		inputs["dayPhase"] = val
-	}
-	if val, _ := m.stateManager.GetBool("isAnyoneAsleep"); true {
-		inputs["isAnyoneAsleep"] = val
-	}
-	if val, _ := m.stateManager.GetBool("isAnyoneHome"); true {
-		inputs["isAnyoneHome"] = val
-	}
-	if val, _ := m.stateManager.GetBool("isMasterAsleep"); true {
-		inputs["isMasterAsleep"] = val
-	}
-	if val, _ := m.stateManager.GetBool("isEveryoneAsleep"); true {
-		inputs["isEveryoneAsleep"] = val
-	}
-
-	return inputs
-}
-
-// updateShadowState records an action in the shadow state
-func (m *Manager) updateShadowState(actionType, reason string) {
-	m.shadowMu.Lock()
-	defer m.shadowMu.Unlock()
-
-	// Capture current inputs
-	currentInputs := m.captureCurrentInputs()
-
-	// If this is the first action or inputs changed, snapshot at-last-action
-	if len(m.shadowState.Inputs.AtLastAction) == 0 {
-		m.shadowState.Inputs.AtLastAction = currentInputs
-	} else {
-		// Copy current inputs to at-last-action
-		m.shadowState.Inputs.AtLastAction = make(map[string]interface{})
-		for k, v := range currentInputs {
-			m.shadowState.Inputs.AtLastAction[k] = v
-		}
-	}
-
-	// Always update current inputs
-	m.shadowState.Inputs.Current = currentInputs
-
-	// Update outputs
-	m.shadowState.Outputs.LastActionTime = time.Now()
-	m.shadowState.Outputs.LastActionType = actionType
-	m.shadowState.Outputs.LastActionReason = reason
-
-	// Update metadata
-	m.shadowState.Metadata.LastUpdated = time.Now()
-}
-
-// updateShadowOutputs updates the output portion of shadow state
-func (m *Manager) updateShadowOutputs(mode string, playlist *PlaylistInfo, speakers []SpeakerState) {
-	m.shadowMu.Lock()
-	defer m.shadowMu.Unlock()
-
-	if mode != "" {
-		m.shadowState.Outputs.CurrentMode = mode
-	}
-	if playlist != nil {
-		m.shadowState.Outputs.ActivePlaylist = *playlist
-	}
-	if speakers != nil {
-		m.shadowState.Outputs.SpeakerGroup = speakers
-	}
-
-	// Copy playlist rotation state
-	m.mu.RLock()
-	for k, v := range m.playlistNumbers {
-		m.shadowState.Outputs.PlaylistRotation[k] = v
-	}
-	m.mu.RUnlock()
-
-	m.shadowState.Metadata.LastUpdated = time.Now()
-}
-
-// GetShadowState returns the current shadow state (implements ShadowStateProvider)
-func (m *Manager) GetShadowState() *shadowstate.MusicShadowState {
-	m.shadowMu.RLock()
-	defer m.shadowMu.RUnlock()
-
-	// Return a deep copy to avoid race conditions
-	copy := *m.shadowState
-
-	// Deep copy maps and slices
-	copy.Inputs.Current = make(map[string]interface{})
-	for k, v := range m.shadowState.Inputs.Current {
-		copy.Inputs.Current[k] = v
-	}
-
-	copy.Inputs.AtLastAction = make(map[string]interface{})
-	for k, v := range m.shadowState.Inputs.AtLastAction {
-		copy.Inputs.AtLastAction[k] = v
-	}
-
-	copy.Outputs.SpeakerGroup = make([]shadowstate.SpeakerState, len(m.shadowState.Outputs.SpeakerGroup))
-	copy(copy.Outputs.SpeakerGroup, m.shadowState.Outputs.SpeakerGroup)
-
-	copy.Outputs.PlaylistRotation = make(map[string]int)
-	for k, v := range m.shadowState.Outputs.PlaylistRotation {
-		copy.Outputs.PlaylistRotation[k] = v
-	}
-
-	return &copy
-}
-```
-
-**2.4 Integrate Shadow State Recording into Music Logic**
-
-Update existing methods to record shadow state:
-
-```go
-// In selectMusicMode():
-func (m *Manager) selectMusicMode() (string, error) {
-	// ... existing mode selection logic ...
-
-	selectedMode := // ... mode selection result ...
-
-	// Record shadow state
-	m.updateShadowState("select_mode",
-		fmt.Sprintf("Selected mode '%s' based on dayPhase='%s', isAnyoneAsleep=%v",
-			selectedMode, dayPhase, isAnyoneAsleep))
-	m.updateShadowOutputs(selectedMode, nil, nil)
-
-	return selectedMode, nil
-}
-
-// In playMusic():
-func (m *Manager) playMusic(mode string, playlist *Playlist) error {
-	// ... existing playback logic ...
-
-	// Build speaker group and volumes
-	speakers := m.buildSpeakerGroup(playlist)
-
-	// Record shadow state
-	playlistInfo := &shadowstate.PlaylistInfo{
-		URI:       playlist.URI,
-		Name:      playlist.Name,
-		MediaType: "music",
-	}
-	m.updateShadowState("start_playback",
-		fmt.Sprintf("Started playback of '%s' in mode '%s'", playlist.Name, mode))
-	m.updateShadowOutputs(mode, playlistInfo, speakers)
-
-	// ... continue with playback ...
-}
-
-// Helper to convert speakers to shadow state format
-func (m *Manager) buildSpeakerGroup(playlist *Playlist) []shadowstate.SpeakerState {
-	speakers := make([]shadowstate.SpeakerState, 0)
-
-	// Add leader
-	speakers = append(speakers, shadowstate.SpeakerState{
-		PlayerName:    playlist.LeadPlayer,
-		Volume:        /* calculated volume */,
-		BaseVolume:    /* base volume */,
-		DefaultVolume: /* default volume */,
-		IsLeader:      true,
-	})
-
-	// Add participants
-	for _, p := range playlist.Participants {
-		speakers = append(speakers, shadowstate.SpeakerState{
-			PlayerName:    p.PlayerName,
-			Volume:        /* calculated volume */,
-			BaseVolume:    p.BaseVolume,
-			DefaultVolume: p.DefaultVolume,
-			IsLeader:      false,
-		})
-	}
-
-	return speakers
-}
-```
-
-**2.5 Add API Endpoint** (in `internal/api/server.go`)
-
-```go
-// Register endpoint
-mux.HandleFunc("/api/shadow/music", s.handleGetMusicShadowState)
-
-// Add to API documentation
-{
-	Path:        "/api/shadow/music",
-	Method:      "GET",
-	Description: "Get music plugin shadow state",
-},
-
-// Handler
-func (s *Server) handleGetMusicShadowState(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	shadowState := s.musicManager.GetShadowState()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(shadowState)
-}
-
-// Update AllShadowStatesResponse to include music
-type AllShadowStatesResponse struct {
-	Plugins struct {
-		Lighting *shadowstate.LightingShadowState `json:"lighting,omitempty"`
-		Music    *shadowstate.MusicShadowState    `json:"music,omitempty"`
-	} `json:"plugins"`
-	Metadata ShadowMetadata `json:"metadata"`
-}
-```
-
-**2.6 Testing**
-
-Create `manager_shadow_test.go` in `internal/plugins/music/`:
-
-```go
-func TestMusicShadowState_CaptureInputs(t *testing.T) {
-	// Test that all subscribed inputs are captured
-}
-
-func TestMusicShadowState_RecordAction(t *testing.T) {
-	// Test that actions update shadow state correctly
-}
-
-func TestMusicShadowState_GetShadowState(t *testing.T) {
-	// Test that GetShadowState returns accurate snapshot
-}
-
-func TestMusicShadowState_ConcurrentAccess(t *testing.T) {
-	// Test thread safety with -race flag
-}
-```
-
-**2.7 Validation Checklist** ✅
-
-- [x] `MusicShadowState` types added to `internal/shadowstate/types.go`
-- [x] `Manager` has `shadowState` field and mutex
-- [x] `captureCurrentInputs()` snapshots all 5 subscribed variables
-- [x] `updateShadowState()` records actions with reason
-- [x] `updateShadowOutputs()` tracks mode, playlist, speakers, rotation
-- [x] `GetShadowState()` returns thread-safe deep copy
-- [x] Shadow state updated in `orchestratePlayback()` (both read-only and write modes)
-- [x] API endpoint `/api/shadow/music` registered and functional
-- [x] Tests pass with `-race` flag (all 7 shadow state tests + existing tests)
-- [x] `/api/shadow` returns music plugin data
-- [x] Music shadow state provider registered with tracker in `cmd/main.go`
-
-**Implementation Notes:**
-- Shadow state is recorded in `orchestratePlayback()` after successful playback setup
-- Works in both read-only and write modes
-- Playlist name is left empty as `PlaybackOption` doesn't include name field
-- All tests passing with race detector (full test suite: 100%)
-
-**Example Music Shadow State Output:**
-
-```json
-{
-  "plugin": "music",
-  "inputs": {
-    "current": {
-      "dayPhase": "evening",
-      "isAnyoneAsleep": false,
-      "isAnyoneHome": true,
-      "isMasterAsleep": false,
-      "isEveryoneAsleep": false
-    },
-    "atLastAction": {
-      "dayPhase": "afternoon",
-      "isAnyoneAsleep": false,
-      "isAnyoneHome": true,
-      "isMasterAsleep": false,
-      "isEveryoneAsleep": false
-    }
-  },
-  "outputs": {
-    "currentMode": "evening",
-    "activePlaylist": {
-      "uri": "spotify:playlist:37i9dQZF1DX4WYpdgoIcn6",
-      "name": "Chill Evening Vibes",
-      "mediaType": "music"
-    },
-    "speakerGroup": [
-      {
-        "playerName": "Living Room Sonos",
-        "volume": 30,
-        "baseVolume": 25,
-        "defaultVolume": 35,
-        "isLeader": true
-      },
-      {
-        "playerName": "Kitchen Sonos",
-        "volume": 25,
-        "baseVolume": 20,
-        "defaultVolume": 30,
-        "isLeader": false
-      }
-    ],
-    "fadeState": "idle",
-    "playlistRotation": {
-      "morning": 2,
-      "evening": 5,
-      "working": 1
-    },
-    "lastActionTime": "2025-11-27T19:45:00Z",
-    "lastActionType": "start_playback",
-    "lastActionReason": "Started playback of 'Chill Evening Vibes' in mode 'evening'"
-  },
-  "metadata": {
-    "lastUpdated": "2025-11-27T19:45:00Z",
-    "pluginName": "music"
-  }
-}
-```
+### Phase 2: Music Plugin ✅ **COMPLETE**
+
+**Status:** ✅ Completing in PR #115 (2025-11-28)
+
+**2.1 Define Music Shadow State**
+- **Inputs:** `dayPhase`, `isAnyoneAsleep`, `isAnyoneHome`, `isMasterAsleep`, `isEveryoneAsleep`
+- **Outputs:**
+  - Current music mode
+  - Active playlist URI & name
+  - Speaker group composition
+  - Per-speaker volumes
+  - Fade state (idle/fading_in/fading_out)
+  - Playlist rotation counters
+
+**2.2 Update Music Manager**
+- Snapshot inputs on mode selection
+- Track speaker group builds
+- Record volume calculations
+- Track fade progress
+
+**2.3 Add API Endpoint**
+- `/api/shadow/music`
+
+**Pattern to Follow (from Lighting):**
+1. Create `MusicShadowState` and `MusicTracker` types in `internal/shadowstate/types.go`
+2. Add `shadowTracker *shadowstate.MusicTracker` field to `music.Manager`
+3. Call `updateShadowInputs()` in all subscription handlers
+4. Call `recordAction()` when taking actions (mode changes, playlist changes, volume adjustments)
+5. Implement `GetShadowState()` method on `music.Manager`
+6. Register with global tracker in main.go
 
 ---
 
@@ -663,6 +269,59 @@ func TestMusicShadowState_ConcurrentAccess(t *testing.T) {
 
 ---
 
+## Implementation Lessons Learned (from Phase 1)
+
+### Key Insights
+
+1. **Update Current Inputs on Every State Change**
+   - Initially designed to only update on actions
+   - Changed to update current inputs whenever ANY subscribed variable changes
+   - This ensures current inputs always reflect real-time state
+   - Action snapshots capture inputs at time of action for comparison
+
+2. **Separation of Concerns**
+   - Create plugin-specific tracker (e.g., `LightingTracker`) instead of generic tracker
+   - Encapsulates plugin logic and keeps manager code clean
+   - Each plugin manager owns its tracker instance
+
+3. **Thread Safety Patterns**
+   - Use `sync.RWMutex` for tracker state
+   - Always create deep copies when returning state (prevents race conditions)
+   - Lock during updates, read-lock during reads
+
+4. **Registration Pattern**
+   - Support both static state registration and dynamic providers
+   - Lighting uses provider pattern: `RegisterPluginProvider("lighting", func() { return m.GetShadowState() })`
+   - Allows lazy evaluation and always-fresh state
+
+5. **Common Mistakes to Avoid**
+   - ❌ Don't forget to update current inputs in ALL subscription handlers
+   - ❌ Don't return pointers to internal state (use deep copies)
+   - ❌ Don't snapshot inputs on state changes (only on actions)
+   - ✅ Do call `updateShadowInputs()` at the start of every handler
+   - ✅ Do call `SnapshotInputsForAction()` only when taking actions
+
+### Implementation Checklist (for new plugins)
+
+- [ ] Define `{Plugin}ShadowState` struct in `internal/shadowstate/types.go`
+- [ ] Define `{Plugin}Tracker` struct with mutex and state
+- [ ] Add `shadowTracker *shadowstate.{Plugin}Tracker` field to plugin manager
+- [ ] Initialize tracker in `New{Plugin}Manager()` constructor
+- [ ] Create `updateShadowInputs()` helper to fetch current state variables
+- [ ] Call `updateShadowInputs()` in EVERY subscription handler
+- [ ] Create `recordAction()` helper that:
+  1. Updates current inputs
+  2. Snapshots inputs for action
+  3. Records action details
+- [ ] Call `recordAction()` whenever plugin takes action
+- [ ] Implement `GetShadowState()` method returning deep copy
+- [ ] Register plugin with global tracker in `main.go`
+- [ ] Add API endpoint handler in `internal/api/server.go`
+- [ ] Update API documentation with new endpoint
+- [ ] Write tests for shadow state tracking
+
+---
+
 ## Technical Implementation Details
 
 ### Core Shadow State Tracker
@@ -698,23 +357,107 @@ func (t *Tracker) RecordAction(plugin string, inputs map[string]interface{}, out
 
 ### Plugin Integration Pattern
 
-Each plugin manager implements:
+Each plugin manager implements the shadow state pattern. Here's the exact pattern from the lighting plugin:
+
+**Step 1: Add tracker field to manager**
 ```go
-type ShadowStateProvider interface {
-    GetShadowState() PluginShadowState
-    RecordAction(actionType string, reason string, details interface{})
+// In internal/plugins/lighting/manager.go
+type Manager struct {
+    haClient      ha.HAClient
+    stateManager  *state.Manager
+    config        *HueConfig
+    logger        *zap.Logger
+    readOnly      bool
+    shadowTracker *shadowstate.LightingTracker  // ← Add this
+    subscriptions []state.Subscription
 }
 ```
 
-When a plugin takes action:
+**Step 2: Initialize in constructor**
 ```go
-// In lighting.Manager.activateScene()
-m.RecordAction("activate_scene",
-    fmt.Sprintf("dayPhase changed from '%s' to '%s'", oldPhase, newPhase),
-    map[string]interface{}{
-        "room": roomName,
-        "scene": sceneName,
-    })
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueConfig, logger *zap.Logger, readOnly bool) *Manager {
+    return &Manager{
+        haClient:      haClient,
+        stateManager:  stateManager,
+        config:        config,
+        logger:        logger.Named("lighting"),
+        readOnly:      readOnly,
+        shadowTracker: shadowstate.NewLightingTracker(),  // ← Initialize
+        subscriptions: make([]state.Subscription, 0),
+    }
+}
+```
+
+**Step 3: Create helper to update current inputs**
+```go
+// Called at the start of EVERY subscription handler
+func (m *Manager) updateShadowInputs() {
+    inputs := make(map[string]interface{})
+
+    // Get all subscribed variables
+    if val, err := m.stateManager.GetString("dayPhase"); err == nil {
+        inputs["dayPhase"] = val
+    }
+    if val, err := m.stateManager.GetString("sunevent"); err == nil {
+        inputs["sunevent"] = val
+    }
+    if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
+        inputs["isAnyoneHome"] = val
+    }
+    // ... etc for all inputs
+
+    m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+```
+
+**Step 4: Call updateShadowInputs in ALL handlers**
+```go
+func (m *Manager) handleDayPhaseChange(key string, oldValue, newValue interface{}) {
+    // Update shadow state current inputs immediately
+    m.updateShadowInputs()  // ← MUST be first
+
+    // ... rest of handler logic
+}
+```
+
+**Step 5: Record actions when taking them**
+```go
+func (m *Manager) recordAction(roomName string, actionType string, reason string, activeScene string, turnedOff bool) {
+    // First, update current inputs
+    m.updateShadowInputs()
+
+    // Snapshot inputs for this action
+    m.shadowTracker.SnapshotInputsForAction()
+
+    // Record the action
+    m.shadowTracker.RecordRoomAction(roomName, actionType, reason, activeScene, turnedOff)
+}
+
+// Example usage:
+func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
+    // ... call HA service ...
+
+    // Record action in shadow state
+    m.recordAction(room.HueGroup, "activate_scene",
+        fmt.Sprintf("Activated scene '%s'", dayPhase),
+        dayPhase, false)
+}
+```
+
+**Step 6: Implement GetShadowState method**
+```go
+// GetShadowState returns the current shadow state
+func (m *Manager) GetShadowState() *shadowstate.LightingShadowState {
+    return m.shadowTracker.GetState()  // Returns deep copy
+}
+```
+
+**Step 7: Register with global tracker (in main.go)**
+```go
+// Register shadow state provider
+shadowTracker.RegisterPluginProvider("lighting", func() shadowstate.PluginShadowState {
+    return lightingManager.GetShadowState()
+})
 ```
 
 ---
@@ -727,15 +470,51 @@ m.RecordAction("activate_scene",
 - Thread safety (concurrent reads/writes)
 - API response formatting
 
+**Example from Lighting Plugin:**
+```go
+func TestLightingTracker_UpdateAndSnapshot(t *testing.T) {
+    tracker := shadowstate.NewLightingTracker()
+
+    // Update current inputs
+    inputs := map[string]interface{}{
+        "dayPhase": "evening",
+        "isAnyoneHome": true,
+    }
+    tracker.UpdateCurrentInputs(inputs)
+
+    // Verify current inputs updated
+    state := tracker.GetState()
+    assert.Equal(t, "evening", state.Inputs.Current["dayPhase"])
+
+    // Record an action (snapshots inputs)
+    tracker.SnapshotInputsForAction()
+    tracker.RecordRoomAction("Living Room", "activate_scene", "test", "evening", false)
+
+    // Verify at-last-action captured
+    state = tracker.GetState()
+    assert.Equal(t, "evening", state.Inputs.AtLastAction["dayPhase"])
+
+    // Change inputs again
+    inputs["dayPhase"] = "night"
+    tracker.UpdateCurrentInputs(inputs)
+
+    // Verify current changed but at-last-action stayed the same
+    state = tracker.GetState()
+    assert.Equal(t, "night", state.Inputs.Current["dayPhase"])
+    assert.Equal(t, "evening", state.Inputs.AtLastAction["dayPhase"])
+}
+```
+
 **Integration Tests:**
 - End-to-end: Trigger state change → Action taken → Shadow state updated → API returns correct data
 - Verify current vs. at-last-action input values differ correctly
 - Verify all plugins represented in `/api/shadow`
 
 **Manual Testing:**
-- Change `dayPhase` → verify `/api/shadow/lighting` shows scene changes
-- Play music → verify `/api/shadow/music` shows mode/playlist
-- Trigger lockdown → verify `/api/shadow/security` shows activation
+- Change `dayPhase` → verify `/api/shadow/lighting` shows scene changes with correct inputs
+- Verify `/api/shadow` returns all registered plugins
+- Verify current inputs update on every state change
+- Verify at-last-action inputs only update when actions are taken
 
 ---
 
@@ -752,30 +531,40 @@ m.RecordAction("activate_scene",
 
 ## Success Criteria
 
-- ✅ All 10 plugins have shadow state endpoints
-- ✅ Each shows current + at-last-action input values
-- ✅ Each shows plugin-specific output state
-- ✅ `/api/shadow` returns complete home state snapshot
+### Completed ✅
+- ✅ Core shadow state infrastructure implemented
+- ✅ `/api/shadow` aggregate endpoint created
+- ✅ Lighting plugin has complete shadow state tracking
+- ✅ `/api/shadow/lighting` endpoint returns current + at-last-action inputs
 - ✅ Actions trigger input snapshots correctly
+- ✅ Thread-safe concurrent access
 - ✅ No performance degradation
 - ✅ Tests pass with ≥70% coverage
+
+### In Progress 🚧
+- 🚧 Music plugin shadow state (Phase 2)
+
+### Remaining 📋
+- ⬜ Security plugin shadow state (Phase 3)
+- ⬜ Sleep hygiene plugin shadow state (Phase 4)
+- ⬜ Load shedding plugin shadow state (Phase 5)
+- ⬜ Read-heavy plugins (energy, statetracking, dayphase, tv, reset) (Phase 6)
+- ⬜ All 10 plugins represented in `/api/shadow` response
 
 ---
 
 ## Estimated Effort
 
-- **Phase 1 (Core + Lighting):** ✅ COMPLETE (~5-6 hours)
-- **Phase 2 (Music):** ✅ COMPLETE (~3 hours)
+- **Phase 1 (Core + Lighting):** 5-6 hours
+- **Phase 2 (Music):** 2-3 hours
 - **Phase 3 (Security):** 1-2 hours
 - **Phase 4 (Sleep Hygiene):** 1-2 hours
 - **Phase 5 (Load Shedding):** 1-2 hours
 - **Phase 6 (Read-heavy plugins):** 3-4 hours
-- **Phase 7 (Unified API):** 0.5 hours (mostly complete - aggregate endpoint exists, music added)
-- **Testing & docs:** 2-3 hours (ongoing)
+- **Phase 7 (Unified API):** 1-2 hours
+- **Testing & docs:** 3-4 hours
 
-**Completed:** ~8-9 hours
-**Remaining:** ~9-14 hours
-**Total Project:** ~17-23 hours
+**Total:** ~18-26 hours
 
 ---
 
@@ -787,23 +576,28 @@ m.RecordAction("activate_scene",
 
 ---
 
-## Progress Summary
+## Current Status
 
-| Phase | Status | Completion |
-|-------|--------|------------|
-| Phase 1: Core + Lighting | ✅ Complete | 100% |
-| Phase 2: Music | ✅ Complete | 100% |
-| Phase 3: Security | 📋 Ready to implement | 0% |
-| Phase 4: Sleep Hygiene | 📋 Planned | 0% |
-| Phase 5: Load Shedding | 📋 Planned | 0% |
-| Phase 6: Read-Heavy Plugins | 📋 Planned | 0% |
-| Phase 7: Unified API | 🚧 Partially complete | 75% |
+**Overall Progress:** Phases 1-2 Complete (2.75/7 phases = ~39%), Phase 3 Ready
 
-**Overall Progress:** 2.75/7 phases complete (~39%)
+| Phase | Plugin(s) | Status | Notes |
+|-------|-----------|--------|-------|
+| 1 | Core + Lighting | ✅ Complete | Merged in PR #112 (2025-11-28) |
+| 2 | Music | ✅ Complete | Completing in PR #115 (2025-11-28) |
+| 3 | Security | 📋 Ready | Next to implement |
+| 4 | Sleep Hygiene | ⬜ Pending | - |
+| 5 | Load Shedding | ⬜ Pending | - |
+| 6 | Read-Heavy Plugins | ⬜ Pending | energy, statetracking, dayphase, tv, reset |
+| 7 | Unified API | 🚧 Partially Complete | `/api/shadow` exists, music added (75% complete) |
+
+**Next Steps:**
+1. ✅ Complete Music plugin shadow state (Phase 2) - DONE
+2. Begin Security plugin shadow state (Phase 3)
+3. Continue through remaining phases
 
 ---
 
-**Document Status:** In Progress (Phases 1-2 Complete, Phase 3 Ready)
+**Document Status:** In Progress - Phases 1-2 Complete, Phase 3 Ready
 **Last Updated:** 2025-11-28
 **Author:** System Design (Claude Code)
 
