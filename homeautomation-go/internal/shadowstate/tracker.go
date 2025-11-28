@@ -161,3 +161,197 @@ func (lt *LightingTracker) GetState() *LightingShadowState {
 
 	return stateCopy
 }
+
+// SleepHygieneTracker manages shadow state specifically for the sleep hygiene plugin
+type SleepHygieneTracker struct {
+	mu    sync.RWMutex
+	state *SleepHygieneShadowState
+}
+
+// NewSleepHygieneTracker creates a new sleep hygiene shadow state tracker
+func NewSleepHygieneTracker() *SleepHygieneTracker {
+	return &SleepHygieneTracker{
+		state: NewSleepHygieneShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (st *SleepHygieneTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	for key, value := range inputs {
+		st.state.Inputs.Current[key] = value
+	}
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
+func (st *SleepHygieneTracker) SnapshotInputsForAction() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	// Deep copy current inputs to at-last-action
+	st.state.Inputs.AtLastAction = make(map[string]interface{})
+	for key, value := range st.state.Inputs.Current {
+		st.state.Inputs.AtLastAction[key] = value
+	}
+}
+
+// RecordAction records a sleep hygiene action
+func (st *SleepHygieneTracker) RecordAction(actionType string, reason string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	now := time.Now()
+	st.state.Outputs.LastActionTime = now
+	st.state.Outputs.LastActionType = actionType
+	st.state.Outputs.LastActionReason = reason
+	st.state.Metadata.LastUpdated = now
+}
+
+// UpdateWakeSequenceStatus updates the wake sequence status
+func (st *SleepHygieneTracker) UpdateWakeSequenceStatus(status string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.WakeSequenceStatus = status
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordFadeOutStart records the start of a speaker fade-out
+func (st *SleepHygieneTracker) RecordFadeOutStart(speakerEntityID string, startVolume int) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	now := time.Now()
+	st.state.Outputs.FadeOutProgress[speakerEntityID] = SpeakerFadeOut{
+		SpeakerEntityID: speakerEntityID,
+		CurrentVolume:   startVolume,
+		StartVolume:     startVolume,
+		IsActive:        true,
+		StartTime:       now,
+		LastUpdate:      now,
+	}
+	st.state.Metadata.LastUpdated = now
+}
+
+// UpdateFadeOutProgress updates the fade-out progress for a speaker
+func (st *SleepHygieneTracker) UpdateFadeOutProgress(speakerEntityID string, currentVolume int) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if fadeOut, exists := st.state.Outputs.FadeOutProgress[speakerEntityID]; exists {
+		fadeOut.CurrentVolume = currentVolume
+		fadeOut.LastUpdate = time.Now()
+		if currentVolume == 0 {
+			fadeOut.IsActive = false
+		}
+		st.state.Outputs.FadeOutProgress[speakerEntityID] = fadeOut
+	}
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// ClearFadeOutProgress clears all fade-out progress
+func (st *SleepHygieneTracker) ClearFadeOutProgress() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.FadeOutProgress = make(map[string]SpeakerFadeOut)
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordTTSAnnouncement records a TTS announcement
+func (st *SleepHygieneTracker) RecordTTSAnnouncement(message string, speaker string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.LastTTSAnnouncement = &TTSAnnouncement{
+		Message:   message,
+		Speaker:   speaker,
+		Timestamp: time.Now(),
+	}
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordStopScreensReminder records a stop screens reminder trigger
+func (st *SleepHygieneTracker) RecordStopScreensReminder() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.StopScreensReminder = &ReminderTrigger{
+		Triggered: true,
+		Timestamp: time.Now(),
+	}
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordGoToBedReminder records a go to bed reminder trigger
+func (st *SleepHygieneTracker) RecordGoToBedReminder() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.GoToBedReminder = &ReminderTrigger{
+		Triggered: true,
+		Timestamp: time.Now(),
+	}
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (st *SleepHygieneTracker) GetState() *SleepHygieneShadowState {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	// Create a deep copy to avoid race conditions
+	stateCopy := &SleepHygieneShadowState{
+		Plugin: st.state.Plugin,
+		Inputs: SleepHygieneInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: SleepHygieneOutputs{
+			WakeSequenceStatus: st.state.Outputs.WakeSequenceStatus,
+			FadeOutProgress:    make(map[string]SpeakerFadeOut),
+			LastActionTime:     st.state.Outputs.LastActionTime,
+			LastActionType:     st.state.Outputs.LastActionType,
+			LastActionReason:   st.state.Outputs.LastActionReason,
+		},
+		Metadata: st.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range st.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy at-last-action inputs
+	for k, v := range st.state.Inputs.AtLastAction {
+		stateCopy.Inputs.AtLastAction[k] = v
+	}
+
+	// Copy fade out progress
+	for k, v := range st.state.Outputs.FadeOutProgress {
+		stateCopy.Outputs.FadeOutProgress[k] = v
+	}
+
+	// Copy TTS announcement if it exists
+	if st.state.Outputs.LastTTSAnnouncement != nil {
+		announcement := *st.state.Outputs.LastTTSAnnouncement
+		stateCopy.Outputs.LastTTSAnnouncement = &announcement
+	}
+
+	// Copy stop screens reminder if it exists
+	if st.state.Outputs.StopScreensReminder != nil {
+		reminder := *st.state.Outputs.StopScreensReminder
+		stateCopy.Outputs.StopScreensReminder = &reminder
+	}
+
+	// Copy go to bed reminder if it exists
+	if st.state.Outputs.GoToBedReminder != nil {
+		reminder := *st.state.Outputs.GoToBedReminder
+		stateCopy.Outputs.GoToBedReminder = &reminder
+	}
+
+	return stateCopy
+}

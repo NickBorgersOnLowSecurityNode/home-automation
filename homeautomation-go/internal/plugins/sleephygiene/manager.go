@@ -7,6 +7,7 @@ import (
 
 	"homeautomation/internal/config"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -49,6 +50,9 @@ type Manager struct {
 
 	// Track which triggers have been fired today
 	triggeredToday map[string]time.Time
+
+	// Shadow state tracking
+	shadowTracker *shadowstate.SleepHygieneTracker
 }
 
 // NewManager creates a new Sleep Hygiene manager
@@ -68,6 +72,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader 
 		subscriptions:   make([]state.Subscription, 0),
 		haSubscriptions: make([]ha.Subscription, 0),
 		triggeredToday:  make(map[string]time.Time),
+		shadowTracker:   shadowstate.NewSleepHygieneTracker(),
 	}
 }
 
@@ -288,25 +293,37 @@ func (m *Manager) handleBeginWake() {
 	// All conditions met - start fade out
 	m.logger.Info("Conditions met for begin_wake, starting fade out")
 
+	// Get bedroom speakers from currentlyPlayingMusic
+	bedroomSpeakers := m.getBedroomSpeakers()
+	if len(bedroomSpeakers) == 0 {
+		m.logger.Warn("No bedroom speakers found in currentlyPlayingMusic, using default")
+		bedroomSpeakers = []string{"media_player.bedroom"}
+	}
+
+	// Record action in shadow state
+	m.recordAction("begin_wake", fmt.Sprintf("Starting fade out for %d bedroom speakers", len(bedroomSpeakers)))
+	m.shadowTracker.UpdateWakeSequenceStatus("begin_wake")
+
 	if !m.readOnly {
 		// Set fade out in progress flag
 		if err := m.stateManager.SetBool("isFadeOutInProgress", true); err != nil {
 			m.logger.Error("Failed to set isFadeOutInProgress", zap.Error(err))
 		}
 
-		// Get bedroom speakers from currentlyPlayingMusic
-		bedroomSpeakers := m.getBedroomSpeakers()
-		if len(bedroomSpeakers) == 0 {
-			m.logger.Warn("No bedroom speakers found in currentlyPlayingMusic, using default")
-			bedroomSpeakers = []string{"media_player.bedroom"}
-		}
-
 		// Start fade out goroutine for each bedroom speaker
 		for _, speaker := range bedroomSpeakers {
+			// Record fade out start in shadow state
+			currentVolume := m.getSpeakerVolume(speaker)
+			m.shadowTracker.RecordFadeOutStart(speaker, currentVolume)
+
 			go m.fadeOutSpeaker(speaker)
 		}
 	} else {
 		m.logger.Info("READ-ONLY: Would start fade out")
+		// In read-only mode, still record shadow state with estimated volumes
+		for _, speaker := range bedroomSpeakers {
+			m.shadowTracker.RecordFadeOutStart(speaker, 60) // Estimate default volume
+		}
 	}
 }
 
@@ -404,6 +421,9 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 
 		// Update currentlyPlayingMusic state
 		m.updateSpeakerVolumeInState(speakerEntityID, currentVolume)
+
+		// Update shadow state fade out progress
+		m.shadowTracker.UpdateFadeOutProgress(speakerEntityID, currentVolume)
 
 		// Calculate adaptive delay (longer as volume gets lower)
 		// Formula matches Node-RED: (60 - current_volume) * 1000 ms
@@ -539,12 +559,19 @@ func (m *Manager) handleWake() {
 	// All conditions met - execute wake sequence
 	m.logger.Info("Conditions met for wake, executing wake sequence")
 
+	// Record action in shadow state
+	m.recordAction("wake", "Executing wake sequence: turning on lights and checking for cuddle announcement")
+	m.shadowTracker.UpdateWakeSequenceStatus("wake_in_progress")
+
 	if !m.readOnly {
 		// 1. Turn on master bedroom lights slowly (30 minute transition)
 		m.turnOnMasterBedroomLights()
 
 		// 2. Check if both owners can cuddle and announce
 		m.checkAndAnnounceCuddle()
+
+		// Wake sequence complete
+		m.shadowTracker.UpdateWakeSequenceStatus("complete")
 	} else {
 		m.logger.Info("READ-ONLY: Would execute wake sequence (lights + cuddle)")
 	}
@@ -569,6 +596,10 @@ func (m *Manager) handleStopScreens() {
 
 	// Conditions met - flash lights
 	m.logger.Info("Conditions met for stop_screens, flashing lights")
+
+	// Record action in shadow state
+	m.recordAction("stop_screens", "Flashing common area lights as screen stop reminder")
+	m.shadowTracker.RecordStopScreensReminder()
 
 	if !m.readOnly {
 		m.flashCommonAreaLights()
@@ -596,6 +627,10 @@ func (m *Manager) handleGoToBed() {
 
 	// Conditions met - flash lights
 	m.logger.Info("Conditions met for go_to_bed, flashing lights")
+
+	// Record action in shadow state
+	m.recordAction("go_to_bed", "Flashing common area lights as bedtime reminder")
+	m.shadowTracker.RecordGoToBedReminder()
 
 	if !m.readOnly {
 		m.flashCommonAreaLights()
@@ -676,6 +711,9 @@ func (m *Manager) checkAndAnnounceCuddle() {
 			"message":                "Time to cuddle",
 		}); err != nil {
 			m.logger.Error("Failed to announce cuddle time", zap.Error(err))
+		} else {
+			// Record TTS announcement in shadow state
+			m.shadowTracker.RecordTTSAnnouncement("Time to cuddle", "media_player.bedroom")
 		}
 	} else {
 		m.logger.Debug("Only one owner home, skipping cuddle announcement",
@@ -714,6 +752,11 @@ func (m *Manager) handleBedroomLightsOff(state string) {
 	if musicPlaybackType == "wakeup" {
 		m.logger.Info("Bedroom lights turned off during wake sequence - cancelling wake and reverting to sleep music")
 
+		// Record cancel wake action in shadow state
+		m.recordAction("cancel_wake", "Bedroom lights turned off during wake sequence, reverting to sleep music")
+		m.shadowTracker.UpdateWakeSequenceStatus("inactive")
+		m.shadowTracker.ClearFadeOutProgress()
+
 		if !m.readOnly {
 			// Revert music back to sleep mode
 			if err := m.stateManager.SetString("musicPlaybackType", "sleep"); err != nil {
@@ -736,6 +779,68 @@ func isSameDay(t1, t2 time.Time) bool {
 	y1, m1, d1 := t1.Date()
 	y2, m2, d2 := t2.Date()
 	return y1 == y2 && m1 == m2 && d1 == d2
+}
+
+// captureCurrentInputs captures all current input values for shadow state
+func (m *Manager) captureCurrentInputs() map[string]interface{} {
+	inputs := make(map[string]interface{})
+
+	// Get all subscribed variables
+	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
+		inputs["isMasterAsleep"] = val
+	}
+	if val, err := m.stateManager.GetNumber("alarmTime"); err == nil {
+		inputs["alarmTime"] = val
+	}
+	if val, err := m.stateManager.GetString("musicPlaybackType"); err == nil {
+		inputs["musicPlaybackType"] = val
+	}
+	if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
+		inputs["isAnyoneHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
+		inputs["isEveryoneAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isFadeOutInProgress"); err == nil {
+		inputs["isFadeOutInProgress"] = val
+	}
+	if val, err := m.stateManager.GetBool("isNickHome"); err == nil {
+		inputs["isNickHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isCarolineHome"); err == nil {
+		inputs["isCarolineHome"] = val
+	}
+
+	// Get currentlyPlayingMusic JSON
+	var currentMusic map[string]interface{}
+	if err := m.stateManager.GetJSON("currentlyPlayingMusic", &currentMusic); err == nil {
+		inputs["currentlyPlayingMusic"] = currentMusic
+	}
+
+	return inputs
+}
+
+// updateShadowInputs updates the shadow state current inputs
+func (m *Manager) updateShadowInputs() {
+	inputs := m.captureCurrentInputs()
+	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
+// recordAction records an action in shadow state
+func (m *Manager) recordAction(actionType string, reason string) {
+	// Update current inputs
+	m.updateShadowInputs()
+
+	// Snapshot inputs for this action
+	m.shadowTracker.SnapshotInputsForAction()
+
+	// Record the action
+	m.shadowTracker.RecordAction(actionType, reason)
+}
+
+// GetShadowState returns the current shadow state
+func (m *Manager) GetShadowState() *shadowstate.SleepHygieneShadowState {
+	return m.shadowTracker.GetState()
 }
 
 // Reset re-checks all wake-up triggers for current day
