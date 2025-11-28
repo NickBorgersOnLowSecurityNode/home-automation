@@ -581,3 +581,404 @@ func (st *SleepHygieneTracker) GetState() *SleepHygieneShadowState {
 
 	return stateCopy
 }
+
+// ============================================================================
+// Phase 6: Read-Heavy Plugin Trackers
+// ============================================================================
+
+// EnergyTracker manages shadow state for the energy plugin
+type EnergyTracker struct {
+	mu    sync.RWMutex
+	state *EnergyShadowState
+}
+
+// NewEnergyTracker creates a new energy shadow state tracker
+func NewEnergyTracker() *EnergyTracker {
+	return &EnergyTracker{
+		state: NewEnergyShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (et *EnergyTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	for key, value := range inputs {
+		et.state.Inputs.Current[key] = value
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateSensorReadings updates the raw sensor readings
+func (et *EnergyTracker) UpdateSensorReadings(batteryPct, thisHourKW, remainingKWH float64, gridAvailable bool) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.SensorReadings.BatteryPercentage = batteryPct
+	et.state.Outputs.SensorReadings.ThisHourSolarGenerationKW = thisHourKW
+	et.state.Outputs.SensorReadings.RemainingSolarGenerationKWH = remainingKWH
+	et.state.Outputs.SensorReadings.IsGridAvailable = gridAvailable
+	et.state.Outputs.SensorReadings.LastUpdate = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateBatteryLevel updates the computed battery energy level
+func (et *EnergyTracker) UpdateBatteryLevel(level string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.BatteryEnergyLevel = level
+	et.state.Outputs.LastComputations.LastBatteryLevelCalc = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateSolarLevel updates the computed solar production energy level
+func (et *EnergyTracker) UpdateSolarLevel(level string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.SolarProductionEnergyLevel = level
+	et.state.Outputs.LastComputations.LastSolarLevelCalc = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateOverallLevel updates the computed overall energy level
+func (et *EnergyTracker) UpdateOverallLevel(level string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.CurrentEnergyLevel = level
+	et.state.Outputs.LastComputations.LastOverallLevelCalc = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateFreeEnergyAvailable updates the free energy availability status
+func (et *EnergyTracker) UpdateFreeEnergyAvailable(available bool) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.IsFreeEnergyAvailable = available
+	et.state.Outputs.LastComputations.LastFreeEnergyCheck = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (et *EnergyTracker) GetState() *EnergyShadowState {
+	et.mu.RLock()
+	defer et.mu.RUnlock()
+
+	// Create a deep copy
+	stateCopy := &EnergyShadowState{
+		Plugin: et.state.Plugin,
+		Inputs: EnergyInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: EnergyOutputs{
+			BatteryEnergyLevel:         et.state.Outputs.BatteryEnergyLevel,
+			SolarProductionEnergyLevel: et.state.Outputs.SolarProductionEnergyLevel,
+			CurrentEnergyLevel:         et.state.Outputs.CurrentEnergyLevel,
+			IsFreeEnergyAvailable:      et.state.Outputs.IsFreeEnergyAvailable,
+			LastComputations:           et.state.Outputs.LastComputations,
+			SensorReadings:             et.state.Outputs.SensorReadings,
+		},
+		Metadata: et.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range et.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	return stateCopy
+}
+
+// StateTrackingTracker manages shadow state for the state tracking plugin
+type StateTrackingTracker struct {
+	mu    sync.RWMutex
+	state *StateTrackingShadowState
+}
+
+// NewStateTrackingTracker creates a new state tracking shadow state tracker
+func NewStateTrackingTracker() *StateTrackingTracker {
+	return &StateTrackingTracker{
+		state: NewStateTrackingShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (stt *StateTrackingTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	stt.mu.Lock()
+	defer stt.mu.Unlock()
+
+	for key, value := range inputs {
+		stt.state.Inputs.Current[key] = value
+	}
+	stt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateDerivedStates updates the computed derived states
+func (stt *StateTrackingTracker) UpdateDerivedStates(anyOwnerHome, anyoneHome, anyoneAsleep, everyoneAsleep bool) {
+	stt.mu.Lock()
+	defer stt.mu.Unlock()
+
+	stt.state.Outputs.DerivedStates.IsAnyOwnerHome = anyOwnerHome
+	stt.state.Outputs.DerivedStates.IsAnyoneHome = anyoneHome
+	stt.state.Outputs.DerivedStates.IsAnyoneAsleep = anyoneAsleep
+	stt.state.Outputs.DerivedStates.IsEveryoneAsleep = everyoneAsleep
+	stt.state.Outputs.LastComputation = time.Now()
+	stt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateSleepDetectionTimer updates the sleep detection timer state
+func (stt *StateTrackingTracker) UpdateSleepDetectionTimer(active bool) {
+	stt.mu.Lock()
+	defer stt.mu.Unlock()
+
+	stt.state.Outputs.TimerStates.SleepDetectionActive = active
+	if active {
+		stt.state.Outputs.TimerStates.SleepDetectionStarted = time.Now()
+	} else {
+		stt.state.Outputs.TimerStates.SleepDetectionStarted = time.Time{}
+	}
+	stt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateWakeDetectionTimer updates the wake detection timer state
+func (stt *StateTrackingTracker) UpdateWakeDetectionTimer(active bool) {
+	stt.mu.Lock()
+	defer stt.mu.Unlock()
+
+	stt.state.Outputs.TimerStates.WakeDetectionActive = active
+	if active {
+		stt.state.Outputs.TimerStates.WakeDetectionStarted = time.Now()
+	} else {
+		stt.state.Outputs.TimerStates.WakeDetectionStarted = time.Time{}
+	}
+	stt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateOwnerReturnTimer updates the owner return home auto-reset timer state
+func (stt *StateTrackingTracker) UpdateOwnerReturnTimer(active bool) {
+	stt.mu.Lock()
+	defer stt.mu.Unlock()
+
+	stt.state.Outputs.TimerStates.OwnerReturnResetActive = active
+	if active {
+		stt.state.Outputs.TimerStates.OwnerReturnResetStarted = time.Now()
+	} else {
+		stt.state.Outputs.TimerStates.OwnerReturnResetStarted = time.Time{}
+	}
+	stt.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordArrivalAnnouncement records an arrival TTS announcement
+func (stt *StateTrackingTracker) RecordArrivalAnnouncement(person, message string) {
+	stt.mu.Lock()
+	defer stt.mu.Unlock()
+
+	stt.state.Outputs.LastAnnouncement = &ArrivalAnnouncement{
+		Person:    person,
+		Message:   message,
+		Timestamp: time.Now(),
+	}
+	stt.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (stt *StateTrackingTracker) GetState() *StateTrackingShadowState {
+	stt.mu.RLock()
+	defer stt.mu.RUnlock()
+
+	// Create a deep copy
+	stateCopy := &StateTrackingShadowState{
+		Plugin: stt.state.Plugin,
+		Inputs: StateTrackingInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: StateTrackingOutputs{
+			DerivedStates:   stt.state.Outputs.DerivedStates,
+			TimerStates:     stt.state.Outputs.TimerStates,
+			LastComputation: stt.state.Outputs.LastComputation,
+		},
+		Metadata: stt.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range stt.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy announcement if exists
+	if stt.state.Outputs.LastAnnouncement != nil {
+		announcement := *stt.state.Outputs.LastAnnouncement
+		stateCopy.Outputs.LastAnnouncement = &announcement
+	}
+
+	return stateCopy
+}
+
+// DayPhaseTracker manages shadow state for the day phase plugin
+type DayPhaseTracker struct {
+	mu    sync.RWMutex
+	state *DayPhaseShadowState
+}
+
+// NewDayPhaseTracker creates a new day phase shadow state tracker
+func NewDayPhaseTracker() *DayPhaseTracker {
+	return &DayPhaseTracker{
+		state: NewDayPhaseShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (dpt *DayPhaseTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	dpt.mu.Lock()
+	defer dpt.mu.Unlock()
+
+	for key, value := range inputs {
+		dpt.state.Inputs.Current[key] = value
+	}
+	dpt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateSunEvent updates the computed sun event
+func (dpt *DayPhaseTracker) UpdateSunEvent(sunEvent string) {
+	dpt.mu.Lock()
+	defer dpt.mu.Unlock()
+
+	dpt.state.Outputs.SunEvent = sunEvent
+	dpt.state.Outputs.LastSunEventCalc = time.Now()
+	dpt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateDayPhase updates the computed day phase
+func (dpt *DayPhaseTracker) UpdateDayPhase(dayPhase string) {
+	dpt.mu.Lock()
+	defer dpt.mu.Unlock()
+
+	dpt.state.Outputs.DayPhase = dayPhase
+	dpt.state.Outputs.LastDayPhaseCalc = time.Now()
+	dpt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateNextTransition updates the next expected phase transition
+func (dpt *DayPhaseTracker) UpdateNextTransition(transitionTime time.Time, nextPhase string) {
+	dpt.mu.Lock()
+	defer dpt.mu.Unlock()
+
+	dpt.state.Outputs.NextTransitionTime = transitionTime
+	dpt.state.Outputs.NextTransitionPhase = nextPhase
+	dpt.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (dpt *DayPhaseTracker) GetState() *DayPhaseShadowState {
+	dpt.mu.RLock()
+	defer dpt.mu.RUnlock()
+
+	// Create a deep copy
+	stateCopy := &DayPhaseShadowState{
+		Plugin: dpt.state.Plugin,
+		Inputs: DayPhaseInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs:  dpt.state.Outputs,
+		Metadata: dpt.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range dpt.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	return stateCopy
+}
+
+// TVTracker manages shadow state for the TV plugin
+type TVTracker struct {
+	mu    sync.RWMutex
+	state *TVShadowState
+}
+
+// NewTVTracker creates a new TV shadow state tracker
+func NewTVTracker() *TVTracker {
+	return &TVTracker{
+		state: NewTVShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (tvt *TVTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	tvt.mu.Lock()
+	defer tvt.mu.Unlock()
+
+	for key, value := range inputs {
+		tvt.state.Inputs.Current[key] = value
+	}
+	tvt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateAppleTVState updates the Apple TV playing state
+func (tvt *TVTracker) UpdateAppleTVState(isPlaying bool, state string) {
+	tvt.mu.Lock()
+	defer tvt.mu.Unlock()
+
+	tvt.state.Outputs.IsAppleTVPlaying = isPlaying
+	tvt.state.Outputs.AppleTVState = state
+	tvt.state.Outputs.LastUpdate = time.Now()
+	tvt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateTVPower updates the TV power state
+func (tvt *TVTracker) UpdateTVPower(isOn bool) {
+	tvt.mu.Lock()
+	defer tvt.mu.Unlock()
+
+	tvt.state.Outputs.IsTVOn = isOn
+	tvt.state.Outputs.LastUpdate = time.Now()
+	tvt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateHDMIInput updates the current HDMI input
+func (tvt *TVTracker) UpdateHDMIInput(input string) {
+	tvt.mu.Lock()
+	defer tvt.mu.Unlock()
+
+	tvt.state.Outputs.CurrentHDMIInput = input
+	tvt.state.Outputs.LastUpdate = time.Now()
+	tvt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateTVPlaying updates the computed isTVPlaying state
+func (tvt *TVTracker) UpdateTVPlaying(isPlaying bool) {
+	tvt.mu.Lock()
+	defer tvt.mu.Unlock()
+
+	tvt.state.Outputs.IsTVPlaying = isPlaying
+	tvt.state.Outputs.LastUpdate = time.Now()
+	tvt.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (tvt *TVTracker) GetState() *TVShadowState {
+	tvt.mu.RLock()
+	defer tvt.mu.RUnlock()
+
+	// Create a deep copy
+	stateCopy := &TVShadowState{
+		Plugin: tvt.state.Plugin,
+		Inputs: TVInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs:  tvt.state.Outputs,
+		Metadata: tvt.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range tvt.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	return stateCopy
+}

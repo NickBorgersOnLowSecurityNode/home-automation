@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -21,6 +22,9 @@ type Manager struct {
 	// Subscriptions for cleanup
 	haSubscriptions    []ha.Subscription
 	stateSubscriptions []state.Subscription
+
+	// Shadow state tracking
+	shadowTracker *shadowstate.TVTracker
 }
 
 // NewManager creates a new TV manager
@@ -32,7 +36,13 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		readOnly:           readOnly,
 		haSubscriptions:    make([]ha.Subscription, 0),
 		stateSubscriptions: make([]state.Subscription, 0),
+		shadowTracker:      shadowstate.NewTVTracker(),
 	}
+}
+
+// GetShadowState returns the current shadow state
+func (m *Manager) GetShadowState() *shadowstate.TVShadowState {
+	return m.shadowTracker.GetState()
 }
 
 // Start begins monitoring TV-related entities
@@ -148,6 +158,9 @@ func (m *Manager) handleAppleTVStateChange(entityID string, oldState, newState *
 			m.logger.Error("Failed to set isAppleTVPlaying", zap.Error(err))
 		}
 	}
+
+	// Update shadow state
+	m.shadowTracker.UpdateAppleTVState(isPlaying, newState.State)
 }
 
 // handleSyncBoxPowerChange processes switch.sync_box_power state changes
@@ -174,6 +187,9 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 		}
 	}
 
+	// Update shadow state
+	m.shadowTracker.UpdateTVPower(isTVOn)
+
 	// If TV is off, then it's definitely not playing
 	if !isTVOn {
 		if err := m.stateManager.SetBool("isTVPlaying", false); err != nil {
@@ -184,6 +200,8 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 				m.logger.Error("Failed to set isTVPlaying to false", zap.Error(err))
 			}
 		}
+		// Update shadow state
+		m.shadowTracker.UpdateTVPlaying(false)
 	}
 }
 
@@ -198,6 +216,9 @@ func (m *Manager) handleHDMIInputChange(entityID string, oldState, newState *ha.
 	m.logger.Debug("HDMI input changed",
 		zap.String("entity_id", entityID),
 		zap.String("new_input", hdmiInput))
+
+	// Update shadow state
+	m.shadowTracker.UpdateHDMIInput(hdmiInput)
 
 	// Calculate isTVPlaying based on HDMI input
 	m.calculateTVPlaying(hdmiInput)
@@ -256,4 +277,7 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 			m.logger.Error("Failed to set isTVPlaying", zap.Error(err))
 		}
 	}
+
+	// Update shadow state
+	m.shadowTracker.UpdateTVPlaying(isTVPlaying)
 }

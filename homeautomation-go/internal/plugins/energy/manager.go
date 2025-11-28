@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -28,6 +29,9 @@ type Manager struct {
 
 	// Control for free energy checker
 	stopChecker chan struct{}
+
+	// Shadow state tracking
+	shadowTracker *shadowstate.EnergyTracker
 }
 
 // NewManager creates a new Energy State manager
@@ -47,7 +51,13 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Energ
 		haSubscriptions:    make([]ha.Subscription, 0),
 		stateSubscriptions: make([]state.Subscription, 0),
 		stopChecker:        make(chan struct{}),
+		shadowTracker:      shadowstate.NewEnergyTracker(),
 	}
+}
+
+// GetShadowState returns the current shadow state
+func (m *Manager) GetShadowState() *shadowstate.EnergyShadowState {
+	return m.shadowTracker.GetState()
 }
 
 // Start begins monitoring energy state
@@ -180,6 +190,9 @@ func (m *Manager) handleBatteryChange(percentage float64) {
 			m.logger.Error("Failed to set batteryEnergyLevel", zap.Error(err))
 		}
 	}
+
+	// Update shadow state
+	m.shadowTracker.UpdateBatteryLevel(level)
 }
 
 // handleThisHourSolarChange processes this hour solar generation changes
@@ -349,6 +362,9 @@ func (m *Manager) recalculateSolarProductionLevel() {
 			m.logger.Error("Failed to set solarProductionEnergyLevel", zap.Error(err))
 		}
 	}
+
+	// Update shadow state
+	m.shadowTracker.UpdateSolarLevel(level)
 }
 
 // determineSolarEnergyLevel determines the solar energy level
@@ -392,6 +408,8 @@ func (m *Manager) recalculateOverallEnergyLevel() {
 				m.logger.Error("Failed to set currentEnergyLevel", zap.Error(err))
 			}
 		}
+		// Update shadow state
+		m.shadowTracker.UpdateOverallLevel("white")
 		return
 	}
 
@@ -424,6 +442,9 @@ func (m *Manager) recalculateOverallEnergyLevel() {
 			m.logger.Error("Failed to set currentEnergyLevel", zap.Error(err))
 		}
 	}
+
+	// Update shadow state
+	m.shadowTracker.UpdateOverallLevel(overallLevel)
 }
 
 // determineOverallEnergyLevel combines battery and solar levels
@@ -545,6 +566,9 @@ func (m *Manager) checkFreeEnergy() {
 			m.logger.Error("Failed to set isFreeEnergyAvailable", zap.Error(err))
 		}
 	}
+
+	// Update shadow state
+	m.shadowTracker.UpdateFreeEnergyAvailable(isFreeEnergy)
 }
 
 // isFreeEnergyTime checks if current time is within free energy window

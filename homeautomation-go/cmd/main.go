@@ -251,6 +251,22 @@ func main() {
 		return loadSheddingManager.GetShadowState()
 	})
 
+	// Register Phase 6 read-heavy plugin shadow state providers
+	shadowTracker.RegisterPluginProvider("energy", func() shadowstate.PluginShadowState {
+		return energyManager.GetShadowState()
+	})
+	logger.Info("Registered energy shadow state with tracker")
+
+	shadowTracker.RegisterPluginProvider("statetracking", func() shadowstate.PluginShadowState {
+		return stateTrackingManager.GetShadowState()
+	})
+	logger.Info("Registered statetracking shadow state with tracker")
+
+	shadowTracker.RegisterPluginProvider("dayphase", func() shadowstate.PluginShadowState {
+		return dayPhaseManager.GetShadowState()
+	})
+	logger.Info("Registered dayphase shadow state with tracker")
+
 	// Start Reset Coordinator (must be last - after all plugins are started)
 	resetCoordinator := reset.NewCoordinator(stateManager, logger, readOnly, []reset.PluginWithName{
 		{Name: "State Tracking", Plugin: stateTrackingManager},

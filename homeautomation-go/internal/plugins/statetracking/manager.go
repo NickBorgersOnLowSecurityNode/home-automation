@@ -8,6 +8,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -57,6 +58,9 @@ type Manager struct {
 	ownerReturnHomeTimer clock.Timer
 
 	timerMutex sync.Mutex
+
+	// Shadow state tracking
+	shadowTracker *shadowstate.StateTrackingTracker
 }
 
 // NewManager creates a new State Tracking manager
@@ -68,7 +72,13 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		readOnly:        readOnly,
 		clock:           clock.NewRealClock(),
 		haSubscriptions: make([]ha.Subscription, 0),
+		shadowTracker:   shadowstate.NewStateTrackingTracker(),
 	}
+}
+
+// GetShadowState returns the current shadow state
+func (m *Manager) GetShadowState() *shadowstate.StateTrackingShadowState {
+	return m.shadowTracker.GetState()
 }
 
 // SetClock sets the clock implementation (useful for testing)
@@ -204,8 +214,12 @@ func (m *Manager) handlePrimarySuiteLightsChange(entityID string, oldState, newS
 		m.masterSleepTimer = m.clock.AfterFunc(SleepDetectionDelay, func() {
 			m.detectMasterAsleep()
 		})
+		// Update shadow state
+		m.shadowTracker.UpdateSleepDetectionTimer(true)
 	} else {
 		m.logger.Debug("Primary suite lights turned on, canceling sleep detection")
+		// Update shadow state
+		m.shadowTracker.UpdateSleepDetectionTimer(false)
 	}
 }
 
@@ -276,8 +290,12 @@ func (m *Manager) handlePrimaryBedroomDoorChange(entityID string, oldState, newS
 		m.masterWakeTimer = m.clock.AfterFunc(WakeDetectionDelay, func() {
 			m.detectMasterAwake()
 		})
+		// Update shadow state
+		m.shadowTracker.UpdateWakeDetectionTimer(true)
 	} else {
 		m.logger.Debug("Primary bedroom door closed, canceling wake detection")
+		// Update shadow state
+		m.shadowTracker.UpdateWakeDetectionTimer(false)
 	}
 }
 
@@ -425,6 +443,8 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 			zap.String("person", person),
 			zap.String("message", message),
 			zap.Strings("media_players", mediaPlayers))
+		// Still record in shadow state even in read-only mode
+		m.shadowTracker.RecordArrivalAnnouncement(person, message)
 		return
 	}
 
@@ -446,6 +466,9 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 			zap.String("person", person),
 			zap.Error(err))
 	}
+
+	// Record in shadow state
+	m.shadowTracker.RecordArrivalAnnouncement(person, message)
 }
 
 // setOwnerJustReturnedHome sets didOwnerJustReturnHome to true and starts/restarts the 10-minute auto-reset timer
@@ -472,6 +495,9 @@ func (m *Manager) setOwnerJustReturnedHome() {
 	m.ownerReturnHomeTimer = m.clock.AfterFunc(OwnerReturnHomeResetDelay, func() {
 		m.resetOwnerJustReturnedHome()
 	})
+
+	// Update shadow state
+	m.shadowTracker.UpdateOwnerReturnTimer(true)
 }
 
 // clearOwnerJustReturnedHome immediately sets didOwnerJustReturnHome to false (when owner leaves)
@@ -490,6 +516,9 @@ func (m *Manager) clearOwnerJustReturnedHome() {
 	if err := m.stateManager.SetBool("didOwnerJustReturnHome", false); err != nil {
 		m.logger.Error("Failed to clear didOwnerJustReturnHome", zap.Error(err))
 	}
+
+	// Update shadow state
+	m.shadowTracker.UpdateOwnerReturnTimer(false)
 }
 
 // resetOwnerJustReturnedHome is called by the auto-reset timer after 10 minutes

@@ -7,6 +7,7 @@ import (
 	"homeautomation/internal/config"
 	dayphaselib "homeautomation/internal/dayphase"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -31,6 +32,9 @@ type Manager struct {
 
 	// Subscriptions for cleanup
 	subscriptions []state.Subscription
+
+	// Shadow state tracking
+	shadowTracker *shadowstate.DayPhaseTracker
 }
 
 // NewManager creates a new Day Phase manager
@@ -52,7 +56,13 @@ func NewManager(
 		stopChan:      make(chan struct{}),
 		stoppedChan:   make(chan struct{}),
 		subscriptions: make([]state.Subscription, 0),
+		shadowTracker: shadowstate.NewDayPhaseTracker(),
 	}
+}
+
+// GetShadowState returns the current shadow state
+func (m *Manager) GetShadowState() *shadowstate.DayPhaseShadowState {
+	return m.shadowTracker.GetState()
 }
 
 // Start begins monitoring and updating day phase variables
@@ -155,6 +165,9 @@ func (m *Manager) updateSunEventAndDayPhase() error {
 			m.logger.Info("READ-ONLY mode: Would update sunevent",
 				zap.String("value", sunEventStr))
 		}
+
+		// Update shadow state
+		m.shadowTracker.UpdateSunEvent(sunEventStr)
 	}
 
 	// Calculate day phase based on schedule
@@ -189,6 +202,9 @@ func (m *Manager) updateSunEventAndDayPhase() error {
 			m.logger.Info("READ-ONLY mode: Would update dayPhase",
 				zap.String("value", dayPhaseStr))
 		}
+
+		// Update shadow state
+		m.shadowTracker.UpdateDayPhase(dayPhaseStr)
 	}
 
 	return nil

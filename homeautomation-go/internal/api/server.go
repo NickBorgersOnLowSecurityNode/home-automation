@@ -39,6 +39,10 @@ func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, 
 	mux.HandleFunc("/api/shadow/security", s.handleGetSecurityShadowState)
 	mux.HandleFunc("/api/shadow/loadshedding", s.handleGetLoadSheddingShadowState)
 	mux.HandleFunc("/api/shadow/sleephygiene", s.handleGetSleepHygieneShadowState)
+	mux.HandleFunc("/api/shadow/energy", s.handleGetEnergyShadowState)
+	mux.HandleFunc("/api/shadow/statetracking", s.handleGetStateTrackingShadowState)
+	mux.HandleFunc("/api/shadow/dayphase", s.handleGetDayPhaseShadowState)
+	mux.HandleFunc("/api/shadow/tv", s.handleGetTVShadowState)
 	mux.HandleFunc("/health", s.handleHealth)
 
 	s.server = &http.Server{
@@ -398,6 +402,26 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Description: "Get shadow state for sleep hygiene plugin - shows wake sequence status, fade-out progress, TTS announcements, and reminders",
 		},
 		{
+			Path:        "/api/shadow/energy",
+			Method:      "GET",
+			Description: "Get shadow state for energy plugin - shows sensor readings, battery/solar/overall energy levels, and computation timestamps",
+		},
+		{
+			Path:        "/api/shadow/statetracking",
+			Method:      "GET",
+			Description: "Get shadow state for state tracking plugin - shows derived presence/sleep states, timer states, and arrival announcements",
+		},
+		{
+			Path:        "/api/shadow/dayphase",
+			Method:      "GET",
+			Description: "Get shadow state for day phase plugin - shows sun event, day phase, and calculation timestamps",
+		},
+		{
+			Path:        "/api/shadow/tv",
+			Method:      "GET",
+			Description: "Get shadow state for TV plugin - shows Apple TV state, TV power, HDMI input, and playback status",
+		},
+		{
 			Path:        "/health",
 			Method:      "GET",
 			Description: "Health check endpoint - returns {\"status\": \"ok\"}",
@@ -609,6 +633,102 @@ func (s *Server) handleGetSleepHygieneShadowState(w http.ResponseWriter, r *http
 	}
 
 	s.logger.Debug("Sleep hygiene shadow state request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// handleGetEnergyShadowState returns the energy plugin shadow state
+func (s *Server) handleGetEnergyShadowState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	state, ok := s.shadowTracker.GetPluginState("energy")
+	if !ok {
+		http.Error(w, "Energy shadow state not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Debug("Energy shadow state request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// handleGetStateTrackingShadowState returns the state tracking plugin shadow state
+func (s *Server) handleGetStateTrackingShadowState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	state, ok := s.shadowTracker.GetPluginState("statetracking")
+	if !ok {
+		http.Error(w, "State tracking shadow state not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Debug("State tracking shadow state request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// handleGetDayPhaseShadowState returns the day phase plugin shadow state
+func (s *Server) handleGetDayPhaseShadowState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	state, ok := s.shadowTracker.GetPluginState("dayphase")
+	if !ok {
+		http.Error(w, "Day phase shadow state not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Debug("Day phase shadow state request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// handleGetTVShadowState returns the TV plugin shadow state
+func (s *Server) handleGetTVShadowState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	state, ok := s.shadowTracker.GetPluginState("tv")
+	if !ok {
+		http.Error(w, "TV shadow state not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Debug("TV shadow state request served",
 		zap.String("remote_addr", r.RemoteAddr))
 }
 
