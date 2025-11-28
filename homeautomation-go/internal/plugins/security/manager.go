@@ -7,6 +7,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -29,11 +30,12 @@ const (
 
 // Manager handles security-related automation
 type Manager struct {
-	haClient     ha.HAClient
-	stateManager *state.Manager
-	logger       *zap.Logger
-	readOnly     bool
-	clock        clock.Clock
+	haClient      ha.HAClient
+	stateManager  *state.Manager
+	logger        *zap.Logger
+	readOnly      bool
+	clock         clock.Clock
+	shadowTracker *shadowstate.SecurityTracker
 
 	// Subscriptions for cleanup
 	haSubscriptions    []ha.Subscription
@@ -53,6 +55,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		logger:             logger.Named("security"),
 		readOnly:           readOnly,
 		clock:              clock.NewRealClock(),
+		shadowTracker:      shadowstate.NewSecurityTracker(),
 		haSubscriptions:    make([]ha.Subscription, 0),
 		stateSubscriptions: make([]state.Subscription, 0),
 	}
@@ -66,6 +69,9 @@ func (m *Manager) SetClock(c clock.Clock) {
 // Start begins monitoring security-related events
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Security Manager")
+
+	// Initialize shadow state with current input values
+	m.updateShadowInputs()
 
 	// 1. Subscribe to sleep/home states for lockdown activation
 	sub, err := m.stateManager.Subscribe("isEveryoneAsleep", m.handleEveryoneAsleepChange)
@@ -133,6 +139,9 @@ func (m *Manager) Stop() {
 
 // handleEveryoneAsleepChange activates lockdown when everyone is asleep
 func (m *Manager) handleEveryoneAsleepChange(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	asleep, ok := newValue.(bool)
 	if !ok {
 		m.logger.Error("Invalid type for isEveryoneAsleep", zap.Any("value", newValue))
@@ -141,12 +150,15 @@ func (m *Manager) handleEveryoneAsleepChange(key string, oldValue, newValue inte
 
 	if asleep {
 		m.logger.Info("Everyone is asleep, activating lockdown")
-		m.activateLockdown()
+		m.activateLockdown("Everyone is asleep")
 	}
 }
 
 // handleAnyoneHomeChange activates lockdown when no one is home
 func (m *Manager) handleAnyoneHomeChange(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	anyoneHome, ok := newValue.(bool)
 	if !ok {
 		m.logger.Error("Invalid type for isAnyoneHome", zap.Any("value", newValue))
@@ -155,14 +167,17 @@ func (m *Manager) handleAnyoneHomeChange(key string, oldValue, newValue interfac
 
 	if !anyoneHome {
 		m.logger.Info("No one is home, activating lockdown")
-		m.activateLockdown()
+		m.activateLockdown("No one is home")
 	}
 }
 
 // activateLockdown turns on the lockdown input_boolean
-func (m *Manager) activateLockdown() {
+func (m *Manager) activateLockdown(reason string) {
+	// Record action in shadow state before executing
+	m.recordLockdownAction(true, reason)
+
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would activate lockdown")
+		m.logger.Info("READ-ONLY: Would activate lockdown", zap.String("reason", reason))
 		return
 	}
 
@@ -171,7 +186,7 @@ func (m *Manager) activateLockdown() {
 	}); err != nil {
 		m.logger.Error("Failed to activate lockdown", zap.Error(err))
 	} else {
-		m.logger.Info("Lockdown activated")
+		m.logger.Info("Lockdown activated", zap.String("reason", reason))
 	}
 }
 
@@ -183,6 +198,9 @@ func (m *Manager) handleLockdownActivated(entity string, oldState, newState *ha.
 		// Wait 5 seconds, then reset
 		go func() {
 			m.clock.Sleep(LockdownResetDelay)
+
+			// Record deactivation in shadow state
+			m.recordLockdownAction(false, "Auto-reset after 5 seconds")
 
 			if m.readOnly {
 				m.logger.Info("READ-ONLY: Would reset lockdown")
@@ -202,6 +220,9 @@ func (m *Manager) handleLockdownActivated(entity string, oldState, newState *ha.
 
 // handleOwnerReturnHome opens garage door if owner just returned home
 func (m *Manager) handleOwnerReturnHome(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	returned, ok := newValue.(bool)
 	if !ok {
 		m.logger.Error("Invalid type for didOwnerJustReturnHome", zap.Any("value", newValue))
@@ -224,14 +245,17 @@ func (m *Manager) handleOwnerReturnHome(key string, oldValue, newValue interface
 	// If sensor is "off", garage is empty
 	if currentState.State == "off" {
 		m.logger.Info("Garage is empty, opening door")
-		m.openGarageDoor()
+		m.openGarageDoor(true)
 	} else {
 		m.logger.Info("Garage is occupied, not opening door")
 	}
 }
 
 // openGarageDoor opens the garage door
-func (m *Manager) openGarageDoor() {
+func (m *Manager) openGarageDoor(garageWasEmpty bool) {
+	// Record action in shadow state
+	m.recordGarageOpenAction("Owner returned home", garageWasEmpty)
+
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would open garage door")
 		return
@@ -250,9 +274,12 @@ func (m *Manager) openGarageDoor() {
 func (m *Manager) handleDoorbellPressed(entity string, oldState, newState *ha.State) {
 	// Rate limit: max 1 notification per 20 seconds
 	m.mu.Lock()
-	if m.clock.Since(m.lastDoorbellNotification) < DoorbellRateLimit {
+	rateLimited := m.clock.Since(m.lastDoorbellNotification) < DoorbellRateLimit
+	if rateLimited {
 		m.logger.Info("Doorbell notification rate limited")
 		m.mu.Unlock()
+		// Record the rate-limited event
+		m.recordDoorbellEvent(true, false, false)
 		return
 	}
 	m.lastDoorbellNotification = m.clock.Now()
@@ -265,6 +292,9 @@ func (m *Manager) handleDoorbellPressed(entity string, oldState, newState *ha.St
 
 	// Flash lights twice
 	go m.flashLightsForDoorbell()
+
+	// Record the successful event
+	m.recordDoorbellEvent(false, true, true)
 }
 
 // flashLightsForDoorbell flashes lights twice with 2-second delay
@@ -302,6 +332,9 @@ func (m *Manager) flashLights(lights []string) {
 
 // handleVehicleArriving announces when expected vehicle arrives
 func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.State) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
 	// Check if we're expecting someone
 	expectingSomeone, err := m.stateManager.GetBool("isExpectingSomeone")
 	if err != nil {
@@ -311,14 +344,19 @@ func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.St
 
 	if !expectingSomeone {
 		m.logger.Info("Vehicle arriving but not expecting anyone")
+		// Record the event even if not expecting
+		m.recordVehicleArrivalEvent(false, false, false)
 		return
 	}
 
 	// Rate limit: max 1 notification per 20 seconds
 	m.mu.Lock()
-	if m.clock.Since(m.lastVehicleArrivalNotification) < VehicleArrivalRateLimit {
+	rateLimited := m.clock.Since(m.lastVehicleArrivalNotification) < VehicleArrivalRateLimit
+	if rateLimited {
 		m.logger.Info("Vehicle arrival notification rate limited")
 		m.mu.Unlock()
+		// Record the rate-limited event
+		m.recordVehicleArrivalEvent(true, false, true)
 		return
 	}
 	m.lastVehicleArrivalNotification = m.clock.Now()
@@ -328,6 +366,9 @@ func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.St
 
 	// Send TTS notification
 	m.sendTTSNotification("They have arrived")
+
+	// Record the successful event
+	m.recordVehicleArrivalEvent(false, true, true)
 
 	// Reset expecting someone flag
 	if !m.readOnly {
@@ -364,4 +405,109 @@ func (m *Manager) sendTTSNotification(message string) {
 	} else {
 		m.logger.Info("TTS notification sent", zap.String("message", message))
 	}
+}
+
+// updateShadowInputs updates the current shadow state inputs
+func (m *Manager) updateShadowInputs() {
+	inputs := make(map[string]interface{})
+
+	// Get all subscribed variables
+	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
+		inputs["isEveryoneAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
+		inputs["isAnyoneHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isExpectingSomeone"); err == nil {
+		inputs["isExpectingSomeone"] = val
+	}
+	if val, err := m.stateManager.GetBool("didOwnerJustReturnHome"); err == nil {
+		inputs["didOwnerJustReturnHome"] = val
+	}
+
+	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
+// recordLockdownAction captures the current inputs and records a lockdown action in shadow state
+func (m *Manager) recordLockdownAction(active bool, reason string) {
+	// First, update current inputs
+	m.updateShadowInputs()
+
+	// Snapshot inputs for this action
+	m.shadowTracker.SnapshotInputsForAction()
+
+	// Record the action
+	m.shadowTracker.RecordLockdownAction(active, reason)
+}
+
+// recordDoorbellEvent captures the current inputs and records a doorbell event in shadow state
+func (m *Manager) recordDoorbellEvent(rateLimited bool, ttsSent bool, lightsFlashed bool) {
+	// First, update current inputs
+	m.updateShadowInputs()
+
+	// Snapshot inputs for this action
+	m.shadowTracker.SnapshotInputsForAction()
+
+	// Record the event
+	m.shadowTracker.RecordDoorbellEvent(rateLimited, ttsSent, lightsFlashed)
+}
+
+// recordVehicleArrivalEvent captures the current inputs and records a vehicle arrival event in shadow state
+func (m *Manager) recordVehicleArrivalEvent(rateLimited bool, ttsSent bool, wasExpecting bool) {
+	// First, update current inputs
+	m.updateShadowInputs()
+
+	// Snapshot inputs for this action
+	m.shadowTracker.SnapshotInputsForAction()
+
+	// Record the event
+	m.shadowTracker.RecordVehicleArrivalEvent(rateLimited, ttsSent, wasExpecting)
+}
+
+// recordGarageOpenAction captures the current inputs and records a garage open action in shadow state
+func (m *Manager) recordGarageOpenAction(reason string, garageWasEmpty bool) {
+	// First, update current inputs
+	m.updateShadowInputs()
+
+	// Snapshot inputs for this action
+	m.shadowTracker.SnapshotInputsForAction()
+
+	// Record the action
+	m.shadowTracker.RecordGarageOpenEvent(reason, garageWasEmpty)
+}
+
+// GetShadowState returns the current shadow state
+func (m *Manager) GetShadowState() *shadowstate.SecurityShadowState {
+	return m.shadowTracker.GetState()
+}
+
+// Reset re-evaluates security conditions and resets rate limiters
+func (m *Manager) Reset() error {
+	m.logger.Info("Resetting Security - re-evaluating lockdown conditions and clearing rate limiters")
+
+	// Clear rate limiters to allow immediate notifications
+	m.mu.Lock()
+	m.lastDoorbellNotification = time.Time{}
+	m.lastVehicleArrivalNotification = time.Time{}
+	m.mu.Unlock()
+
+	// Re-evaluate lockdown conditions
+	isEveryoneAsleep, err := m.stateManager.GetBool("isEveryoneAsleep")
+	if err != nil {
+		m.logger.Error("Failed to get isEveryoneAsleep", zap.Error(err))
+	} else if isEveryoneAsleep {
+		m.logger.Info("Everyone is asleep, re-activating lockdown")
+		m.activateLockdown("Everyone is asleep (reset)")
+	}
+
+	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
+	if err != nil {
+		m.logger.Error("Failed to get isAnyoneHome", zap.Error(err))
+	} else if !isAnyoneHome {
+		m.logger.Info("No one is home, re-activating lockdown")
+		m.activateLockdown("No one is home (reset)")
+	}
+
+	m.logger.Info("Successfully reset Security")
+	return nil
 }
