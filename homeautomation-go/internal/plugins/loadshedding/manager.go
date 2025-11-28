@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -45,16 +46,18 @@ type Manager struct {
 	enabled        bool
 	loadSheddingOn bool
 	stateMu        sync.Mutex
+	shadowTracker  *shadowstate.LoadSheddingTracker
 }
 
 // NewManager creates a new Load Shedding manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) *Manager {
 	return &Manager{
-		haClient:     haClient,
-		stateManager: stateManager,
-		logger:       logger.Named("loadshedding"),
-		readOnly:     readOnly,
-		enabled:      false,
+		haClient:      haClient,
+		stateManager:  stateManager,
+		logger:        logger.Named("loadshedding"),
+		readOnly:      readOnly,
+		enabled:       false,
+		shadowTracker: shadowstate.NewLoadSheddingTracker(),
 	}
 }
 
@@ -104,6 +107,9 @@ func (m *Manager) Stop() {
 
 // handleEnergyChange is called when currentEnergyLevel changes
 func (m *Manager) handleEnergyChange(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs
+	m.updateShadowInputs()
+
 	// Convert values to strings
 	oldLevel := ""
 	if oldValue != nil {
@@ -224,6 +230,10 @@ func (m *Manager) enableLoadShedding(energyLevel string) {
 	m.lastActionMu.Lock()
 	m.lastAction = time.Now()
 	m.lastActionMu.Unlock()
+
+	// Record action in shadow state
+	reason := fmt.Sprintf("Energy state is %s (low battery) - restricting HVAC", energyLevel)
+	m.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted)
 }
 
 // disableLoadShedding deactivates load shedding (energy state green/white)
@@ -293,6 +303,10 @@ func (m *Manager) disableLoadShedding(energyLevel string) {
 	m.lastActionMu.Lock()
 	m.lastAction = time.Now()
 	m.lastActionMu.Unlock()
+
+	// Record action in shadow state
+	reason := fmt.Sprintf("Energy state is %s (battery restored) - returning to normal HVAC", energyLevel)
+	m.recordAction(false, "disable", reason, false, 0, 0)
 }
 
 // checkRateLimit ensures we don't take actions too frequently
@@ -361,4 +375,38 @@ func (m *Manager) Reset() error {
 
 	m.logger.Info("Successfully reset Load Shedding")
 	return nil
+}
+
+// updateShadowInputs updates the current input values in shadow state
+func (m *Manager) updateShadowInputs() {
+	inputs := make(map[string]interface{})
+
+	// Get current energy level
+	if val, err := m.stateManager.GetString("currentEnergyLevel"); err == nil {
+		inputs["currentEnergyLevel"] = val
+	}
+
+	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
+// recordAction snapshots inputs and records an action in shadow state
+func (m *Manager) recordAction(active bool, actionType string, reason string, holdMode bool, tempLow float64, tempHigh float64) {
+	// Update current inputs first
+	m.updateShadowInputs()
+
+	// Snapshot inputs for this action
+	m.shadowTracker.SnapshotInputsForAction()
+
+	// Record the action
+	thermostatSettings := shadowstate.ThermostatSettings{
+		HoldMode: holdMode,
+		TempLow:  tempLow,
+		TempHigh: tempHigh,
+	}
+	m.shadowTracker.RecordLoadSheddingAction(active, actionType, reason, thermostatSettings)
+}
+
+// GetShadowState returns the current shadow state
+func (m *Manager) GetShadowState() *shadowstate.LoadSheddingShadowState {
+	return m.shadowTracker.GetState()
 }

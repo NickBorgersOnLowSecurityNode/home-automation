@@ -300,3 +300,88 @@ func (st *SecurityTracker) GetState() *SecurityShadowState {
 
 	return stateCopy
 }
+
+// LoadSheddingTracker manages shadow state specifically for the load shedding plugin
+type LoadSheddingTracker struct {
+	mu    sync.RWMutex
+	state *LoadSheddingShadowState
+}
+
+// NewLoadSheddingTracker creates a new load shedding shadow state tracker
+func NewLoadSheddingTracker() *LoadSheddingTracker {
+	return &LoadSheddingTracker{
+		state: NewLoadSheddingShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (lst *LoadSheddingTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	lst.mu.Lock()
+	defer lst.mu.Unlock()
+
+	for key, value := range inputs {
+		lst.state.Inputs.Current[key] = value
+	}
+	lst.state.Metadata.LastUpdated = time.Now()
+}
+
+// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
+func (lst *LoadSheddingTracker) SnapshotInputsForAction() {
+	lst.mu.Lock()
+	defer lst.mu.Unlock()
+
+	// Deep copy current inputs to at-last-action
+	lst.state.Inputs.AtLastAction = make(map[string]interface{})
+	for key, value := range lst.state.Inputs.Current {
+		lst.state.Inputs.AtLastAction[key] = value
+	}
+}
+
+// RecordLoadSheddingAction records a load shedding activation or deactivation
+func (lst *LoadSheddingTracker) RecordLoadSheddingAction(active bool, actionType string, reason string, thermostatSettings ThermostatSettings) {
+	lst.mu.Lock()
+	defer lst.mu.Unlock()
+
+	now := time.Now()
+	lst.state.Outputs.Active = active
+	lst.state.Outputs.LastActionType = actionType
+	lst.state.Outputs.LastActionReason = reason
+	lst.state.Outputs.ThermostatSettings = thermostatSettings
+	lst.state.Outputs.LastActionTime = now
+	lst.state.Metadata.LastUpdated = now
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (lst *LoadSheddingTracker) GetState() *LoadSheddingShadowState {
+	lst.mu.RLock()
+	defer lst.mu.RUnlock()
+
+	// Create a deep copy to avoid race conditions
+	stateCopy := &LoadSheddingShadowState{
+		Plugin: lst.state.Plugin,
+		Inputs: LoadSheddingInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: LoadSheddingOutputs{
+			Active:             lst.state.Outputs.Active,
+			LastActionType:     lst.state.Outputs.LastActionType,
+			LastActionReason:   lst.state.Outputs.LastActionReason,
+			ThermostatSettings: lst.state.Outputs.ThermostatSettings,
+			LastActionTime:     lst.state.Outputs.LastActionTime,
+		},
+		Metadata: lst.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range lst.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy at-last-action inputs
+	for k, v := range lst.state.Inputs.AtLastAction {
+		stateCopy.Inputs.AtLastAction[k] = v
+	}
+
+	return stateCopy
+}
