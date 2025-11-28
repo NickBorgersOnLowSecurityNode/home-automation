@@ -957,3 +957,814 @@ func TestSleepHygieneTrackerConcurrentAccess(t *testing.T) {
 func TestSleepHygieneShadowStateImplementsInterface(t *testing.T) {
 	var _ PluginShadowState = (*SleepHygieneShadowState)(nil)
 }
+
+// ============================================================================
+// Phase 6: Read-Heavy Plugin Tracker Tests
+// ============================================================================
+
+// LoadSheddingTracker tests
+
+func TestNewLoadSheddingTracker(t *testing.T) {
+	lst := NewLoadSheddingTracker()
+	if lst == nil {
+		t.Fatal("NewLoadSheddingTracker returned nil")
+	}
+	if lst.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestLoadSheddingTrackerUpdateCurrentInputs(t *testing.T) {
+	lst := NewLoadSheddingTracker()
+
+	inputs := map[string]interface{}{
+		"currentEnergyLevel": "high",
+		"outsideTemperature": 85.0,
+	}
+
+	lst.UpdateCurrentInputs(inputs)
+
+	state := lst.GetState()
+	if state.Inputs.Current["currentEnergyLevel"] != "high" {
+		t.Errorf("Expected currentEnergyLevel to be 'high', got %v", state.Inputs.Current["currentEnergyLevel"])
+	}
+	if state.Inputs.Current["outsideTemperature"] != 85.0 {
+		t.Errorf("Expected outsideTemperature to be 85.0, got %v", state.Inputs.Current["outsideTemperature"])
+	}
+}
+
+func TestLoadSheddingTrackerSnapshotInputsForAction(t *testing.T) {
+	lst := NewLoadSheddingTracker()
+
+	// Set initial inputs
+	inputs := map[string]interface{}{
+		"currentEnergyLevel": "low",
+	}
+	lst.UpdateCurrentInputs(inputs)
+
+	// Snapshot
+	lst.SnapshotInputsForAction()
+
+	// Change current inputs
+	newInputs := map[string]interface{}{
+		"currentEnergyLevel": "high",
+	}
+	lst.UpdateCurrentInputs(newInputs)
+
+	state := lst.GetState()
+
+	// Current should be high
+	if state.Inputs.Current["currentEnergyLevel"] != "high" {
+		t.Errorf("Expected current currentEnergyLevel to be 'high', got %v", state.Inputs.Current["currentEnergyLevel"])
+	}
+
+	// At last action should be low
+	if state.Inputs.AtLastAction["currentEnergyLevel"] != "low" {
+		t.Errorf("Expected atLastAction currentEnergyLevel to be 'low', got %v", state.Inputs.AtLastAction["currentEnergyLevel"])
+	}
+}
+
+func TestLoadSheddingTrackerRecordAction(t *testing.T) {
+	lst := NewLoadSheddingTracker()
+
+	settings := ThermostatSettings{
+		HoldMode: true,
+		TempLow:  68.0,
+		TempHigh: 78.0,
+	}
+
+	lst.RecordLoadSheddingAction(true, "increase_temp", "Low energy level", settings)
+
+	state := lst.GetState()
+
+	if !state.Outputs.Active {
+		t.Error("Expected load shedding to be active")
+	}
+	if state.Outputs.LastActionType != "increase_temp" {
+		t.Errorf("Expected action type 'increase_temp', got %s", state.Outputs.LastActionType)
+	}
+	if state.Outputs.LastActionReason != "Low energy level" {
+		t.Errorf("Expected reason 'Low energy level', got %s", state.Outputs.LastActionReason)
+	}
+	if state.Outputs.ThermostatSettings.TempHigh != 78.0 {
+		t.Errorf("Expected temp high 78.0, got %f", state.Outputs.ThermostatSettings.TempHigh)
+	}
+	if !state.Outputs.ThermostatSettings.HoldMode {
+		t.Error("Expected HoldMode to be true")
+	}
+	if state.Outputs.LastActionTime.IsZero() {
+		t.Error("Expected LastActionTime to be set")
+	}
+}
+
+func TestLoadSheddingTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	lst := NewLoadSheddingTracker()
+
+	// Set initial state
+	inputs := map[string]interface{}{
+		"currentEnergyLevel": "medium",
+	}
+	lst.UpdateCurrentInputs(inputs)
+
+	// Get state
+	state1 := lst.GetState()
+
+	// Modify the returned state
+	state1.Inputs.Current["currentEnergyLevel"] = "modified"
+
+	// Get state again
+	state2 := lst.GetState()
+
+	// Original should be unchanged
+	if state2.Inputs.Current["currentEnergyLevel"] != "medium" {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestLoadSheddingShadowStateImplementsInterface(t *testing.T) {
+	var _ PluginShadowState = (*LoadSheddingShadowState)(nil)
+}
+
+// EnergyTracker tests
+
+func TestNewEnergyTracker(t *testing.T) {
+	et := NewEnergyTracker()
+	if et == nil {
+		t.Fatal("NewEnergyTracker returned nil")
+	}
+	if et.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestEnergyTrackerUpdateCurrentInputs(t *testing.T) {
+	et := NewEnergyTracker()
+
+	inputs := map[string]interface{}{
+		"batteryPercentage": 75.0,
+		"solarGenerationKW": 5.2,
+		"gridImportWatts":   1200.0,
+	}
+
+	et.UpdateCurrentInputs(inputs)
+
+	state := et.GetState()
+	if state.Inputs.Current["batteryPercentage"] != 75.0 {
+		t.Errorf("Expected batteryPercentage to be 75.0, got %v", state.Inputs.Current["batteryPercentage"])
+	}
+	if state.Inputs.Current["solarGenerationKW"] != 5.2 {
+		t.Errorf("Expected solarGenerationKW to be 5.2, got %v", state.Inputs.Current["solarGenerationKW"])
+	}
+}
+
+func TestEnergyTrackerUpdateSensorReadings(t *testing.T) {
+	et := NewEnergyTracker()
+
+	et.UpdateSensorReadings(80.0, 4.5, 12.3, true)
+
+	state := et.GetState()
+	if state.Outputs.SensorReadings.BatteryPercentage != 80.0 {
+		t.Errorf("Expected BatteryPercentage 80.0, got %f", state.Outputs.SensorReadings.BatteryPercentage)
+	}
+	if state.Outputs.SensorReadings.ThisHourSolarGenerationKW != 4.5 {
+		t.Errorf("Expected ThisHourSolarGenerationKW 4.5, got %f", state.Outputs.SensorReadings.ThisHourSolarGenerationKW)
+	}
+	if state.Outputs.SensorReadings.RemainingSolarGenerationKWH != 12.3 {
+		t.Errorf("Expected RemainingSolarGenerationKWH 12.3, got %f", state.Outputs.SensorReadings.RemainingSolarGenerationKWH)
+	}
+	if !state.Outputs.SensorReadings.IsGridAvailable {
+		t.Error("Expected IsGridAvailable to be true")
+	}
+	if state.Outputs.SensorReadings.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+}
+
+func TestEnergyTrackerUpdateBatteryLevel(t *testing.T) {
+	et := NewEnergyTracker()
+
+	et.UpdateBatteryLevel("high")
+
+	state := et.GetState()
+	if state.Outputs.BatteryEnergyLevel != "high" {
+		t.Errorf("Expected BatteryEnergyLevel 'high', got %s", state.Outputs.BatteryEnergyLevel)
+	}
+	if state.Outputs.LastComputations.LastBatteryLevelCalc.IsZero() {
+		t.Error("Expected LastBatteryLevelCalc to be set")
+	}
+}
+
+func TestEnergyTrackerUpdateSolarLevel(t *testing.T) {
+	et := NewEnergyTracker()
+
+	et.UpdateSolarLevel("medium")
+
+	state := et.GetState()
+	if state.Outputs.SolarProductionEnergyLevel != "medium" {
+		t.Errorf("Expected SolarProductionEnergyLevel 'medium', got %s", state.Outputs.SolarProductionEnergyLevel)
+	}
+	if state.Outputs.LastComputations.LastSolarLevelCalc.IsZero() {
+		t.Error("Expected LastSolarLevelCalc to be set")
+	}
+}
+
+func TestEnergyTrackerUpdateOverallLevel(t *testing.T) {
+	et := NewEnergyTracker()
+
+	et.UpdateOverallLevel("low")
+
+	state := et.GetState()
+	if state.Outputs.CurrentEnergyLevel != "low" {
+		t.Errorf("Expected CurrentEnergyLevel 'low', got %s", state.Outputs.CurrentEnergyLevel)
+	}
+	if state.Outputs.LastComputations.LastOverallLevelCalc.IsZero() {
+		t.Error("Expected LastOverallLevelCalc to be set")
+	}
+}
+
+func TestEnergyTrackerUpdateFreeEnergyAvailable(t *testing.T) {
+	et := NewEnergyTracker()
+
+	et.UpdateFreeEnergyAvailable(true)
+
+	state := et.GetState()
+	if !state.Outputs.IsFreeEnergyAvailable {
+		t.Error("Expected IsFreeEnergyAvailable to be true")
+	}
+	if state.Outputs.LastComputations.LastFreeEnergyCheck.IsZero() {
+		t.Error("Expected LastFreeEnergyCheck to be set")
+	}
+
+	// Test setting to false
+	et.UpdateFreeEnergyAvailable(false)
+	state = et.GetState()
+	if state.Outputs.IsFreeEnergyAvailable {
+		t.Error("Expected IsFreeEnergyAvailable to be false")
+	}
+}
+
+func TestEnergyTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	et := NewEnergyTracker()
+
+	inputs := map[string]interface{}{
+		"batteryPercentage": 50.0,
+	}
+	et.UpdateCurrentInputs(inputs)
+
+	state1 := et.GetState()
+	state1.Inputs.Current["batteryPercentage"] = 99.0
+
+	state2 := et.GetState()
+	if state2.Inputs.Current["batteryPercentage"] != 50.0 {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestEnergyTrackerConcurrentAccess(t *testing.T) {
+	et := NewEnergyTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				et.UpdateBatteryLevel("high")
+				et.UpdateSolarLevel("medium")
+				et.UpdateOverallLevel("low")
+				et.UpdateFreeEnergyAvailable(true)
+				et.UpdateSensorReadings(80.0, 4.5, 12.3, true)
+			}
+		}()
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = et.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestEnergyShadowStateImplementsInterface(t *testing.T) {
+	var _ PluginShadowState = (*EnergyShadowState)(nil)
+}
+
+// StateTrackingTracker tests
+
+func TestNewStateTrackingTracker(t *testing.T) {
+	stt := NewStateTrackingTracker()
+	if stt == nil {
+		t.Fatal("NewStateTrackingTracker returned nil")
+	}
+	if stt.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestStateTrackingTrackerUpdateCurrentInputs(t *testing.T) {
+	stt := NewStateTrackingTracker()
+
+	inputs := map[string]interface{}{
+		"isNickHome":     true,
+		"isCarolineHome": false,
+		"isMasterAsleep": true,
+	}
+
+	stt.UpdateCurrentInputs(inputs)
+
+	state := stt.GetState()
+	if state.Inputs.Current["isNickHome"] != true {
+		t.Errorf("Expected isNickHome to be true, got %v", state.Inputs.Current["isNickHome"])
+	}
+	if state.Inputs.Current["isCarolineHome"] != false {
+		t.Errorf("Expected isCarolineHome to be false, got %v", state.Inputs.Current["isCarolineHome"])
+	}
+	if state.Inputs.Current["isMasterAsleep"] != true {
+		t.Errorf("Expected isMasterAsleep to be true, got %v", state.Inputs.Current["isMasterAsleep"])
+	}
+}
+
+func TestStateTrackingTrackerUpdateDerivedStates(t *testing.T) {
+	stt := NewStateTrackingTracker()
+
+	stt.UpdateDerivedStates(true, true, true, false)
+
+	state := stt.GetState()
+	if !state.Outputs.DerivedStates.IsAnyOwnerHome {
+		t.Error("Expected IsAnyOwnerHome to be true")
+	}
+	if !state.Outputs.DerivedStates.IsAnyoneHome {
+		t.Error("Expected IsAnyoneHome to be true")
+	}
+	if !state.Outputs.DerivedStates.IsAnyoneAsleep {
+		t.Error("Expected IsAnyoneAsleep to be true")
+	}
+	if state.Outputs.DerivedStates.IsEveryoneAsleep {
+		t.Error("Expected IsEveryoneAsleep to be false")
+	}
+	if state.Outputs.LastComputation.IsZero() {
+		t.Error("Expected LastComputation to be set")
+	}
+}
+
+func TestStateTrackingTrackerUpdateSleepDetectionTimer(t *testing.T) {
+	stt := NewStateTrackingTracker()
+
+	// Activate timer
+	stt.UpdateSleepDetectionTimer(true)
+
+	state := stt.GetState()
+	if !state.Outputs.TimerStates.SleepDetectionActive {
+		t.Error("Expected SleepDetectionActive to be true")
+	}
+	if state.Outputs.TimerStates.SleepDetectionStarted.IsZero() {
+		t.Error("Expected SleepDetectionStarted to be set")
+	}
+
+	// Deactivate timer
+	stt.UpdateSleepDetectionTimer(false)
+
+	state = stt.GetState()
+	if state.Outputs.TimerStates.SleepDetectionActive {
+		t.Error("Expected SleepDetectionActive to be false")
+	}
+	if !state.Outputs.TimerStates.SleepDetectionStarted.IsZero() {
+		t.Error("Expected SleepDetectionStarted to be cleared")
+	}
+}
+
+func TestStateTrackingTrackerUpdateWakeDetectionTimer(t *testing.T) {
+	stt := NewStateTrackingTracker()
+
+	// Activate timer
+	stt.UpdateWakeDetectionTimer(true)
+
+	state := stt.GetState()
+	if !state.Outputs.TimerStates.WakeDetectionActive {
+		t.Error("Expected WakeDetectionActive to be true")
+	}
+	if state.Outputs.TimerStates.WakeDetectionStarted.IsZero() {
+		t.Error("Expected WakeDetectionStarted to be set")
+	}
+
+	// Deactivate timer
+	stt.UpdateWakeDetectionTimer(false)
+
+	state = stt.GetState()
+	if state.Outputs.TimerStates.WakeDetectionActive {
+		t.Error("Expected WakeDetectionActive to be false")
+	}
+	if !state.Outputs.TimerStates.WakeDetectionStarted.IsZero() {
+		t.Error("Expected WakeDetectionStarted to be cleared")
+	}
+}
+
+func TestStateTrackingTrackerUpdateOwnerReturnTimer(t *testing.T) {
+	stt := NewStateTrackingTracker()
+
+	// Activate timer
+	stt.UpdateOwnerReturnTimer(true)
+
+	state := stt.GetState()
+	if !state.Outputs.TimerStates.OwnerReturnResetActive {
+		t.Error("Expected OwnerReturnResetActive to be true")
+	}
+	if state.Outputs.TimerStates.OwnerReturnResetStarted.IsZero() {
+		t.Error("Expected OwnerReturnResetStarted to be set")
+	}
+
+	// Deactivate timer
+	stt.UpdateOwnerReturnTimer(false)
+
+	state = stt.GetState()
+	if state.Outputs.TimerStates.OwnerReturnResetActive {
+		t.Error("Expected OwnerReturnResetActive to be false")
+	}
+	if !state.Outputs.TimerStates.OwnerReturnResetStarted.IsZero() {
+		t.Error("Expected OwnerReturnResetStarted to be cleared")
+	}
+}
+
+func TestStateTrackingTrackerRecordArrivalAnnouncement(t *testing.T) {
+	stt := NewStateTrackingTracker()
+
+	stt.RecordArrivalAnnouncement("Nick", "Nick is home!")
+
+	state := stt.GetState()
+	if state.Outputs.LastAnnouncement == nil {
+		t.Fatal("Expected LastAnnouncement to be set")
+	}
+	if state.Outputs.LastAnnouncement.Person != "Nick" {
+		t.Errorf("Expected person 'Nick', got %s", state.Outputs.LastAnnouncement.Person)
+	}
+	if state.Outputs.LastAnnouncement.Message != "Nick is home!" {
+		t.Errorf("Expected message 'Nick is home!', got %s", state.Outputs.LastAnnouncement.Message)
+	}
+	if state.Outputs.LastAnnouncement.Timestamp.IsZero() {
+		t.Error("Expected Timestamp to be set")
+	}
+}
+
+func TestStateTrackingTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	stt := NewStateTrackingTracker()
+
+	inputs := map[string]interface{}{
+		"isNickHome": true,
+	}
+	stt.UpdateCurrentInputs(inputs)
+
+	state1 := stt.GetState()
+	state1.Inputs.Current["isNickHome"] = false
+
+	state2 := stt.GetState()
+	if state2.Inputs.Current["isNickHome"] != true {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestStateTrackingTrackerConcurrentAccess(t *testing.T) {
+	stt := NewStateTrackingTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				stt.UpdateDerivedStates(i%2 == 0, true, false, false)
+				stt.UpdateSleepDetectionTimer(i%2 == 0)
+				stt.UpdateWakeDetectionTimer(i%2 == 1)
+				stt.UpdateOwnerReturnTimer(i%2 == 0)
+				stt.RecordArrivalAnnouncement("Test", "Test message")
+			}
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = stt.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestStateTrackingShadowStateImplementsInterface(t *testing.T) {
+	var _ PluginShadowState = (*StateTrackingShadowState)(nil)
+}
+
+// DayPhaseTracker tests
+
+func TestNewDayPhaseTracker(t *testing.T) {
+	dpt := NewDayPhaseTracker()
+	if dpt == nil {
+		t.Fatal("NewDayPhaseTracker returned nil")
+	}
+	if dpt.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestDayPhaseTrackerUpdateCurrentInputs(t *testing.T) {
+	dpt := NewDayPhaseTracker()
+
+	inputs := map[string]interface{}{
+		"sunElevation":    45.5,
+		"sunAzimuth":      180.0,
+		"nextSunriseTime": "2024-01-15T06:30:00Z",
+	}
+
+	dpt.UpdateCurrentInputs(inputs)
+
+	state := dpt.GetState()
+	if state.Inputs.Current["sunElevation"] != 45.5 {
+		t.Errorf("Expected sunElevation to be 45.5, got %v", state.Inputs.Current["sunElevation"])
+	}
+	if state.Inputs.Current["sunAzimuth"] != 180.0 {
+		t.Errorf("Expected sunAzimuth to be 180.0, got %v", state.Inputs.Current["sunAzimuth"])
+	}
+}
+
+func TestDayPhaseTrackerUpdateSunEvent(t *testing.T) {
+	dpt := NewDayPhaseTracker()
+
+	dpt.UpdateSunEvent("sunset")
+
+	state := dpt.GetState()
+	if state.Outputs.SunEvent != "sunset" {
+		t.Errorf("Expected SunEvent 'sunset', got %s", state.Outputs.SunEvent)
+	}
+	if state.Outputs.LastSunEventCalc.IsZero() {
+		t.Error("Expected LastSunEventCalc to be set")
+	}
+}
+
+func TestDayPhaseTrackerUpdateDayPhase(t *testing.T) {
+	dpt := NewDayPhaseTracker()
+
+	dpt.UpdateDayPhase("evening")
+
+	state := dpt.GetState()
+	if state.Outputs.DayPhase != "evening" {
+		t.Errorf("Expected DayPhase 'evening', got %s", state.Outputs.DayPhase)
+	}
+	if state.Outputs.LastDayPhaseCalc.IsZero() {
+		t.Error("Expected LastDayPhaseCalc to be set")
+	}
+}
+
+func TestDayPhaseTrackerUpdateNextTransition(t *testing.T) {
+	dpt := NewDayPhaseTracker()
+
+	transitionTime := time.Now().Add(2 * time.Hour)
+	dpt.UpdateNextTransition(transitionTime, "night")
+
+	state := dpt.GetState()
+	if !state.Outputs.NextTransitionTime.Equal(transitionTime) {
+		t.Errorf("Expected NextTransitionTime to match, got %v", state.Outputs.NextTransitionTime)
+	}
+	if state.Outputs.NextTransitionPhase != "night" {
+		t.Errorf("Expected NextTransitionPhase 'night', got %s", state.Outputs.NextTransitionPhase)
+	}
+}
+
+func TestDayPhaseTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	dpt := NewDayPhaseTracker()
+
+	inputs := map[string]interface{}{
+		"sunElevation": 30.0,
+	}
+	dpt.UpdateCurrentInputs(inputs)
+
+	state1 := dpt.GetState()
+	state1.Inputs.Current["sunElevation"] = 90.0
+
+	state2 := dpt.GetState()
+	if state2.Inputs.Current["sunElevation"] != 30.0 {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestDayPhaseTrackerConcurrentAccess(t *testing.T) {
+	dpt := NewDayPhaseTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				dpt.UpdateSunEvent("sunset")
+				dpt.UpdateDayPhase("evening")
+				dpt.UpdateNextTransition(time.Now().Add(time.Hour), "night")
+			}
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = dpt.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestDayPhaseShadowStateImplementsInterface(t *testing.T) {
+	var _ PluginShadowState = (*DayPhaseShadowState)(nil)
+}
+
+// TVTracker tests
+
+func TestNewTVTracker(t *testing.T) {
+	tvt := NewTVTracker()
+	if tvt == nil {
+		t.Fatal("NewTVTracker returned nil")
+	}
+	if tvt.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestTVTrackerUpdateCurrentInputs(t *testing.T) {
+	tvt := NewTVTracker()
+
+	inputs := map[string]interface{}{
+		"appleTVState": "playing",
+		"tvPowerState": "on",
+		"currentInput": "HDMI1",
+	}
+
+	tvt.UpdateCurrentInputs(inputs)
+
+	state := tvt.GetState()
+	if state.Inputs.Current["appleTVState"] != "playing" {
+		t.Errorf("Expected appleTVState to be 'playing', got %v", state.Inputs.Current["appleTVState"])
+	}
+	if state.Inputs.Current["tvPowerState"] != "on" {
+		t.Errorf("Expected tvPowerState to be 'on', got %v", state.Inputs.Current["tvPowerState"])
+	}
+	if state.Inputs.Current["currentInput"] != "HDMI1" {
+		t.Errorf("Expected currentInput to be 'HDMI1', got %v", state.Inputs.Current["currentInput"])
+	}
+}
+
+func TestTVTrackerUpdateAppleTVState(t *testing.T) {
+	tvt := NewTVTracker()
+
+	tvt.UpdateAppleTVState(true, "playing")
+
+	state := tvt.GetState()
+	if !state.Outputs.IsAppleTVPlaying {
+		t.Error("Expected IsAppleTVPlaying to be true")
+	}
+	if state.Outputs.AppleTVState != "playing" {
+		t.Errorf("Expected AppleTVState 'playing', got %s", state.Outputs.AppleTVState)
+	}
+	if state.Outputs.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+
+	// Test paused state
+	tvt.UpdateAppleTVState(false, "paused")
+	state = tvt.GetState()
+	if state.Outputs.IsAppleTVPlaying {
+		t.Error("Expected IsAppleTVPlaying to be false")
+	}
+	if state.Outputs.AppleTVState != "paused" {
+		t.Errorf("Expected AppleTVState 'paused', got %s", state.Outputs.AppleTVState)
+	}
+}
+
+func TestTVTrackerUpdateTVPower(t *testing.T) {
+	tvt := NewTVTracker()
+
+	tvt.UpdateTVPower(true)
+
+	state := tvt.GetState()
+	if !state.Outputs.IsTVOn {
+		t.Error("Expected IsTVOn to be true")
+	}
+	if state.Outputs.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+
+	// Test power off
+	tvt.UpdateTVPower(false)
+	state = tvt.GetState()
+	if state.Outputs.IsTVOn {
+		t.Error("Expected IsTVOn to be false")
+	}
+}
+
+func TestTVTrackerUpdateHDMIInput(t *testing.T) {
+	tvt := NewTVTracker()
+
+	tvt.UpdateHDMIInput("HDMI2")
+
+	state := tvt.GetState()
+	if state.Outputs.CurrentHDMIInput != "HDMI2" {
+		t.Errorf("Expected CurrentHDMIInput 'HDMI2', got %s", state.Outputs.CurrentHDMIInput)
+	}
+	if state.Outputs.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+}
+
+func TestTVTrackerUpdateTVPlaying(t *testing.T) {
+	tvt := NewTVTracker()
+
+	tvt.UpdateTVPlaying(true)
+
+	state := tvt.GetState()
+	if !state.Outputs.IsTVPlaying {
+		t.Error("Expected IsTVPlaying to be true")
+	}
+	if state.Outputs.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+
+	// Test setting to false
+	tvt.UpdateTVPlaying(false)
+	state = tvt.GetState()
+	if state.Outputs.IsTVPlaying {
+		t.Error("Expected IsTVPlaying to be false")
+	}
+}
+
+func TestTVTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	tvt := NewTVTracker()
+
+	inputs := map[string]interface{}{
+		"appleTVState": "playing",
+	}
+	tvt.UpdateCurrentInputs(inputs)
+
+	state1 := tvt.GetState()
+	state1.Inputs.Current["appleTVState"] = "modified"
+
+	state2 := tvt.GetState()
+	if state2.Inputs.Current["appleTVState"] != "playing" {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestTVTrackerConcurrentAccess(t *testing.T) {
+	tvt := NewTVTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				tvt.UpdateAppleTVState(i%2 == 0, "playing")
+				tvt.UpdateTVPower(i%2 == 0)
+				tvt.UpdateHDMIInput(fmt.Sprintf("HDMI%d", i%4))
+				tvt.UpdateTVPlaying(i%2 == 0)
+			}
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = tvt.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestTVShadowStateImplementsInterface(t *testing.T) {
+	var _ PluginShadowState = (*TVShadowState)(nil)
+}
