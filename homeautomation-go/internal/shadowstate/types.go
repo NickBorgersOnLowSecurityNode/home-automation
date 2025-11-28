@@ -273,6 +273,20 @@ func NewSecurityShadowState() *SecurityShadowState {
 	}
 }
 
+// LoadSheddingShadowState represents the shadow state for the load shedding plugin
+type LoadSheddingShadowState struct {
+	Plugin   string              `json:"plugin"`
+	Inputs   LoadSheddingInputs  `json:"inputs"`
+	Outputs  LoadSheddingOutputs `json:"outputs"`
+	Metadata StateMetadata       `json:"metadata"`
+}
+
+// LoadSheddingInputs tracks current and last-action input values
+type LoadSheddingInputs struct {
+	Current      map[string]interface{} `json:"current"`
+	AtLastAction map[string]interface{} `json:"atLastAction"`
+}
+
 // SleepHygieneShadowState represents the shadow state for the sleep hygiene plugin
 type SleepHygieneShadowState struct {
 	Plugin   string              `json:"plugin"`
@@ -285,6 +299,61 @@ type SleepHygieneShadowState struct {
 type SleepHygieneInputs struct {
 	Current      map[string]interface{} `json:"current"`
 	AtLastAction map[string]interface{} `json:"atLastAction"`
+}
+
+// LoadSheddingOutputs tracks the state of load shedding control outputs
+type LoadSheddingOutputs struct {
+	Active             bool               `json:"active"`
+	LastActionType     string             `json:"lastActionType,omitempty"` // "enable" or "disable"
+	LastActionReason   string             `json:"lastActionReason,omitempty"`
+	ThermostatSettings ThermostatSettings `json:"thermostatSettings,omitempty"`
+	LastActionTime     time.Time          `json:"lastActionTime"`
+}
+
+// ThermostatSettings represents thermostat configuration
+type ThermostatSettings struct {
+	HoldMode bool    `json:"holdMode"`
+	TempLow  float64 `json:"tempLow,omitempty"`
+	TempHigh float64 `json:"tempHigh,omitempty"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (ls *LoadSheddingShadowState) GetCurrentInputs() map[string]interface{} {
+	return ls.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (ls *LoadSheddingShadowState) GetLastActionInputs() map[string]interface{} {
+	return ls.Inputs.AtLastAction
+}
+
+// GetOutputs implements PluginShadowState
+func (ls *LoadSheddingShadowState) GetOutputs() interface{} {
+	return ls.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (ls *LoadSheddingShadowState) GetMetadata() StateMetadata {
+	return ls.Metadata
+}
+
+// NewLoadSheddingShadowState creates a new load shedding shadow state
+func NewLoadSheddingShadowState() *LoadSheddingShadowState {
+	return &LoadSheddingShadowState{
+		Plugin: "loadshedding",
+		Inputs: LoadSheddingInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: LoadSheddingOutputs{
+			Active:         false,
+			LastActionTime: time.Time{},
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "loadshedding",
+		},
+	}
 }
 
 // SleepHygieneOutputs tracks the state of sleep hygiene outputs

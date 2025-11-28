@@ -246,6 +246,11 @@ func main() {
 	defer loadSheddingManager.Stop()
 	logger.Info("Load Shedding Manager started successfully")
 
+	// Register load shedding shadow state provider with tracker
+	shadowTracker.RegisterPluginProvider("loadshedding", func() shadowstate.PluginShadowState {
+		return loadSheddingManager.GetShadowState()
+	})
+
 	// Start Reset Coordinator (must be last - after all plugins are started)
 	resetCoordinator := reset.NewCoordinator(stateManager, logger, readOnly, []reset.PluginWithName{
 		{Name: "State Tracking", Plugin: stateTrackingManager},
