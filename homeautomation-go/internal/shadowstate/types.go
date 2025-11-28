@@ -97,3 +97,85 @@ func NewLightingShadowState() *LightingShadowState {
 		},
 	}
 }
+
+// MusicShadowState represents the shadow state for the music plugin
+type MusicShadowState struct {
+	Plugin   string        `json:"plugin"`
+	Inputs   MusicInputs   `json:"inputs"`
+	Outputs  MusicOutputs  `json:"outputs"`
+	Metadata StateMetadata `json:"metadata"`
+}
+
+// MusicInputs tracks current and last-action input values
+type MusicInputs struct {
+	Current      map[string]interface{} `json:"current"`
+	AtLastAction map[string]interface{} `json:"atLastAction"`
+}
+
+// MusicOutputs tracks the state of music control outputs
+type MusicOutputs struct {
+	CurrentMode      string         `json:"currentMode,omitempty"` // e.g., "morning", "working", "evening"
+	ActivePlaylist   PlaylistInfo   `json:"activePlaylist,omitempty"`
+	SpeakerGroup     []SpeakerState `json:"speakerGroup,omitempty"`
+	FadeState        string         `json:"fadeState"`        // "idle", "fading_in", "fading_out"
+	PlaylistRotation map[string]int `json:"playlistRotation"` // Music type -> playlist number
+	LastActionTime   time.Time      `json:"lastActionTime"`
+	LastActionType   string         `json:"lastActionType,omitempty"` // "select_mode", "start_playback", "fade_out", etc.
+	LastActionReason string         `json:"lastActionReason,omitempty"`
+}
+
+// PlaylistInfo represents the currently playing playlist
+type PlaylistInfo struct {
+	URI       string `json:"uri"`
+	Name      string `json:"name,omitempty"`
+	MediaType string `json:"mediaType"`
+}
+
+// SpeakerState represents a single speaker's state
+type SpeakerState struct {
+	PlayerName    string `json:"playerName"`
+	Volume        int    `json:"volume"`
+	BaseVolume    int    `json:"baseVolume"`
+	DefaultVolume int    `json:"defaultVolume"`
+	IsLeader      bool   `json:"isLeader"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (m *MusicShadowState) GetCurrentInputs() map[string]interface{} {
+	return m.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (m *MusicShadowState) GetLastActionInputs() map[string]interface{} {
+	return m.Inputs.AtLastAction
+}
+
+// GetOutputs implements PluginShadowState
+func (m *MusicShadowState) GetOutputs() interface{} {
+	return m.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (m *MusicShadowState) GetMetadata() StateMetadata {
+	return m.Metadata
+}
+
+// NewMusicShadowState creates a new music shadow state
+func NewMusicShadowState() *MusicShadowState {
+	return &MusicShadowState{
+		Plugin: "music",
+		Inputs: MusicInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: MusicOutputs{
+			SpeakerGroup:     make([]SpeakerState, 0),
+			PlaylistRotation: make(map[string]int),
+			FadeState:        "idle",
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "music",
+		},
+	}
+}
