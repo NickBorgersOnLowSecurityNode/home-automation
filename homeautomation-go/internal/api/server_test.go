@@ -559,3 +559,251 @@ func TestPluginRegistryCompleteness(t *testing.T) {
 		}
 	}
 }
+
+func TestHandleGetLightingShadowState(t *testing.T) {
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create mock HA client
+	mockClient := ha.NewMockClient()
+
+	// Create state manager
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create shadow tracker
+	shadowTracker := shadowstate.NewTracker()
+
+	// Register a mock lighting shadow state
+	lightingState := shadowstate.NewLightingShadowState()
+	lightingState.Inputs.Current["dayPhase"] = "evening"
+	lightingState.Inputs.AtLastAction["dayPhase"] = "afternoon"
+	shadowTracker.RegisterPlugin("lighting", lightingState)
+
+	// Create API server
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
+
+	// Create test request
+	req := httptest.NewRequest(http.MethodGet, "/api/shadow/lighting", nil)
+	w := httptest.NewRecorder()
+
+	// Handle request
+	server.handleGetLightingShadowState(w, req)
+
+	// Check status code
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	// Check content type
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("Expected Content-Type application/json, got %s", contentType)
+	}
+
+	// Parse response
+	var response shadowstate.LightingShadowState
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify inputs
+	if response.Inputs.Current["dayPhase"] != "evening" {
+		t.Errorf("Expected current dayPhase to be 'evening', got %v", response.Inputs.Current["dayPhase"])
+	}
+	if response.Inputs.AtLastAction["dayPhase"] != "afternoon" {
+		t.Errorf("Expected atLastAction dayPhase to be 'afternoon', got %v", response.Inputs.AtLastAction["dayPhase"])
+	}
+}
+
+func TestHandleGetLightingShadowState_NotFound(t *testing.T) {
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create mock HA client
+	mockClient := ha.NewMockClient()
+
+	// Create state manager
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create empty shadow tracker (no lighting state registered)
+	shadowTracker := shadowstate.NewTracker()
+
+	// Create API server
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
+
+	// Create test request
+	req := httptest.NewRequest(http.MethodGet, "/api/shadow/lighting", nil)
+	w := httptest.NewRecorder()
+
+	// Handle request
+	server.handleGetLightingShadowState(w, req)
+
+	// Check status code - should be 404 Not Found
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", w.Code)
+	}
+}
+
+func TestHandleGetSecurityShadowState(t *testing.T) {
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create mock HA client
+	mockClient := ha.NewMockClient()
+
+	// Create state manager
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create shadow tracker
+	shadowTracker := shadowstate.NewTracker()
+
+	// Register a mock security shadow state
+	securityState := shadowstate.NewSecurityShadowState()
+	securityState.Inputs.Current["isEveryoneAsleep"] = true
+	securityState.Inputs.AtLastAction["isEveryoneAsleep"] = false
+	securityState.Outputs.Lockdown.Active = true
+	securityState.Outputs.Lockdown.Reason = "Everyone is asleep"
+	shadowTracker.RegisterPlugin("security", securityState)
+
+	// Create API server
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
+
+	// Create test request
+	req := httptest.NewRequest(http.MethodGet, "/api/shadow/security", nil)
+	w := httptest.NewRecorder()
+
+	// Handle request
+	server.handleGetSecurityShadowState(w, req)
+
+	// Check status code
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	// Check content type
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("Expected Content-Type application/json, got %s", contentType)
+	}
+
+	// Parse response
+	var response shadowstate.SecurityShadowState
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify inputs
+	if response.Inputs.Current["isEveryoneAsleep"] != true {
+		t.Errorf("Expected current isEveryoneAsleep to be true, got %v", response.Inputs.Current["isEveryoneAsleep"])
+	}
+	if response.Inputs.AtLastAction["isEveryoneAsleep"] != false {
+		t.Errorf("Expected atLastAction isEveryoneAsleep to be false, got %v", response.Inputs.AtLastAction["isEveryoneAsleep"])
+	}
+
+	// Verify outputs
+	if !response.Outputs.Lockdown.Active {
+		t.Error("Expected lockdown to be active")
+	}
+	if response.Outputs.Lockdown.Reason != "Everyone is asleep" {
+		t.Errorf("Expected lockdown reason to be 'Everyone is asleep', got %s", response.Outputs.Lockdown.Reason)
+	}
+}
+
+func TestHandleGetSecurityShadowState_NotFound(t *testing.T) {
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create mock HA client
+	mockClient := ha.NewMockClient()
+
+	// Create state manager
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create empty shadow tracker (no security state registered)
+	shadowTracker := shadowstate.NewTracker()
+
+	// Create API server
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
+
+	// Create test request
+	req := httptest.NewRequest(http.MethodGet, "/api/shadow/security", nil)
+	w := httptest.NewRecorder()
+
+	// Handle request
+	server.handleGetSecurityShadowState(w, req)
+
+	// Check status code - should be 404 Not Found
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", w.Code)
+	}
+}
+
+func TestHandleGetAllShadowStates(t *testing.T) {
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create mock HA client
+	mockClient := ha.NewMockClient()
+
+	// Create state manager
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create shadow tracker
+	shadowTracker := shadowstate.NewTracker()
+
+	// Register multiple shadow states
+	lightingState := shadowstate.NewLightingShadowState()
+	lightingState.Inputs.Current["dayPhase"] = "evening"
+	shadowTracker.RegisterPlugin("lighting", lightingState)
+
+	securityState := shadowstate.NewSecurityShadowState()
+	securityState.Inputs.Current["isEveryoneAsleep"] = true
+	shadowTracker.RegisterPlugin("security", securityState)
+
+	// Create API server
+	server := NewServer(stateManager, shadowTracker, logger, 8080)
+
+	// Create test request
+	req := httptest.NewRequest(http.MethodGet, "/api/shadow", nil)
+	w := httptest.NewRecorder()
+
+	// Handle request
+	server.handleGetAllShadowStates(w, req)
+
+	// Check status code
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	// Check content type
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("Expected Content-Type application/json, got %s", contentType)
+	}
+
+	// Parse response
+	var response AllShadowStatesResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify we have both plugins
+	if len(response.Plugins) != 2 {
+		t.Errorf("Expected 2 plugins, got %d", len(response.Plugins))
+	}
+
+	// Verify lighting plugin is present
+	if _, ok := response.Plugins["lighting"]; !ok {
+		t.Error("Expected lighting plugin in response")
+	}
+
+	// Verify security plugin is present
+	if _, ok := response.Plugins["security"]; !ok {
+		t.Error("Expected security plugin in response")
+	}
+
+	// Verify metadata is present
+	if response.Metadata.Version == "" {
+		t.Error("Expected metadata version to be set")
+	}
+}

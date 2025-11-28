@@ -162,6 +162,145 @@ func (lt *LightingTracker) GetState() *LightingShadowState {
 	return stateCopy
 }
 
+// SecurityTracker manages shadow state specifically for the security plugin
+type SecurityTracker struct {
+	mu    sync.RWMutex
+	state *SecurityShadowState
+}
+
+// NewSecurityTracker creates a new security shadow state tracker
+func NewSecurityTracker() *SecurityTracker {
+	return &SecurityTracker{
+		state: NewSecurityShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (st *SecurityTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	for key, value := range inputs {
+		st.state.Inputs.Current[key] = value
+	}
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
+func (st *SecurityTracker) SnapshotInputsForAction() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	// Deep copy current inputs to at-last-action
+	st.state.Inputs.AtLastAction = make(map[string]interface{})
+	for key, value := range st.state.Inputs.Current {
+		st.state.Inputs.AtLastAction[key] = value
+	}
+}
+
+// RecordLockdownAction records a lockdown activation or deactivation
+func (st *SecurityTracker) RecordLockdownAction(active bool, reason string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	now := time.Now()
+	st.state.Outputs.Lockdown.Active = active
+	st.state.Outputs.Lockdown.Reason = reason
+
+	if active {
+		st.state.Outputs.Lockdown.ActivatedAt = now
+		st.state.Outputs.Lockdown.WillResetAt = now.Add(5 * time.Second)
+	} else {
+		st.state.Outputs.Lockdown.ActivatedAt = time.Time{}
+		st.state.Outputs.Lockdown.WillResetAt = time.Time{}
+	}
+
+	st.state.Outputs.LastActionTime = now
+	st.state.Metadata.LastUpdated = now
+}
+
+// RecordDoorbellEvent records a doorbell press event
+func (st *SecurityTracker) RecordDoorbellEvent(rateLimited bool, ttsSent bool, lightsFlashed bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	now := time.Now()
+	st.state.Outputs.LastDoorbell = &DoorbellEvent{
+		Timestamp:     now,
+		RateLimited:   rateLimited,
+		TTSSent:       ttsSent,
+		LightsFlashed: lightsFlashed,
+	}
+	st.state.Outputs.LastActionTime = now
+	st.state.Metadata.LastUpdated = now
+}
+
+// RecordVehicleArrivalEvent records a vehicle arrival event
+func (st *SecurityTracker) RecordVehicleArrivalEvent(rateLimited bool, ttsSent bool, wasExpecting bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	now := time.Now()
+	st.state.Outputs.LastVehicle = &VehicleArrivalEvent{
+		Timestamp:    now,
+		RateLimited:  rateLimited,
+		TTSSent:      ttsSent,
+		WasExpecting: wasExpecting,
+	}
+	st.state.Outputs.LastActionTime = now
+	st.state.Metadata.LastUpdated = now
+}
+
+// RecordGarageOpenEvent records a garage auto-open event
+func (st *SecurityTracker) RecordGarageOpenEvent(reason string, garageWasEmpty bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	now := time.Now()
+	st.state.Outputs.LastGarageOpen = &GarageOpenEvent{
+		Timestamp:      now,
+		Reason:         reason,
+		GarageWasEmpty: garageWasEmpty,
+	}
+	st.state.Outputs.LastActionTime = now
+	st.state.Metadata.LastUpdated = now
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (st *SecurityTracker) GetState() *SecurityShadowState {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	// Create a deep copy to avoid race conditions
+	stateCopy := &SecurityShadowState{
+		Plugin: st.state.Plugin,
+		Inputs: SecurityInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: SecurityOutputs{
+			Lockdown:       st.state.Outputs.Lockdown,
+			LastDoorbell:   st.state.Outputs.LastDoorbell,
+			LastVehicle:    st.state.Outputs.LastVehicle,
+			LastGarageOpen: st.state.Outputs.LastGarageOpen,
+			LastActionTime: st.state.Outputs.LastActionTime,
+		},
+		Metadata: st.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range st.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy at-last-action inputs
+	for k, v := range st.state.Inputs.AtLastAction {
+		stateCopy.Inputs.AtLastAction[k] = v
+	}
+
+	return stateCopy
+}
+
 // SleepHygieneTracker manages shadow state specifically for the sleep hygiene plugin
 type SleepHygieneTracker struct {
 	mu    sync.RWMutex
