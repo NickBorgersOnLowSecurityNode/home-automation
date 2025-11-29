@@ -305,34 +305,34 @@ func (m *Manager) handleOccupancyChange(key string, oldValue, newValue interface
 }
 
 // activateScenesForAllRooms activates scenes for all configured rooms
-func (m *Manager) activateScenesForAllRooms(dayPhase string, triggerKey string) {
+func (m *Manager) activateScenesForAllRooms(dayPhase string, trigger string) {
 	for _, room := range m.config.Rooms {
-		m.evaluateAndActivateRoom(&room, dayPhase, triggerKey)
+		m.evaluateAndActivateRoom(&room, dayPhase, trigger)
 	}
 }
 
 // evaluateAllRooms re-evaluates all rooms and activates scenes as needed
 // Only evaluates rooms where the trigger variable is relevant (matches Node-RED)
-func (m *Manager) evaluateAllRooms(dayPhase string, triggerKey string) {
+func (m *Manager) evaluateAllRooms(dayPhase string, trigger string) {
 	for _, room := range m.config.Rooms {
 		// Check if this trigger is relevant to this room
-		if m.isTopicRelevant(&room, triggerKey) {
-			m.evaluateAndActivateRoom(&room, dayPhase, triggerKey)
+		if m.isTopicRelevant(&room, trigger) {
+			m.evaluateAndActivateRoom(&room, dayPhase, trigger)
 		} else {
 			m.logger.Debug("Skipping room evaluation - trigger not relevant",
 				zap.String("room", room.HueGroup),
-				zap.String("trigger", triggerKey))
+				zap.String("trigger", trigger))
 		}
 	}
 }
 
 // evaluateAndActivateRoom evaluates a room's conditions and activates the appropriate scene
-func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, triggerKey string) {
+func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, trigger string) {
 	m.logger.Debug("Evaluating room",
 		zap.String("room", room.HueGroup),
 		zap.String("area_id", room.HASSAreaID),
 		zap.String("day_phase", dayPhase),
-		zap.String("trigger", triggerKey))
+		zap.String("trigger", trigger))
 
 	// Evaluate on/off conditions
 	shouldTurnOn := m.evaluateOnConditions(room)
@@ -352,14 +352,14 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, tri
 			m.logger.Debug("ON takes precedence over OFF",
 				zap.String("room", room.HueGroup))
 		}
-		m.activateScene(room, dayPhase)
+		m.activateScene(room, dayPhase, trigger)
 		return
 	}
 
 	if shouldTurnOff {
 		m.logger.Info("Room should be turned off",
 			zap.String("room", room.HueGroup))
-		m.turnOffRoom(room)
+		m.turnOffRoom(room, trigger)
 		return
 	}
 
@@ -369,13 +369,13 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, tri
 
 // isTopicRelevant checks if a state variable change is relevant to a room's conditions
 // Matches Node-RED behavior: dayPhase and sunevent always relevant, otherwise check if variable is used in conditions
-func (m *Manager) isTopicRelevant(room *RoomConfig, triggerKey string) bool {
+func (m *Manager) isTopicRelevant(room *RoomConfig, trigger string) bool {
 	// dayPhase and sunevent changes always affect all rooms (like "reset" in Node-RED)
-	if triggerKey == "dayPhase" || triggerKey == "sunevent" || triggerKey == "" {
+	if trigger == "dayPhase" || trigger == "sunevent" || trigger == "" || trigger == "reset" {
 		return true
 	}
 
-	// Check if trigger key appears in any of the room's conditions
+	// Check if trigger appears in any of the room's conditions
 	allConditions := []string{}
 	allConditions = append(allConditions, room.GetOnIfTrueConditions()...)
 	allConditions = append(allConditions, room.GetOnIfFalseConditions()...)
@@ -383,7 +383,7 @@ func (m *Manager) isTopicRelevant(room *RoomConfig, triggerKey string) bool {
 	allConditions = append(allConditions, room.GetOffIfFalseConditions()...)
 
 	for _, condition := range allConditions {
-		if condition == triggerKey {
+		if condition == trigger {
 			return true
 		}
 	}
@@ -478,7 +478,7 @@ func toSnakeCase(str string) string {
 }
 
 // activateScene activates a Hue scene for a room
-func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
+func (m *Manager) activateScene(room *RoomConfig, dayPhase string, trigger string) {
 	// Construct scene entity ID: scene.{snake_case(hue_group + " " + day_phase)}
 	sceneName := room.HueGroup + " " + dayPhase
 	sceneEntityID := "scene." + toSnakeCase(sceneName)
@@ -488,11 +488,12 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
 			zap.String("room", room.HueGroup),
 			zap.String("area_id", room.HASSAreaID),
 			zap.String("scene", dayPhase),
-			zap.String("entity_id", sceneEntityID))
+			zap.String("entity_id", sceneEntityID),
+			zap.String("trigger", trigger))
 		// Record shadow state even in read-only mode for consistency with music plugin
 		m.recordAction(room.HueGroup, "activate_scene",
 			fmt.Sprintf("Would activate scene '%s'", dayPhase),
-			dayPhase, false)
+			dayPhase, false, trigger)
 		return
 	}
 
@@ -501,6 +502,7 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
 		zap.String("area_id", room.HASSAreaID),
 		zap.String("scene", dayPhase),
 		zap.String("entity_id", sceneEntityID),
+		zap.String("trigger", trigger),
 		zap.Any("transition_seconds", room.TransitionSeconds))
 
 	// Call Home Assistant scene.turn_on service (matches Node-RED)
@@ -538,23 +540,25 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
 	// Record action in shadow state
 	m.recordAction(room.HueGroup, "activate_scene",
 		fmt.Sprintf("Activated scene '%s'", dayPhase),
-		dayPhase, false)
+		dayPhase, false, trigger)
 }
 
 // turnOffRoom turns off lights in a room
-func (m *Manager) turnOffRoom(room *RoomConfig) {
+func (m *Manager) turnOffRoom(room *RoomConfig, trigger string) {
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would turn off room",
 			zap.String("room", room.HueGroup),
-			zap.String("area_id", room.HASSAreaID))
+			zap.String("area_id", room.HASSAreaID),
+			zap.String("trigger", trigger))
 		// Record shadow state even in read-only mode for consistency with music plugin
-		m.recordAction(room.HueGroup, "turn_off", "Would turn off room", "", true)
+		m.recordAction(room.HueGroup, "turn_off", "Would turn off room", "", true, trigger)
 		return
 	}
 
 	m.logger.Info("Turning off room",
 		zap.String("room", room.HueGroup),
-		zap.String("area_id", room.HASSAreaID))
+		zap.String("area_id", room.HASSAreaID),
+		zap.String("trigger", trigger))
 
 	// Use light.turn_off with area_id
 	serviceData := map[string]interface{}{
@@ -579,7 +583,7 @@ func (m *Manager) turnOffRoom(room *RoomConfig) {
 		zap.String("room", room.HueGroup))
 
 	// Record action in shadow state
-	m.recordAction(room.HueGroup, "turn_off", "Turned off room", "", true)
+	m.recordAction(room.HueGroup, "turn_off", "Turned off room", "", true, trigger)
 }
 
 // Reset re-applies lighting scenes for all rooms based on current day phase
@@ -632,10 +636,43 @@ func (m *Manager) updateShadowInputs() {
 	m.shadowTracker.UpdateCurrentInputs(inputs)
 }
 
+// updateShadowInputsWithTrigger updates the current shadow state inputs including the trigger
+func (m *Manager) updateShadowInputsWithTrigger(trigger string) {
+	inputs := make(map[string]interface{})
+
+	// Get all subscribed variables
+	if val, err := m.stateManager.GetString("dayPhase"); err == nil {
+		inputs["dayPhase"] = val
+	}
+	if val, err := m.stateManager.GetString("sunevent"); err == nil {
+		inputs["sunevent"] = val
+	}
+	if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
+		inputs["isAnyoneHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isTVPlaying"); err == nil {
+		inputs["isTVPlaying"] = val
+	}
+	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
+		inputs["isEveryoneAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
+		inputs["isMasterAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isHaveGuests"); err == nil {
+		inputs["isHaveGuests"] = val
+	}
+
+	// Add the trigger field
+	inputs["trigger"] = trigger
+
+	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
 // recordAction captures the current inputs and records an action in shadow state
-func (m *Manager) recordAction(roomName string, actionType string, reason string, activeScene string, turnedOff bool) {
-	// First, update current inputs
-	m.updateShadowInputs()
+func (m *Manager) recordAction(roomName string, actionType string, reason string, activeScene string, turnedOff bool, trigger string) {
+	// First, update current inputs (includes trigger field)
+	m.updateShadowInputsWithTrigger(trigger)
 
 	// Snapshot inputs for this action
 	m.shadowTracker.SnapshotInputsForAction()

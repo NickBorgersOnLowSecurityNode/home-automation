@@ -107,6 +107,11 @@ func (m *Manager) Stop() {
 
 // handleEnergyChange is called when currentEnergyLevel changes
 func (m *Manager) handleEnergyChange(key string, oldValue, newValue interface{}) {
+	m.handleEnergyChangeWithTrigger(key, oldValue, newValue, key)
+}
+
+// handleEnergyChangeWithTrigger processes energy level changes with a specific trigger
+func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue interface{}, trigger string) {
 	// Update shadow state current inputs
 	m.updateShadowInputs()
 
@@ -127,15 +132,16 @@ func (m *Manager) handleEnergyChange(key string, oldValue, newValue interface{})
 
 	m.logger.Info("Energy level changed",
 		zap.String("old_level", oldLevel),
-		zap.String("new_level", newLevel))
+		zap.String("new_level", newLevel),
+		zap.String("trigger", trigger))
 
 	// Determine action based on new state
 	// Yellow is a hysteresis buffer - maintain current state to prevent rapid toggling
 	switch newLevel {
 	case energyStateRed, energyStateBlack:
-		m.enableLoadShedding(newLevel)
+		m.enableLoadShedding(newLevel, trigger)
 	case energyStateGreen, energyStateWhite:
-		m.disableLoadShedding(newLevel)
+		m.disableLoadShedding(newLevel, trigger)
 	case energyStateYellow:
 		m.logger.Info("Energy state is yellow - maintaining current load shedding state",
 			zap.String("reason", "Hysteresis buffer to prevent rapid toggling"))
@@ -146,9 +152,10 @@ func (m *Manager) handleEnergyChange(key string, oldValue, newValue interface{})
 }
 
 // enableLoadShedding activates load shedding (energy state red/black)
-func (m *Manager) enableLoadShedding(energyLevel string) {
+func (m *Manager) enableLoadShedding(energyLevel string, trigger string) {
 	m.logger.Info("=== LOAD SHEDDING DECISION: ENABLE ===",
 		zap.String("energy_level", energyLevel),
+		zap.String("trigger", trigger),
 		zap.String("reason", "Energy state is "+energyLevel+" (low battery)"))
 
 	// Check if load shedding is already enabled
@@ -187,7 +194,7 @@ func (m *Manager) enableLoadShedding(energyLevel string) {
 			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
 		// Record shadow state even in read-only mode for consistency
 		reason := fmt.Sprintf("Energy state is %s (low battery) - would restrict HVAC", energyLevel)
-		m.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted)
+		m.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted, trigger)
 		return
 	}
 
@@ -236,13 +243,14 @@ func (m *Manager) enableLoadShedding(energyLevel string) {
 
 	// Record action in shadow state
 	reason := fmt.Sprintf("Energy state is %s (low battery) - restricting HVAC", energyLevel)
-	m.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted)
+	m.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted, trigger)
 }
 
 // disableLoadShedding deactivates load shedding (energy state green/white)
-func (m *Manager) disableLoadShedding(energyLevel string) {
+func (m *Manager) disableLoadShedding(energyLevel string, trigger string) {
 	m.logger.Info("=== LOAD SHEDDING DECISION: DISABLE ===",
 		zap.String("energy_level", energyLevel),
+		zap.String("trigger", trigger),
 		zap.String("reason", "Energy state is "+energyLevel+" (battery restored)"))
 
 	// Check if load shedding is already disabled
@@ -281,7 +289,7 @@ func (m *Manager) disableLoadShedding(energyLevel string) {
 			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
 		// Record shadow state even in read-only mode for consistency
 		reason := fmt.Sprintf("Energy state is %s (battery restored) - would return to normal HVAC", energyLevel)
-		m.recordAction(false, "disable", reason, false, 0, 0)
+		m.recordAction(false, "disable", reason, false, 0, 0, trigger)
 		return
 	}
 
@@ -312,7 +320,7 @@ func (m *Manager) disableLoadShedding(energyLevel string) {
 
 	// Record action in shadow state
 	reason := fmt.Sprintf("Energy state is %s (battery restored) - returning to normal HVAC", energyLevel)
-	m.recordAction(false, "disable", reason, false, 0, 0)
+	m.recordAction(false, "disable", reason, false, 0, 0, trigger)
 }
 
 // checkRateLimit ensures we don't take actions too frequently
@@ -376,8 +384,8 @@ func (m *Manager) Reset() error {
 	m.logger.Info("Re-processing energy level for reset",
 		zap.String("energy_level", currentLevel))
 
-	// Re-evaluate load shedding based on current energy level
-	m.handleEnergyChange("currentEnergyLevel", "", currentLevel)
+	// Re-evaluate load shedding based on current energy level with reset trigger
+	m.handleEnergyChangeWithTrigger("currentEnergyLevel", "", currentLevel, "reset")
 
 	m.logger.Info("Successfully reset Load Shedding")
 	return nil
@@ -395,10 +403,25 @@ func (m *Manager) updateShadowInputs() {
 	m.shadowTracker.UpdateCurrentInputs(inputs)
 }
 
+// updateShadowInputsWithTrigger updates the current input values in shadow state including trigger
+func (m *Manager) updateShadowInputsWithTrigger(trigger string) {
+	inputs := make(map[string]interface{})
+
+	// Get current energy level
+	if val, err := m.stateManager.GetString("currentEnergyLevel"); err == nil {
+		inputs["currentEnergyLevel"] = val
+	}
+
+	// Add the trigger field
+	inputs["trigger"] = trigger
+
+	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
 // recordAction snapshots inputs and records an action in shadow state
-func (m *Manager) recordAction(active bool, actionType string, reason string, holdMode bool, tempLow float64, tempHigh float64) {
-	// Update current inputs first
-	m.updateShadowInputs()
+func (m *Manager) recordAction(active bool, actionType string, reason string, holdMode bool, tempLow float64, tempHigh float64, trigger string) {
+	// Update current inputs first (includes trigger field)
+	m.updateShadowInputsWithTrigger(trigger)
 
 	// Snapshot inputs for this action
 	m.shadowTracker.SnapshotInputsForAction()

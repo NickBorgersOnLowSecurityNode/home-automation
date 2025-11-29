@@ -330,7 +330,7 @@ func (m *Manager) handleBeginWake() {
 	}
 
 	// Record action in shadow state
-	m.recordAction("begin_wake", fmt.Sprintf("Starting fade out for %d bedroom speakers", len(bedroomSpeakers)))
+	m.recordAction("begin_wake", fmt.Sprintf("Starting fade out for %d bedroom speakers", len(bedroomSpeakers)), "eight_sleep_alarm")
 	m.shadowTracker.UpdateWakeSequenceStatus("begin_wake")
 
 	if !m.readOnly {
@@ -604,7 +604,7 @@ func (m *Manager) handleWake() {
 	m.logger.Info("Conditions met for wake, executing wake sequence")
 
 	// Record action in shadow state
-	m.recordAction("wake", "Executing wake sequence: turning on lights and checking for cuddle announcement")
+	m.recordAction("wake", "Executing wake sequence: turning on lights and checking for cuddle announcement", "wake_timer")
 	m.shadowTracker.UpdateWakeSequenceStatus("wake_in_progress")
 
 	if !m.readOnly {
@@ -642,7 +642,7 @@ func (m *Manager) handleStopScreens() {
 	m.logger.Info("Conditions met for stop_screens, flashing lights")
 
 	// Record action in shadow state
-	m.recordAction("stop_screens", "Flashing common area lights as screen stop reminder")
+	m.recordAction("stop_screens", "Flashing common area lights as screen stop reminder", "stop_screens_timer")
 	m.shadowTracker.RecordStopScreensReminder()
 
 	if !m.readOnly {
@@ -673,7 +673,7 @@ func (m *Manager) handleGoToBed() {
 	m.logger.Info("Conditions met for go_to_bed, flashing lights")
 
 	// Record action in shadow state
-	m.recordAction("go_to_bed", "Flashing common area lights as bedtime reminder")
+	m.recordAction("go_to_bed", "Flashing common area lights as bedtime reminder", "go_to_bed_timer")
 	m.shadowTracker.RecordGoToBedReminder()
 
 	if !m.readOnly {
@@ -797,7 +797,7 @@ func (m *Manager) handleBedroomLightsOff(state string) {
 		m.logger.Info("Bedroom lights turned off during wake sequence - cancelling wake and reverting to sleep music")
 
 		// Record cancel wake action in shadow state
-		m.recordAction("cancel_wake", "Bedroom lights turned off during wake sequence, reverting to sleep music")
+		m.recordAction("cancel_wake", "Bedroom lights turned off during wake sequence, reverting to sleep music", "bedroom_lights_off")
 		m.shadowTracker.UpdateWakeSequenceStatus("inactive")
 		m.shadowTracker.ClearFadeOutProgress()
 
@@ -867,10 +867,17 @@ func (m *Manager) updateShadowInputs() {
 	m.shadowTracker.UpdateCurrentInputs(inputs)
 }
 
+// updateShadowInputsWithTrigger updates the shadow state current inputs including trigger
+func (m *Manager) updateShadowInputsWithTrigger(trigger string) {
+	inputs := m.captureCurrentInputs()
+	inputs["trigger"] = trigger
+	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
 // recordAction records an action in shadow state
-func (m *Manager) recordAction(actionType string, reason string) {
-	// Update current inputs
-	m.updateShadowInputs()
+func (m *Manager) recordAction(actionType string, reason string, trigger string) {
+	// Update current inputs including trigger
+	m.updateShadowInputsWithTrigger(trigger)
 
 	// Snapshot inputs for this action
 	m.shadowTracker.SnapshotInputsForAction()

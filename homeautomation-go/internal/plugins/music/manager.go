@@ -388,8 +388,8 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 		return
 	}
 
-	// Start playback orchestration
-	if err := m.orchestratePlayback(newType); err != nil {
+	// Start playback orchestration with musicPlaybackType as trigger
+	if err := m.orchestratePlayback(newType, "musicPlaybackType"); err != nil {
 		m.logger.Error("Failed to orchestrate playback",
 			zap.String("type", newType),
 			zap.Error(err))
@@ -572,8 +572,8 @@ func (m *Manager) stopPlayback() {
 }
 
 // orchestratePlayback coordinates the complete playback flow
-func (m *Manager) orchestratePlayback(musicType string) error {
-	m.logger.Info("Orchestrating playback", zap.String("type", musicType))
+func (m *Manager) orchestratePlayback(musicType string, trigger string) error {
+	m.logger.Info("Orchestrating playback", zap.String("type", musicType), zap.String("trigger", trigger))
 
 	// Get the music mode configuration
 	mode, ok := m.config.Music[musicType]
@@ -639,7 +639,7 @@ func (m *Manager) orchestratePlayback(musicType string) error {
 			zap.String("lead_player", leadPlayer),
 			zap.Int("participant_count", len(participants)))
 		// Record shadow state even in read-only mode
-		m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer)
+		m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer, trigger)
 		return nil
 	}
 
@@ -649,7 +649,7 @@ func (m *Manager) orchestratePlayback(musicType string) error {
 	}
 
 	// Record shadow state after successful playback
-	m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer)
+	m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer, trigger)
 
 	return nil
 }
@@ -1013,7 +1013,7 @@ func (m *Manager) Reset() error {
 	}
 
 	// Directly trigger playback (even if same mode - that's what reset means)
-	if err := m.orchestratePlayback(musicMode); err != nil {
+	if err := m.orchestratePlayback(musicMode, "reset"); err != nil {
 		m.logger.Error("Failed to orchestrate playback on reset",
 			zap.String("type", musicMode),
 			zap.Error(err))
@@ -1049,12 +1049,13 @@ func (m *Manager) captureCurrentInputs() map[string]interface{} {
 }
 
 // updateShadowState records an action in the shadow state
-func (m *Manager) updateShadowState(actionType, reason string) {
+func (m *Manager) updateShadowState(actionType, reason, trigger string) {
 	m.shadowMu.Lock()
 	defer m.shadowMu.Unlock()
 
-	// Capture current inputs
+	// Capture current inputs and add trigger
 	currentInputs := m.captureCurrentInputs()
+	currentInputs["trigger"] = trigger
 
 	// If this is the first action or inputs changed, snapshot at-last-action
 	if len(m.shadowState.Inputs.AtLastAction) == 0 {
@@ -1135,7 +1136,7 @@ func (m *Manager) GetShadowState() *shadowstate.MusicShadowState {
 }
 
 // recordPlaybackShadowState records shadow state after playback orchestration
-func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption PlaybackOption, participants []ParticipantWithVolume, leadPlayer string) {
+func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption PlaybackOption, participants []ParticipantWithVolume, leadPlayer string, trigger string) {
 	// Convert participants to shadow state speaker format
 	speakers := make([]shadowstate.SpeakerState, 0, len(participants))
 	for _, p := range participants {
@@ -1157,6 +1158,6 @@ func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption Pla
 
 	// Record the action
 	reason := fmt.Sprintf("Started playback of '%s' in mode '%s'", playbackOption.URI, musicType)
-	m.updateShadowState("start_playback", reason)
+	m.updateShadowState("start_playback", reason, trigger)
 	m.updateShadowOutputs(musicType, playlistInfo, speakers)
 }

@@ -150,7 +150,7 @@ func (m *Manager) handleEveryoneAsleepChange(key string, oldValue, newValue inte
 
 	if asleep {
 		m.logger.Info("Everyone is asleep, activating lockdown")
-		m.activateLockdown("Everyone is asleep")
+		m.activateLockdown("Everyone is asleep", key)
 	}
 }
 
@@ -167,14 +167,14 @@ func (m *Manager) handleAnyoneHomeChange(key string, oldValue, newValue interfac
 
 	if !anyoneHome {
 		m.logger.Info("No one is home, activating lockdown")
-		m.activateLockdown("No one is home")
+		m.activateLockdown("No one is home", key)
 	}
 }
 
 // activateLockdown turns on the lockdown input_boolean
-func (m *Manager) activateLockdown(reason string) {
+func (m *Manager) activateLockdown(reason string, trigger string) {
 	// Record action in shadow state before executing
-	m.recordLockdownAction(true, reason)
+	m.recordLockdownAction(true, reason, trigger)
 
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would activate lockdown", zap.String("reason", reason))
@@ -200,7 +200,7 @@ func (m *Manager) handleLockdownActivated(entity string, oldState, newState *ha.
 			m.clock.Sleep(LockdownResetDelay)
 
 			// Record deactivation in shadow state
-			m.recordLockdownAction(false, "Auto-reset after 5 seconds")
+			m.recordLockdownAction(false, "Auto-reset after 5 seconds", "lockdown_timer")
 
 			if m.readOnly {
 				m.logger.Info("READ-ONLY: Would reset lockdown")
@@ -254,7 +254,7 @@ func (m *Manager) handleOwnerReturnHome(key string, oldValue, newValue interface
 // openGarageDoor opens the garage door
 func (m *Manager) openGarageDoor(garageWasEmpty bool) {
 	// Record action in shadow state
-	m.recordGarageOpenAction("Owner returned home", garageWasEmpty)
+	m.recordGarageOpenAction("Owner returned home", garageWasEmpty, "didOwnerJustReturnHome")
 
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would open garage door")
@@ -279,7 +279,7 @@ func (m *Manager) handleDoorbellPressed(entity string, oldState, newState *ha.St
 		m.logger.Info("Doorbell notification rate limited")
 		m.mu.Unlock()
 		// Record the rate-limited event
-		m.recordDoorbellEvent(true, false, false)
+		m.recordDoorbellEvent(true, false, false, "doorbell")
 		return
 	}
 	m.lastDoorbellNotification = m.clock.Now()
@@ -294,7 +294,7 @@ func (m *Manager) handleDoorbellPressed(entity string, oldState, newState *ha.St
 	go m.flashLightsForDoorbell()
 
 	// Record the successful event
-	m.recordDoorbellEvent(false, true, true)
+	m.recordDoorbellEvent(false, true, true, "doorbell")
 }
 
 // flashLightsForDoorbell flashes lights twice with 2-second delay
@@ -345,7 +345,7 @@ func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.St
 	if !expectingSomeone {
 		m.logger.Info("Vehicle arriving but not expecting anyone")
 		// Record the event even if not expecting
-		m.recordVehicleArrivalEvent(false, false, false)
+		m.recordVehicleArrivalEvent(false, false, false, "vehicle_arriving")
 		return
 	}
 
@@ -356,7 +356,7 @@ func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.St
 		m.logger.Info("Vehicle arrival notification rate limited")
 		m.mu.Unlock()
 		// Record the rate-limited event
-		m.recordVehicleArrivalEvent(true, false, true)
+		m.recordVehicleArrivalEvent(true, false, true, "vehicle_arriving")
 		return
 	}
 	m.lastVehicleArrivalNotification = m.clock.Now()
@@ -368,7 +368,7 @@ func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.St
 	m.sendTTSNotification("They have arrived")
 
 	// Record the successful event
-	m.recordVehicleArrivalEvent(false, true, true)
+	m.recordVehicleArrivalEvent(false, true, true, "vehicle_arriving")
 
 	// Reset expecting someone flag
 	if !m.readOnly {
@@ -428,10 +428,34 @@ func (m *Manager) updateShadowInputs() {
 	m.shadowTracker.UpdateCurrentInputs(inputs)
 }
 
+// updateShadowInputsWithTrigger updates the current shadow state inputs including the trigger
+func (m *Manager) updateShadowInputsWithTrigger(trigger string) {
+	inputs := make(map[string]interface{})
+
+	// Get all subscribed variables
+	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
+		inputs["isEveryoneAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
+		inputs["isAnyoneHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isExpectingSomeone"); err == nil {
+		inputs["isExpectingSomeone"] = val
+	}
+	if val, err := m.stateManager.GetBool("didOwnerJustReturnHome"); err == nil {
+		inputs["didOwnerJustReturnHome"] = val
+	}
+
+	// Add the trigger field
+	inputs["trigger"] = trigger
+
+	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
 // recordLockdownAction captures the current inputs and records a lockdown action in shadow state
-func (m *Manager) recordLockdownAction(active bool, reason string) {
-	// First, update current inputs
-	m.updateShadowInputs()
+func (m *Manager) recordLockdownAction(active bool, reason string, trigger string) {
+	// First, update current inputs (includes trigger field)
+	m.updateShadowInputsWithTrigger(trigger)
 
 	// Snapshot inputs for this action
 	m.shadowTracker.SnapshotInputsForAction()
@@ -441,9 +465,9 @@ func (m *Manager) recordLockdownAction(active bool, reason string) {
 }
 
 // recordDoorbellEvent captures the current inputs and records a doorbell event in shadow state
-func (m *Manager) recordDoorbellEvent(rateLimited bool, ttsSent bool, lightsFlashed bool) {
-	// First, update current inputs
-	m.updateShadowInputs()
+func (m *Manager) recordDoorbellEvent(rateLimited bool, ttsSent bool, lightsFlashed bool, trigger string) {
+	// First, update current inputs (includes trigger field)
+	m.updateShadowInputsWithTrigger(trigger)
 
 	// Snapshot inputs for this action
 	m.shadowTracker.SnapshotInputsForAction()
@@ -453,9 +477,9 @@ func (m *Manager) recordDoorbellEvent(rateLimited bool, ttsSent bool, lightsFlas
 }
 
 // recordVehicleArrivalEvent captures the current inputs and records a vehicle arrival event in shadow state
-func (m *Manager) recordVehicleArrivalEvent(rateLimited bool, ttsSent bool, wasExpecting bool) {
-	// First, update current inputs
-	m.updateShadowInputs()
+func (m *Manager) recordVehicleArrivalEvent(rateLimited bool, ttsSent bool, wasExpecting bool, trigger string) {
+	// First, update current inputs (includes trigger field)
+	m.updateShadowInputsWithTrigger(trigger)
 
 	// Snapshot inputs for this action
 	m.shadowTracker.SnapshotInputsForAction()
@@ -465,9 +489,9 @@ func (m *Manager) recordVehicleArrivalEvent(rateLimited bool, ttsSent bool, wasE
 }
 
 // recordGarageOpenAction captures the current inputs and records a garage open action in shadow state
-func (m *Manager) recordGarageOpenAction(reason string, garageWasEmpty bool) {
-	// First, update current inputs
-	m.updateShadowInputs()
+func (m *Manager) recordGarageOpenAction(reason string, garageWasEmpty bool, trigger string) {
+	// First, update current inputs (includes trigger field)
+	m.updateShadowInputsWithTrigger(trigger)
 
 	// Snapshot inputs for this action
 	m.shadowTracker.SnapshotInputsForAction()
@@ -497,7 +521,7 @@ func (m *Manager) Reset() error {
 		m.logger.Error("Failed to get isEveryoneAsleep", zap.Error(err))
 	} else if isEveryoneAsleep {
 		m.logger.Info("Everyone is asleep, re-activating lockdown")
-		m.activateLockdown("Everyone is asleep (reset)")
+		m.activateLockdown("Everyone is asleep (reset)", "reset")
 	}
 
 	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
@@ -505,7 +529,7 @@ func (m *Manager) Reset() error {
 		m.logger.Error("Failed to get isAnyoneHome", zap.Error(err))
 	} else if !isAnyoneHome {
 		m.logger.Info("No one is home, re-activating lockdown")
-		m.activateLockdown("No one is home (reset)")
+		m.activateLockdown("No one is home (reset)", "reset")
 	}
 
 	m.logger.Info("Successfully reset Security")

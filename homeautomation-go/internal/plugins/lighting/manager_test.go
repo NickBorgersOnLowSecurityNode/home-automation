@@ -238,7 +238,7 @@ func TestActivateSceneReadOnly(t *testing.T) {
 	dayPhase := "Morning"
 
 	// Should not call service in read-only mode
-	manager.activateScene(room, dayPhase)
+	manager.activateScene(room, dayPhase, "test_trigger")
 
 	// Verify no service calls were made
 	calls := mockClient.GetServiceCalls()
@@ -255,7 +255,7 @@ func TestActivateScene(t *testing.T) {
 	room := &config.Rooms[0]
 	dayPhase := "Morning"
 
-	manager.activateScene(room, dayPhase)
+	manager.activateScene(room, dayPhase, "test_trigger")
 
 	// Verify service call was made
 	calls := mockClient.GetServiceCalls()
@@ -279,7 +279,7 @@ func TestTurnOffRoomReadOnly(t *testing.T) {
 	room := &config.Rooms[0]
 
 	// Should not call service in read-only mode
-	manager.turnOffRoom(room)
+	manager.turnOffRoom(room, "test_trigger")
 
 	// Verify no service calls were made
 	calls := mockClient.GetServiceCalls()
@@ -295,7 +295,7 @@ func TestTurnOffRoom(t *testing.T) {
 
 	room := &config.Rooms[0]
 
-	manager.turnOffRoom(room)
+	manager.turnOffRoom(room, "test_trigger")
 
 	// Verify service call was made
 	calls := mockClient.GetServiceCalls()
