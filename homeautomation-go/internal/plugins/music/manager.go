@@ -130,6 +130,23 @@ func (m *Manager) Start() error {
 	}
 	m.subscriptions = append(m.subscriptions, sub)
 
+	// Subscribe to all mute condition variables from participant configs
+	muteConditionVars := m.collectMuteConditionVariables()
+	for _, varName := range muteConditionVars {
+		varNameCopy := varName // Capture loop variable
+		sub, err = m.stateManager.Subscribe(varNameCopy, m.handleMuteConditionChange)
+		if err != nil {
+			// Log warning but don't fail - variable might not exist yet
+			m.logger.Warn("Failed to subscribe to mute condition variable",
+				zap.String("variable", varNameCopy),
+				zap.Error(err))
+			continue
+		}
+		m.subscriptions = append(m.subscriptions, sub)
+		m.logger.Debug("Subscribed to mute condition variable",
+			zap.String("variable", varNameCopy))
+	}
+
 	// Perform initial music mode selection
 	m.selectAppropriateMusicMode()
 
@@ -362,6 +379,145 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 	if err := m.orchestratePlayback(newType); err != nil {
 		m.logger.Error("Failed to orchestrate playback",
 			zap.String("type", newType),
+			zap.Error(err))
+	}
+}
+
+// collectMuteConditionVariables collects all unique variables from participant mute conditions
+// These are variables like isNickOfficeOccupied that need subscriptions for dynamic speaker unmuting
+func (m *Manager) collectMuteConditionVariables() []string {
+	// Use a map to collect unique variables
+	varMap := make(map[string]bool)
+
+	// Standard variables that are already subscribed to via explicit handlers
+	alreadySubscribed := map[string]bool{
+		"dayPhase":          true,
+		"isAnyoneAsleep":    true,
+		"isAnyoneHome":      true,
+		"musicPlaybackType": true,
+	}
+
+	for _, mode := range m.config.Music {
+		for _, participant := range mode.Participants {
+			for _, condition := range participant.LeaveMutedIf {
+				if condition.Variable != "" && !alreadySubscribed[condition.Variable] {
+					varMap[condition.Variable] = true
+				}
+			}
+		}
+	}
+
+	// Convert map to slice
+	result := make([]string, 0, len(varMap))
+	for varName := range varMap {
+		result = append(result, varName)
+	}
+
+	return result
+}
+
+// handleMuteConditionChange processes changes to variables used in speaker mute conditions
+// This re-evaluates speaker states during active playback
+func (m *Manager) handleMuteConditionChange(key string, oldValue, newValue interface{}) {
+	m.logger.Debug("Mute condition variable changed",
+		zap.String("key", key),
+		zap.Any("old", oldValue),
+		zap.Any("new", newValue))
+
+	// Check if music is currently playing
+	m.mu.RLock()
+	currentlyPlaying := m.currentlyPlaying
+	m.mu.RUnlock()
+
+	if currentlyPlaying == nil || currentlyPlaying.Type == "" {
+		m.logger.Debug("No music currently playing, ignoring mute condition change",
+			zap.String("key", key))
+		return
+	}
+
+	m.logger.Info("Re-evaluating speaker mute conditions during active playback",
+		zap.String("key", key),
+		zap.String("music_type", currentlyPlaying.Type))
+
+	// Re-evaluate each participant's mute conditions
+	for _, participant := range currentlyPlaying.Participants {
+		// Check if this participant uses the changed variable in their mute conditions
+		usesVariable := false
+		for _, condition := range participant.LeaveMutedIf {
+			if condition.Variable == key {
+				usesVariable = true
+				break
+			}
+		}
+
+		if !usesVariable {
+			continue
+		}
+
+		// Re-evaluate whether this speaker should be unmuted
+		shouldUnmute := m.shouldUnmuteSpeaker(participant)
+
+		m.logger.Info("Re-evaluated speaker mute condition",
+			zap.String("speaker", participant.PlayerName),
+			zap.String("changed_variable", key),
+			zap.Bool("should_unmute", shouldUnmute))
+
+		if shouldUnmute {
+			// Unmute the speaker by setting its volume
+			m.unmuteSpeaker(participant)
+		} else {
+			// Mute the speaker by setting volume to 0
+			m.muteSpeaker(participant)
+		}
+	}
+}
+
+// unmuteSpeaker unmutes a speaker by setting its target volume
+func (m *Manager) unmuteSpeaker(participant ParticipantWithVolume) {
+	if m.readOnly {
+		m.logger.Debug("Read-only mode: would unmute speaker",
+			zap.String("speaker", participant.PlayerName),
+			zap.Int("target_volume", participant.Volume))
+		return
+	}
+
+	entityID := m.getSpeakerEntityID(participant.PlayerName)
+	volumeLevel := float64(participant.Volume) / 100.0 // Convert to 0.0-1.0 scale
+
+	m.logger.Info("Unmuting speaker",
+		zap.String("speaker", participant.PlayerName),
+		zap.Int("target_volume", participant.Volume),
+		zap.Float64("volume_level", volumeLevel))
+
+	if err := m.callService("media_player", "volume_set", map[string]interface{}{
+		"entity_id":    entityID,
+		"volume_level": volumeLevel,
+	}); err != nil {
+		m.logger.Error("Failed to unmute speaker",
+			zap.String("speaker", participant.PlayerName),
+			zap.Error(err))
+	}
+}
+
+// muteSpeaker mutes a speaker by setting its volume to 0
+func (m *Manager) muteSpeaker(participant ParticipantWithVolume) {
+	if m.readOnly {
+		m.logger.Debug("Read-only mode: would mute speaker",
+			zap.String("speaker", participant.PlayerName))
+		return
+	}
+
+	entityID := m.getSpeakerEntityID(participant.PlayerName)
+
+	m.logger.Info("Muting speaker",
+		zap.String("speaker", participant.PlayerName))
+
+	if err := m.callService("media_player", "volume_set", map[string]interface{}{
+		"entity_id":    entityID,
+		"volume_level": 0,
+	}); err != nil {
+		m.logger.Error("Failed to mute speaker",
+			zap.String("speaker", participant.PlayerName),
 			zap.Error(err))
 	}
 }
