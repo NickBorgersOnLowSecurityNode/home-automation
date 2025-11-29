@@ -6,7 +6,7 @@ import (
 
 	"homeautomation/internal/config"
 
-	"github.com/nathan-osman/go-sunrise"
+	"github.com/sixdouglas/suncalc"
 	"go.uber.org/zap"
 )
 
@@ -39,15 +39,10 @@ type Calculator struct {
 	longitude float64
 	logger    *zap.Logger
 
-	// Cached sun times (updated every 6 hours)
-	sunrise       time.Time
-	sunset        time.Time
-	sunriseEnd    time.Time
-	goldenHourEnd time.Time // When sun reaches 6° elevation after sunrise
-	sunsetStart   time.Time
-	dusk          time.Time
-	dawn          time.Time
-	lastUpdate    time.Time
+	// Cached sun times from suncalc (updated every 6 hours)
+	// These match Node-RED's suncalc exactly
+	sunTimes   map[string]time.Time
+	lastUpdate time.Time
 }
 
 // NewCalculator creates a new day phase calculator
@@ -57,52 +52,67 @@ func NewCalculator(latitude, longitude float64, logger *zap.Logger) *Calculator 
 		latitude:  latitude,
 		longitude: longitude,
 		logger:    logger,
+		sunTimes:  make(map[string]time.Time),
 	}
 }
 
-// UpdateSunTimes calculates sun event times for today
+// UpdateSunTimes calculates sun event times for today using suncalc
+// This uses the same algorithm as Node-RED's suncalc library
 func (c *Calculator) UpdateSunTimes() error {
 	now := time.Now()
 
-	// Calculate sunrise and sunset
-	sunrise, sunset := sunrise.SunriseSunset(
-		c.latitude, c.longitude,
-		now.Year(), now.Month(), now.Day(),
-	)
+	// Get sun times using suncalc - this matches Node-RED exactly
+	// The library uses the same sun angle calculations:
+	// - sunrise/sunset: -0.833°
+	// - dawn/dusk: -6° (civil twilight)
+	// - nauticalDawn/nauticalDusk: -12°
+	// - nightEnd/night: -18° (astronomical twilight)
+	// - goldenHourEnd/goldenHour: 6°
+	times := suncalc.GetTimes(now, c.latitude, c.longitude)
 
-	c.sunrise = sunrise
-	c.sunset = sunset
-
-	// Calculate civil twilight (approximately)
-	// Civil twilight is about 30 minutes before sunrise and after sunset
-	c.dawn = sunrise.Add(-30 * time.Minute)
-	c.dusk = sunset.Add(30 * time.Minute)
-
-	// Sunrise end is approximately 30 minutes after sunrise
-	c.sunriseEnd = sunrise.Add(30 * time.Minute)
-
-	// Golden hour end: when sun reaches 6° elevation (approximately 1 hour after sunrise)
-	// This is when Node-RED transitions from "morning" to "day"
-	c.goldenHourEnd = sunrise.Add(60 * time.Minute)
-
-	// Golden hour start is approximately 1 hour before sunset
-	c.sunsetStart = sunset.Add(-60 * time.Minute)
+	// Store all the times we need
+	c.sunTimes["dawn"] = times[suncalc.Dawn].Value
+	c.sunTimes["sunrise"] = times[suncalc.Sunrise].Value
+	c.sunTimes["sunriseEnd"] = times[suncalc.SunriseEnd].Value
+	c.sunTimes["goldenHourEnd"] = times[suncalc.GoldenHourEnd].Value
+	c.sunTimes["solarNoon"] = times[suncalc.SolarNoon].Value
+	c.sunTimes["goldenHour"] = times[suncalc.GoldenHour].Value
+	c.sunTimes["sunsetStart"] = times[suncalc.SunsetStart].Value
+	c.sunTimes["sunset"] = times[suncalc.Sunset].Value
+	c.sunTimes["dusk"] = times[suncalc.Dusk].Value
+	c.sunTimes["nauticalDusk"] = times[suncalc.NauticalDusk].Value
+	c.sunTimes["night"] = times[suncalc.Night].Value
+	c.sunTimes["nadir"] = times[suncalc.Nadir].Value
+	c.sunTimes["nightEnd"] = times[suncalc.NightEnd].Value
+	c.sunTimes["nauticalDawn"] = times[suncalc.NauticalDawn].Value
 
 	c.lastUpdate = now
 
-	c.logger.Info("Sun times updated",
-		zap.Time("sunrise", c.sunrise),
-		zap.Time("sunriseEnd", c.sunriseEnd),
-		zap.Time("goldenHourEnd", c.goldenHourEnd),
-		zap.Time("sunset", c.sunset),
-		zap.Time("dawn", c.dawn),
-		zap.Time("dusk", c.dusk))
+	c.logger.Info("Sun times updated (using suncalc)",
+		zap.Time("dawn", c.sunTimes["dawn"]),
+		zap.Time("sunrise", c.sunTimes["sunrise"]),
+		zap.Time("sunriseEnd", c.sunTimes["sunriseEnd"]),
+		zap.Time("goldenHourEnd", c.sunTimes["goldenHourEnd"]),
+		zap.Time("goldenHour", c.sunTimes["goldenHour"]),
+		zap.Time("sunsetStart", c.sunTimes["sunsetStart"]),
+		zap.Time("sunset", c.sunTimes["sunset"]),
+		zap.Time("dusk", c.sunTimes["dusk"]),
+		zap.Time("nauticalDusk", c.sunTimes["nauticalDusk"]),
+		zap.Time("night", c.sunTimes["night"]))
 
 	return nil
 }
 
 // GetSunEvent returns the current simplified sun event state
-// Maps detailed sun events to: morning, day, sunset, dusk, night
+// This implements Node-RED's Sun State Summarizer logic exactly:
+//
+// Node-RED Sun State Summarizer maps:
+//   - goldenHour, sunsetStart, sunset -> "sunset"
+//   - dusk, nauticalDusk -> "dusk"
+//   - night, nightEnd, nauticalDawn, dawn, nadir -> "night"
+//   - sunrise, sunriseEnd -> "morning"
+//   - goldenHourEnd -> "day"
+//   - everything else -> "day"
 func (c *Calculator) GetSunEvent() SunEvent {
 	now := time.Now()
 
@@ -111,26 +121,39 @@ func (c *Calculator) GetSunEvent() SunEvent {
 		c.UpdateSunTimes()
 	}
 
-	// Determine current sun event based on time of day
-	// This matches Node-RED's Sun State Summarizer logic:
-	// - sunrise/sunriseEnd -> "morning"
-	// - goldenHourEnd -> "day" (when sun reaches 6° elevation)
+	// Match Node-RED's Sun State Summarizer logic
+	// The summarizer receives raw sun events and maps them to simplified states
 	switch {
-	case now.Before(c.dawn):
+	// Night period: night, nightEnd, nauticalDawn, dawn, nadir
+	// Before dawn (civil twilight starts), we're in "night"
+	case now.Before(c.sunTimes["dawn"]):
 		return SunEventNight
-	case now.Before(c.sunrise):
-		return SunEventMorning // Dawn period
-	case now.Before(c.goldenHourEnd):
-		return SunEventMorning // Morning golden hour (until sun reaches 6°)
-	case now.Before(c.sunsetStart):
+
+	// Morning period: from dawn until goldenHourEnd (sun reaches 6° elevation)
+	case now.Before(c.sunTimes["goldenHourEnd"]):
+		return SunEventMorning
+
+	// Day period: from goldenHourEnd until goldenHour starts (evening)
+	case now.Before(c.sunTimes["goldenHour"]):
 		return SunEventDay
-	case now.Before(c.sunset):
-		return SunEventSunset // Evening golden hour / sunset start
-	case now.Before(c.dusk):
-		return SunEventDusk // Civil twilight
+
+	// Sunset period: goldenHour, sunsetStart, sunset - until civil dusk
+	case now.Before(c.sunTimes["dusk"]):
+		return SunEventSunset
+
+	// Dusk period: from civil dusk until astronomical night (-18°)
+	case now.Before(c.sunTimes["night"]):
+		return SunEventDusk
+
+	// Night period: after astronomical night starts
 	default:
 		return SunEventNight
 	}
+}
+
+// GetSunTimes returns the cached sun times for debugging/logging
+func (c *Calculator) GetSunTimes() map[string]time.Time {
+	return c.sunTimes
 }
 
 // CalculateDayPhase determines the current day phase based on sun event and schedule
