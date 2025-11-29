@@ -1406,3 +1406,269 @@ func TestManagerReset(t *testing.T) {
 		t.Fatalf("Reset() failed: %v", err)
 	}
 }
+
+// ========================================
+// Eight Sleep Alarm Tests
+// ========================================
+
+func TestEightSleepAlarm_TriggersBeginWake(t *testing.T) {
+	now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	manager, _, stateManager, _ := setupTest(t, now)
+
+	// Ensure all conditions for begin_wake are met
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Simulate Eight Sleep alarm state change
+	oldState := &ha.State{State: "off"}
+	newState := &ha.State{State: "alarm"}
+
+	manager.handleEightSleepAlarm("sensor.nick_s_eight_sleep_side_bed_state_type", oldState, newState)
+
+	// Verify that isFadeOutInProgress was set (begin_wake was triggered)
+	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+	if !fadeOut {
+		t.Error("isFadeOutInProgress should be set to true after Eight Sleep alarm triggers begin_wake")
+	}
+
+	// Verify begin_wake was marked as triggered
+	if _, triggered := manager.triggeredToday["begin_wake"]; !triggered {
+		t.Error("begin_wake should be marked as triggered after Eight Sleep alarm")
+	}
+}
+
+func TestEightSleepAlarm_IgnoresNonAlarmState(t *testing.T) {
+	now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	manager, _, stateManager, _ := setupTest(t, now)
+
+	// Ensure conditions are met
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Simulate Eight Sleep state change to non-alarm state
+	oldState := &ha.State{State: "off"}
+	newState := &ha.State{State: "awake"}
+
+	manager.handleEightSleepAlarm("sensor.nick_s_eight_sleep_side_bed_state_type", oldState, newState)
+
+	// Verify that isFadeOutInProgress was NOT set
+	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+	if fadeOut {
+		t.Error("isFadeOutInProgress should not be set for non-alarm state")
+	}
+
+	// Verify begin_wake was NOT marked as triggered
+	if _, triggered := manager.triggeredToday["begin_wake"]; triggered {
+		t.Error("begin_wake should not be marked as triggered for non-alarm state")
+	}
+}
+
+func TestEightSleepAlarm_DeduplicatesToday(t *testing.T) {
+	now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Ensure conditions are met
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// First alarm trigger
+	oldState := &ha.State{State: "off"}
+	newState := &ha.State{State: "alarm"}
+	manager.handleEightSleepAlarm("sensor.nick_s_eight_sleep_side_bed_state_type", oldState, newState)
+
+	// Reset isFadeOutInProgress to detect if second trigger runs
+	stateManager.SetBool("isFadeOutInProgress", false)
+	mockHA.ClearServiceCalls()
+
+	// Second alarm trigger (e.g., from Caroline's side) - should be deduplicated
+	manager.handleEightSleepAlarm("sensor.caroline_s_eight_sleep_side_bed_state_type", oldState, newState)
+
+	// Verify that isFadeOutInProgress was NOT set again (deduplicated)
+	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+	if fadeOut {
+		t.Error("Second Eight Sleep alarm should be deduplicated and not trigger begin_wake again")
+	}
+}
+
+func TestEightSleepAlarm_BothSensorsWork(t *testing.T) {
+	// Test that both Nick's and Caroline's sensors can trigger the alarm
+	testCases := []struct {
+		name     string
+		entityID string
+	}{
+		{"Nick's sensor", "sensor.nick_s_eight_sleep_side_bed_state_type"},
+		{"Caroline's sensor", "sensor.caroline_s_eight_sleep_side_bed_state_type"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+			manager, _, stateManager, _ := setupTest(t, now)
+
+			// Ensure conditions are met
+			stateManager.SetBool("isAnyoneHome", true)
+			stateManager.SetBool("isMasterAsleep", true)
+			stateManager.SetString("musicPlaybackType", "sleep")
+			stateManager.SetBool("isFadeOutInProgress", false)
+
+			// Simulate alarm state change
+			oldState := &ha.State{State: "off"}
+			newState := &ha.State{State: "alarm"}
+			manager.handleEightSleepAlarm(tc.entityID, oldState, newState)
+
+			// Verify that begin_wake was triggered
+			fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+			if !fadeOut {
+				t.Errorf("%s should trigger begin_wake", tc.name)
+			}
+		})
+	}
+}
+
+func TestEightSleepAlarm_IgnoresNilNewState(t *testing.T) {
+	now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	manager, _, stateManager, _ := setupTest(t, now)
+
+	// Ensure conditions are met
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Call with nil newState - should be a no-op
+	oldState := &ha.State{State: "off"}
+	manager.handleEightSleepAlarm("sensor.nick_s_eight_sleep_side_bed_state_type", oldState, nil)
+
+	// Verify that nothing was triggered
+	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+	if fadeOut {
+		t.Error("Nil newState should be ignored and not trigger begin_wake")
+	}
+}
+
+func TestEightSleepAlarm_RespectsConditions(t *testing.T) {
+	// Test that the Eight Sleep alarm respects begin_wake conditions
+	testCases := []struct {
+		name           string
+		isAnyoneHome   bool
+		isMasterAsleep bool
+		musicType      string
+		shouldTrigger  bool
+	}{
+		{"all conditions met", true, true, "sleep", true},
+		{"no one home", false, true, "sleep", false},
+		{"master not asleep", true, false, "sleep", false},
+		{"not playing sleep music", true, true, "day", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+			manager, _, stateManager, _ := setupTest(t, now)
+
+			// Set conditions
+			stateManager.SetBool("isAnyoneHome", tc.isAnyoneHome)
+			stateManager.SetBool("isMasterAsleep", tc.isMasterAsleep)
+			stateManager.SetString("musicPlaybackType", tc.musicType)
+			stateManager.SetBool("isFadeOutInProgress", false)
+
+			// Simulate alarm
+			oldState := &ha.State{State: "off"}
+			newState := &ha.State{State: "alarm"}
+			manager.handleEightSleepAlarm("sensor.nick_s_eight_sleep_side_bed_state_type", oldState, newState)
+
+			// Verify result
+			fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+			if fadeOut != tc.shouldTrigger {
+				if tc.shouldTrigger {
+					t.Errorf("Expected begin_wake to trigger for %s", tc.name)
+				} else {
+					t.Errorf("Expected begin_wake NOT to trigger for %s", tc.name)
+				}
+			}
+		})
+	}
+}
+
+func TestEightSleepAlarm_NewDayResetsDeduplication(t *testing.T) {
+	// Test that deduplication is reset on a new day
+	yesterday := time.Date(2024, 1, 14, 22, 0, 0, 0, time.UTC)
+	today := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+
+	manager, _, stateManager, _ := setupTest(t, yesterday)
+
+	// Ensure conditions are met
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Trigger alarm yesterday
+	oldState := &ha.State{State: "off"}
+	newState := &ha.State{State: "alarm"}
+	manager.handleEightSleepAlarm("sensor.nick_s_eight_sleep_side_bed_state_type", oldState, newState)
+
+	// Verify it was marked as triggered
+	if _, triggered := manager.triggeredToday["begin_wake"]; !triggered {
+		t.Fatal("begin_wake should be marked as triggered")
+	}
+
+	// Reset isFadeOutInProgress and update time provider to today
+	stateManager.SetBool("isFadeOutInProgress", false)
+	manager.timeProvider = FixedTimeProvider{FixedTime: today}
+
+	// Trigger alarm today - should work because it's a new day
+	manager.handleEightSleepAlarm("sensor.nick_s_eight_sleep_side_bed_state_type", oldState, newState)
+
+	// Verify that isFadeOutInProgress was set (new day, not deduplicated)
+	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+	if !fadeOut {
+		t.Error("Alarm on a new day should trigger begin_wake (not deduplicated from yesterday)")
+	}
+}
+
+func TestStart_SubscribesToEightSleepSensors(t *testing.T) {
+	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
+	manager, mockHA, _, _ := setupTest(t, now)
+
+	// Start manager
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Check that HA subscriptions include Eight Sleep sensors
+	// The manager should have 3 HA subscriptions:
+	// 1. light.primary_suite
+	// 2. sensor.nick_s_eight_sleep_side_bed_state_type
+	// 3. sensor.caroline_s_eight_sleep_side_bed_state_type
+	if len(manager.haSubscriptions) != 3 {
+		t.Errorf("Expected 3 HA subscriptions, got %d", len(manager.haSubscriptions))
+	}
+
+	// Verify subscriptions were made through the mock client
+	subscriptions := mockHA.GetSubscribedEntities()
+	foundNick := false
+	foundCaroline := false
+	for _, entity := range subscriptions {
+		if entity == "sensor.nick_s_eight_sleep_side_bed_state_type" {
+			foundNick = true
+		}
+		if entity == "sensor.caroline_s_eight_sleep_side_bed_state_type" {
+			foundCaroline = true
+		}
+	}
+
+	if !foundNick {
+		t.Error("Expected subscription to Nick's Eight Sleep sensor")
+	}
+	if !foundCaroline {
+		t.Error("Expected subscription to Caroline's Eight Sleep sensor")
+	}
+}

@@ -35,6 +35,13 @@ func (f FixedTimeProvider) Now() time.Time {
 	return f.FixedTime
 }
 
+// Eight Sleep Pod sensor entity IDs
+const (
+	eightSleepNickSensorEntity     = "sensor.nick_s_eight_sleep_side_bed_state_type"
+	eightSleepCarolineSensorEntity = "sensor.caroline_s_eight_sleep_side_bed_state_type"
+	eightSleepAlarmState           = "alarm"
+)
+
 // Manager handles sleep hygiene automations including wake-up sequences
 type Manager struct {
 	haClient        ha.HAClient
@@ -109,6 +116,21 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to bedroom lights: %w", err)
 	}
 	haSubscriptions = append(haSubscriptions, lightSub)
+
+	// Subscribe to Eight Sleep Pod alarm sensors for instant wake-up triggers
+	nickEightSleepSub, err := m.haClient.SubscribeStateChanges(eightSleepNickSensorEntity, m.handleEightSleepAlarm)
+	if err != nil {
+		cleanup()
+		return fmt.Errorf("failed to subscribe to Nick's Eight Sleep sensor: %w", err)
+	}
+	haSubscriptions = append(haSubscriptions, nickEightSleepSub)
+
+	carolineEightSleepSub, err := m.haClient.SubscribeStateChanges(eightSleepCarolineSensorEntity, m.handleEightSleepAlarm)
+	if err != nil {
+		cleanup()
+		return fmt.Errorf("failed to subscribe to Caroline's Eight Sleep sensor: %w", err)
+	}
+	haSubscriptions = append(haSubscriptions, carolineEightSleepSub)
 
 	// All subscriptions successful - commit them to the manager
 	m.subscriptions = append(m.subscriptions, stateSubscriptions...)
@@ -186,6 +208,54 @@ func (m *Manager) handleBedroomLightsChange(entityID string, oldState, newState 
 
 	// Handle the state change
 	m.handleBedroomLightsOff(newState.State)
+}
+
+// handleEightSleepAlarm processes Eight Sleep Pod alarm state changes
+// This provides instant wake-up triggers when the Eight Sleep alarm activates,
+// rather than relying solely on time-based checks
+func (m *Manager) handleEightSleepAlarm(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	m.logger.Debug("Eight Sleep sensor state changed",
+		zap.String("entity_id", entityID),
+		zap.String("new_state", newState.State),
+		zap.String("old_state", func() string {
+			if oldState != nil {
+				return oldState.State
+			}
+			return "unknown"
+		}()))
+
+	// Only trigger when state becomes "alarm"
+	if newState.State != eightSleepAlarmState {
+		m.logger.Debug("Eight Sleep state is not alarm, ignoring",
+			zap.String("entity_id", entityID),
+			zap.String("state", newState.State))
+		return
+	}
+
+	// Check if we already triggered begin_wake today (deduplication)
+	now := m.timeProvider.Now()
+	if triggerTime, triggered := m.triggeredToday["begin_wake"]; triggered {
+		if isSameDay(now, triggerTime) {
+			m.logger.Debug("begin_wake already triggered today, ignoring Eight Sleep alarm",
+				zap.String("entity_id", entityID),
+				zap.Time("triggered_at", triggerTime))
+			return
+		}
+	}
+
+	m.logger.Info("Eight Sleep alarm detected, triggering begin_wake",
+		zap.String("entity_id", entityID),
+		zap.Time("now", now))
+
+	// Mark as triggered to prevent duplicate triggers
+	m.triggeredToday["begin_wake"] = now
+
+	// Trigger the begin_wake sequence
+	m.handleBeginWake()
 }
 
 // runTimerLoop runs the main timer loop that checks for time triggers
