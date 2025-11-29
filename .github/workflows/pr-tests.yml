@@ -45,9 +45,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./homeautomation-go
 
     steps:
       - name: Checkout code
@@ -65,72 +62,14 @@ jobs:
           path: ~/go/bin
           key: go-tools-${{ runner.os }}-v1
 
-      - name: Install tools
-        run: |
-          # Only install if not already cached
-          command -v goimports >/dev/null 2>&1 || go install golang.org/x/tools/cmd/goimports@latest
-          command -v staticcheck >/dev/null 2>&1 || go install honnef.co/go/tools/cmd/staticcheck@latest
-
-      - name: Check code formatting (gofmt)
-        run: |
-          echo "Checking code formatting with gofmt..."
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "❌ ERROR: The following files are not formatted with gofmt:"
-            echo "$unformatted"
-            echo ""
-            echo "Please run: make format-go"
-            exit 1
-          fi
-          echo "✅ All files are properly formatted"
-
-      - name: Check import organization (goimports)
-        run: |
-          echo "Checking import organization with goimports..."
-          unformatted=$(goimports -l .)
-          if [ -n "$unformatted" ]; then
-            echo "❌ ERROR: The following files have incorrect import organization:"
-            echo "$unformatted"
-            echo ""
-            echo "Please run: make format-go"
-            exit 1
-          fi
-          echo "✅ All imports are properly organized"
-
-      - name: Run static analysis (go vet)
-        run: |
-          echo "Running go vet static analysis..."
-          go vet ./...
-          echo "✅ Static analysis passed"
-
-      - name: Run linter (staticcheck)
-        run: |
-          echo "Running staticcheck linter..."
-          staticcheck ./...
-          echo "✅ Linting passed"
-
-      - name: Style Check Summary
-        if: always()
-        run: |
-          echo "==============================================="
-          echo "          STYLE CHECK SUMMARY"
-          echo "==============================================="
-          echo "✅ Code formatting (gofmt) passed"
-          echo "✅ Import organization (goimports) passed"
-          echo "✅ Static analysis (go vet) passed"
-          echo "✅ Linting (staticcheck) passed"
-          echo ""
-          echo "✅ ALL STYLE CHECKS PASSED"
-          echo "==============================================="
+      - name: Run style checks
+        run: make ci-style-checks
 
   unit-tests:
     name: Unit Tests (Required for PR Merge)
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./homeautomation-go
 
     steps:
       - name: Checkout code
@@ -143,48 +82,16 @@ jobs:
           cache-dependency-path: homeautomation-go/go.sum
 
       - name: Download dependencies
-        run: go mod download
+        run: cd homeautomation-go && go mod download
 
-      - name: Verify all code compiles (including tests)
-        run: go build ./...
-
-      - name: Run unit tests with coverage and race detector
-        run: |
-          echo "Running unit tests with race detector and coverage..."
-          echo "Excluding integration tests (run separately) and pkg/testutil (test infrastructure)"
-          go test $(go list ./... | grep -v /test/integration | grep -v /pkg/testutil) -race -v -coverprofile=coverage.out -covermode=atomic -timeout=5m
-
-      - name: Check minimum test coverage (≥70%)
-        run: |
-          coverage=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Total coverage: ${coverage}%"
-          if (( $(echo "$coverage < 70" | bc -l) )); then
-            echo "❌ ERROR: Test coverage ${coverage}% is below required 70%"
-            exit 1
-          fi
-          echo "✅ Test coverage ${coverage}% meets requirement"
-
-      - name: Unit Test Summary
-        if: always()
-        run: |
-          echo "==============================================="
-          echo "           UNIT TEST RESULTS SUMMARY"
-          echo "==============================================="
-          echo "✅ All code compiles (including test files)"
-          echo "✅ Unit tests passed with race detector"
-          echo "✅ Test coverage meets minimum requirement (≥70%)"
-          echo ""
-          echo "✅ UNIT TESTS PASSED"
-          echo "==============================================="
+      - name: Run unit tests with coverage
+        run: make ci-unit-tests
 
   integration-tests:
     name: Integration Tests (Required for PR Merge)
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./homeautomation-go
 
     steps:
       - name: Checkout code
@@ -197,29 +104,10 @@ jobs:
           cache-dependency-path: homeautomation-go/go.sum
 
       - name: Download dependencies
-        run: go mod download
+        run: cd homeautomation-go && go mod download
 
-      - name: Run integration tests with race detector
-        run: |
-          echo "Running integration tests with race detector..."
-          echo "Time-dependent tests use mock clocks for instant execution"
-          go test ./test/integration/... -race -v -timeout=5m
-
-      - name: Integration Test Summary
-        if: always()
-        run: |
-          # Count integration tests dynamically
-          integration_test_count=$(go test -list=. ./test/integration/... 2>/dev/null | grep -c "^Test" || echo "unknown")
-
-          echo "==============================================="
-          echo "        INTEGRATION TEST RESULTS SUMMARY"
-          echo "==============================================="
-          echo "✅ All integration tests passed (${integration_test_count} tests)"
-          echo "✅ Concurrent load scenarios validated"
-          echo "✅ No race conditions detected"
-          echo ""
-          echo "✅ INTEGRATION TESTS PASSED"
-          echo "==============================================="
+      - name: Run integration tests
+        run: make ci-integration-tests
 
   config-tests:
     name: Config Validation Tests
