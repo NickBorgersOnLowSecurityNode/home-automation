@@ -32,6 +32,15 @@ type subscriberEntry struct {
 }
 
 // Client implements HAClient interface
+//
+// Lock ordering (to prevent deadlocks, always acquire in this order):
+//  1. connMu - connection state
+//  2. ctxMu - context for cancellation
+//  3. writeMu - websocket writes
+//  4. pendingMu - pending response channels
+//  5. subsMu - subscribers
+//  6. msgIDMu - message ID counter
+//  7. nextSubIDMu - subscription ID counter
 type Client struct {
 	url         string
 	token       string
@@ -66,7 +75,10 @@ func (c *Client) clearSubscribers() {
 	c.subscribers = make(map[string][]subscriberEntry)
 }
 
-func (c *Client) resetContextLocked() {
+// resetContext cancels the current context and creates a new one.
+// This function acquires ctxMu internally - callers should NOT hold ctxMu.
+// Safe to call while holding connMu (follows lock ordering).
+func (c *Client) resetContext() {
 	c.ctxMu.Lock()
 	defer c.ctxMu.Unlock()
 	if c.cancel != nil {
@@ -162,7 +174,7 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("expected auth_ok, got %s", authResponse.Type)
 	}
 
-	c.resetContextLocked()
+	c.resetContext()
 	c.connected = true
 	c.reconnect = true
 	c.logger.Info("Connected to Home Assistant")
@@ -297,12 +309,16 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 
 // receiveMessages handles incoming messages in the background
 func (c *Client) receiveMessages() {
-	for {
-		// Get context for cancellation check
-		c.ctxMu.RLock()
-		ctx := c.ctx
-		c.ctxMu.RUnlock()
+	// Get initial context reference - this context is replaced on reconnect,
+	// so we capture it once at the start of this receive loop.
+	// When the context is cancelled (either by Disconnect or resetContext),
+	// we'll exit this loop gracefully.
+	c.ctxMu.RLock()
+	ctx := c.ctx
+	c.ctxMu.RUnlock()
 
+	for {
+		// Check if context is cancelled before blocking on read
 		select {
 		case <-ctx.Done():
 			return

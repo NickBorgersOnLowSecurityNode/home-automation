@@ -288,8 +288,8 @@ func (m *MockClient) ClearServiceCalls() {
 
 // updateStateFromServiceCall updates state based on a service call
 func (m *MockClient) updateStateFromServiceCall(entityID, domain, service string, data map[string]interface{}) {
+	// Compute state update while holding the lock
 	m.statesMu.Lock()
-	defer m.statesMu.Unlock()
 
 	oldState := m.states[entityID]
 	now := time.Now()
@@ -299,7 +299,10 @@ func (m *MockClient) updateStateFromServiceCall(entityID, domain, service string
 
 	if oldState != nil {
 		newStateValue = oldState.State
-		attributes = oldState.Attributes
+		// Make a shallow copy of attributes to avoid sharing references
+		for k, v := range oldState.Attributes {
+			attributes[k] = v
+		}
 	}
 
 	switch domain {
@@ -332,14 +335,13 @@ func (m *MockClient) updateStateFromServiceCall(entityID, domain, service string
 	// Only notify subscribers if state actually changed
 	stateChanged := oldState == nil || oldState.State != newStateValue
 
+	// Release lock before notifying subscribers to avoid deadlock when callbacks call back into the client
 	m.statesMu.Unlock()
 
-	// Notify subscribers only if state changed
+	// Notify subscribers only if state changed (outside the lock)
 	if stateChanged {
 		m.notifySubscribers(entityID, oldState, newState)
 	}
-
-	m.statesMu.Lock()
 }
 
 // notifySubscribers notifies all subscribers of a state change
