@@ -1,3 +1,4 @@
+// Home Automation Go Application
 package main
 
 import (
