@@ -27,11 +27,6 @@ func setupTest(t *testing.T, currentTime time.Time) (*Manager, *ha.MockClient, *
 	stateManager.SetBool("isCarolineHome", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
-	// Set alarm time to 9:00 AM today
-	year, month, day := currentTime.Date()
-	alarmTime := time.Date(year, month, day, 9, 0, 0, 0, currentTime.Location())
-	stateManager.SetNumber("alarmTime", float64(alarmTime.UnixMilli()))
-
 	// Create a config loader
 	configLoader := config.NewLoader("../../../configs", logger)
 
@@ -81,17 +76,17 @@ func TestStartStop(t *testing.T) {
 		t.Error("Ticker should be initialized after Start()")
 	}
 
-	// Check that subscriptions exist
-	if len(manager.subscriptions) == 0 {
-		t.Error("Should have subscriptions after Start()")
+	// Check that HA subscriptions exist (bedroom lights + 2 Eight Sleep sensors)
+	if len(manager.haSubscriptions) != 3 {
+		t.Errorf("Should have 3 HA subscriptions after Start(), got %d", len(manager.haSubscriptions))
 	}
 
 	// Stop manager
 	manager.Stop()
 
 	// Verify cleanup
-	if manager.subscriptions != nil {
-		t.Error("Subscriptions should be nil after Stop()")
+	if manager.haSubscriptions != nil {
+		t.Error("HA subscriptions should be nil after Stop()")
 	}
 }
 
@@ -335,11 +330,6 @@ func TestReadOnlyMode(t *testing.T) {
 
 	configLoader := config.NewLoader("../../../configs", logger)
 
-	// Set alarm time
-	year, month, day := now.Date()
-	alarmTime := time.Date(year, month, day, 9, 0, 0, 0, now.Location())
-	stateManager.SetNumber("alarmTime", float64(alarmTime.UnixMilli()))
-
 	// Set conditions
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isMasterAsleep", true)
@@ -363,32 +353,6 @@ func TestReadOnlyMode(t *testing.T) {
 	}
 }
 
-func TestAlarmTimeChange_ResetsTriggers(t *testing.T) {
-	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
-	manager, _, stateManager, _ := setupTest(t, now)
-
-	// Start manager so subscription is active
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	// Mark begin_wake as triggered
-	manager.triggeredToday["begin_wake"] = now
-
-	// Change alarm time
-	newAlarmTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
-	stateManager.SetNumber("alarmTime", float64(newAlarmTime.UnixMilli()))
-
-	// Give subscription callback time to execute
-	time.Sleep(10 * time.Millisecond)
-
-	// Verify that begin_wake trigger was reset
-	if _, exists := manager.triggeredToday["begin_wake"]; exists {
-		t.Error("begin_wake trigger should be reset when alarm time changes")
-	}
-}
-
 func TestIsSameDay(t *testing.T) {
 	t1 := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
 	t2 := time.Date(2024, 1, 15, 23, 59, 0, 0, time.UTC)
@@ -403,11 +367,12 @@ func TestIsSameDay(t *testing.T) {
 	}
 }
 
-func TestCheckTimeTriggers_Integration(t *testing.T) {
-	// This test verifies the complete flow of checking time triggers
+func TestCheckTimeTriggers_StopScreens(t *testing.T) {
+	// This test verifies the stop_screens time-based trigger
+	// Note: begin_wake and wake are now handled by Eight Sleep sensors, not time-based
 
-	// Test at begin_wake time (9:00 AM)
-	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+	// Test at stop_screens time (22:30)
+	now := time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, configLoader := setupTest(t, now)
 
 	// Load schedule config for today
@@ -415,10 +380,9 @@ func TestCheckTimeTriggers_Integration(t *testing.T) {
 		t.Skipf("Skipping test: schedule config not available: %v", err)
 	}
 
-	// Set all conditions for begin_wake
+	// Set conditions for stop_screens (someone home and awake)
 	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isEveryoneAsleep", false)
 
 	// Clear calls
 	mockHA.ClearServiceCalls()
@@ -426,50 +390,15 @@ func TestCheckTimeTriggers_Integration(t *testing.T) {
 	// Check triggers
 	manager.checkTimeTriggers()
 
-	// Should trigger begin_wake
-	if _, triggered := manager.triggeredToday["begin_wake"]; !triggered {
-		t.Error("begin_wake should be triggered at 9:00 AM")
+	// Should trigger stop_screens
+	if _, triggered := manager.triggeredToday["stop_screens"]; !triggered {
+		t.Error("stop_screens should be triggered at 22:30")
 	}
 
-	// Verify fade out was started
-	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
-	if !fadeOut {
-		t.Error("isFadeOutInProgress should be true after begin_wake")
-	}
-}
-
-func TestCheckTimeTriggers_WakeTime(t *testing.T) {
-	// Test at wake time (9:25 AM - 25 minutes after alarm)
-	now := time.Date(2024, 1, 15, 9, 25, 0, 0, time.UTC)
-	manager, mockHA, stateManager, configLoader := setupTest(t, now)
-
-	// Load schedule config
-	if err := configLoader.LoadScheduleConfig(); err != nil {
-		t.Skipf("Skipping test: schedule config not available: %v", err)
-	}
-
-	// Set all conditions for wake
-	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetBool("isFadeOutInProgress", true)
-	stateManager.SetBool("isNickHome", true)
-	stateManager.SetBool("isCarolineHome", true)
-
-	// Clear calls
-	mockHA.ClearServiceCalls()
-
-	// Check triggers
-	manager.checkTimeTriggers()
-
-	// Should trigger wake
-	if _, triggered := manager.triggeredToday["wake"]; !triggered {
-		t.Error("wake should be triggered at 9:25 AM")
-	}
-
-	// Verify light calls were made
+	// Verify flash light calls were made
 	calls := mockHA.GetServiceCalls()
 	if len(calls) == 0 {
-		t.Error("Expected service calls for wake sequence")
+		t.Error("Expected flash light service calls for stop_screens")
 	}
 }
 
@@ -505,24 +434,24 @@ func TestFixedTimeProvider(t *testing.T) {
 	}
 }
 
-// TestCheckTimeTriggers_ErrorGettingAlarmTime tests error handling when alarmTime is not set
-func TestCheckTimeTriggers_ErrorGettingAlarmTime(t *testing.T) {
+// TestCheckTimeTriggers_ErrorGettingSchedule tests error handling when schedule config is not available
+func TestCheckTimeTriggers_ErrorGettingSchedule(t *testing.T) {
 	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
 	stateManager := state.NewManager(mockHA, logger, false)
 
-	// Don't set alarmTime - this will cause an error
-	configLoader := config.NewLoader("../../../configs", logger)
+	// Use a config loader pointing to non-existent directory
+	configLoader := config.NewLoader("/nonexistent/path", logger)
 	timeProvider := FixedTimeProvider{FixedTime: now}
 	manager := NewManager(mockHA, stateManager, configLoader, logger, false, timeProvider)
 
 	// Check triggers - should handle error gracefully
 	manager.checkTimeTriggers()
 
-	// No triggers should be set
+	// No triggers should be set when schedule is unavailable
 	if len(manager.triggeredToday) > 0 {
-		t.Error("No triggers should be set when alarmTime is missing")
+		t.Error("No triggers should be set when schedule config is missing")
 	}
 }
 

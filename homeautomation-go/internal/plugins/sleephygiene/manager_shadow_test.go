@@ -19,7 +19,6 @@ func TestSleepHygieneShadowState_CaptureInputs(t *testing.T) {
 
 	// Set test state values
 	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetNumber("alarmTime", 1234567890000)
 	stateManager.SetString("musicPlaybackType", "sleep")
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isEveryoneAsleep", false)
@@ -37,11 +36,11 @@ func TestSleepHygieneShadowState_CaptureInputs(t *testing.T) {
 	if inputs["isMasterAsleep"] != true {
 		t.Errorf("Expected isMasterAsleep to be true, got %v", inputs["isMasterAsleep"])
 	}
-	if inputs["alarmTime"] != float64(1234567890000) {
-		t.Errorf("Expected alarmTime to be 1234567890000, got %v", inputs["alarmTime"])
-	}
 	if inputs["musicPlaybackType"] != "sleep" {
 		t.Errorf("Expected musicPlaybackType to be 'sleep', got %v", inputs["musicPlaybackType"])
+	}
+	if inputs["isAnyoneHome"] != true {
+		t.Errorf("Expected isAnyoneHome to be true, got %v", inputs["isAnyoneHome"])
 	}
 }
 

@@ -88,26 +88,14 @@ func (m *Manager) Start() error {
 	m.logger.Info("Starting Sleep Hygiene Manager")
 
 	// Track subscriptions locally so we can clean up on partial failure
-	var stateSubscriptions []state.Subscription
 	var haSubscriptions []ha.Subscription
 
 	// Helper to clean up on error
 	cleanup := func() {
-		for _, sub := range stateSubscriptions {
-			sub.Unsubscribe()
-		}
 		for _, sub := range haSubscriptions {
 			sub.Unsubscribe()
 		}
 	}
-
-	// Subscribe to alarmTime changes
-	sub, err := m.stateManager.Subscribe("alarmTime", m.handleAlarmTimeChange)
-	if err != nil {
-		cleanup()
-		return fmt.Errorf("failed to subscribe to alarmTime: %w", err)
-	}
-	stateSubscriptions = append(stateSubscriptions, sub)
 
 	// Subscribe to bedroom lights state changes (for cancel auto-wake logic)
 	lightSub, err := m.haClient.SubscribeStateChanges("light.primary_suite", m.handleBedroomLightsChange)
@@ -133,7 +121,6 @@ func (m *Manager) Start() error {
 	haSubscriptions = append(haSubscriptions, carolineEightSleepSub)
 
 	// All subscriptions successful - commit them to the manager
-	m.subscriptions = append(m.subscriptions, stateSubscriptions...)
 	m.haSubscriptions = append(m.haSubscriptions, haSubscriptions...)
 
 	// Start ticker to check time triggers every minute
@@ -174,20 +161,6 @@ func (m *Manager) Stop() {
 	m.haSubscriptions = nil
 
 	m.logger.Info("Sleep Hygiene Manager stopped")
-}
-
-// handleAlarmTimeChange processes alarm time changes
-func (m *Manager) handleAlarmTimeChange(key string, oldValue, newValue interface{}) {
-	m.logger.Debug("Alarm time changed",
-		zap.Any("old", oldValue),
-		zap.Any("new", newValue))
-
-	// When alarm time changes, reset the triggered flags for wake-related triggers
-	delete(m.triggeredToday, "begin_wake")
-	delete(m.triggeredToday, "wake")
-
-	// Check if we should trigger now
-	m.checkTimeTriggers()
 }
 
 // handleBedroomLightsChange processes bedroom lights state changes from Home Assistant
@@ -285,22 +258,10 @@ func (m *Manager) runTimerLoop() {
 	}
 }
 
-// checkTimeTriggers checks all time-based triggers and fires them if conditions are met
+// checkTimeTriggers checks schedule-based triggers (stop_screens and go_to_bed)
+// Note: Wake-up triggers (begin_wake and wake) are handled by Eight Sleep alarm sensors
 func (m *Manager) checkTimeTriggers() {
 	now := m.timeProvider.Now()
-
-	// Get alarm time from state
-	alarmTimeMs, err := m.stateManager.GetNumber("alarmTime")
-	if err != nil {
-		m.logger.Debug("Failed to get alarmTime", zap.Error(err))
-		return
-	}
-
-	// Convert milliseconds timestamp to time.Time
-	alarmTime := time.Unix(int64(alarmTimeMs)/1000, 0)
-
-	// Calculate wake time (25 minutes after alarm time)
-	wakeTime := alarmTime.Add(25 * time.Minute)
 
 	// Get today's schedule
 	schedule, err := m.configLoader.GetTodaysSchedule()
@@ -310,28 +271,6 @@ func (m *Manager) checkTimeTriggers() {
 	}
 
 	const ONE_HOUR = time.Hour
-
-	// Check begin_wake trigger
-	if now.After(alarmTime) && now.Before(alarmTime.Add(ONE_HOUR)) {
-		if _, triggered := m.triggeredToday["begin_wake"]; !triggered {
-			m.logger.Info("Triggering begin_wake",
-				zap.Time("alarm_time", alarmTime),
-				zap.Time("now", now))
-			m.triggeredToday["begin_wake"] = now
-			m.handleBeginWake()
-		}
-	}
-
-	// Check wake trigger
-	if now.After(wakeTime) && now.Before(wakeTime.Add(ONE_HOUR)) {
-		if _, triggered := m.triggeredToday["wake"]; !triggered {
-			m.logger.Info("Triggering wake",
-				zap.Time("wake_time", wakeTime),
-				zap.Time("now", now))
-			m.triggeredToday["wake"] = now
-			m.handleWake()
-		}
-	}
 
 	// Check stop_screens trigger
 	if now.After(schedule.StopScreens) && now.Before(schedule.StopScreens.Add(ONE_HOUR)) {
@@ -893,9 +832,6 @@ func (m *Manager) captureCurrentInputs() map[string]interface{} {
 	// Get all subscribed variables
 	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
 		inputs["isMasterAsleep"] = val
-	}
-	if val, err := m.stateManager.GetNumber("alarmTime"); err == nil {
-		inputs["alarmTime"] = val
 	}
 	if val, err := m.stateManager.GetString("musicPlaybackType"); err == nil {
 		inputs["musicPlaybackType"] = val
