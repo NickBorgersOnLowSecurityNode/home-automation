@@ -8,32 +8,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ============================================================================
-// Helper Functions for Service Call Verification
-// ============================================================================
+// Helper functions are now provided by pkg/testutil and re-exported via mock_ha_server.go:
+// - FilterServiceCalls(calls, domain, service)
+// - FindServiceCallWithData(calls, domain, service, dataKey, dataValue)
+// - FindServiceCallWithEntityID(calls, domain, service, entityID)
 
-// filterServiceCalls returns only service calls matching domain and service
+// Lowercase aliases for backward compatibility with existing tests
 func filterServiceCalls(calls []ServiceCall, domain, service string) []ServiceCall {
-	filtered := make([]ServiceCall, 0)
-	for _, call := range calls {
-		if call.Domain == domain && call.Service == service {
-			filtered = append(filtered, call)
-		}
-	}
-	return filtered
+	return FilterServiceCalls(calls, domain, service)
 }
 
-// findServiceCallWithData finds a service call with specific service data field
 func findServiceCallWithData(calls []ServiceCall, domain, service, dataKey string, dataValue interface{}) *ServiceCall {
-	for i := len(calls) - 1; i >= 0; i-- {
-		call := calls[i]
-		if call.Domain == domain && call.Service == service {
-			if val, ok := call.ServiceData[dataKey]; ok && val == dataValue {
-				return &call
-			}
-		}
-	}
-	return nil
+	return FindServiceCallWithData(calls, domain, service, dataKey, dataValue)
 }
 
 // TestScenario_MockServerServiceCallTracking validates that the mock server
