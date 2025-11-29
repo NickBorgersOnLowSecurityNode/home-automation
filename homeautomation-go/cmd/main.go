@@ -22,6 +22,7 @@ import (
 	"homeautomation/internal/plugins/security"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/plugins/statetracking"
+	"homeautomation/internal/plugins/tv"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -250,6 +251,14 @@ func main() {
 	shadowTracker.RegisterPluginProvider("loadshedding", func() shadowstate.PluginShadowState {
 		return loadSheddingManager.GetShadowState()
 	})
+
+	// Start TV Manager
+	tvManager := tv.NewManager(client, stateManager, logger, readOnly)
+	if err := tvManager.Start(); err != nil {
+		logger.Fatal("Failed to start TV Manager", zap.Error(err))
+	}
+	defer tvManager.Stop()
+	logger.Info("TV Manager started successfully")
 
 	// Register Phase 6 read-heavy plugin shadow state providers
 	shadowTracker.RegisterPluginProvider("energy", func() shadowstate.PluginShadowState {
