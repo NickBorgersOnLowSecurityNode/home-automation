@@ -220,6 +220,37 @@ lint-go:
 	  (command -v staticcheck >/dev/null 2>&1 && staticcheck ./... || $(HOME)/go/bin/staticcheck ./...)
 	@echo "✅ All linters passed"
 
+# ============================================================================
+# CI Targets (used by GitHub Actions workflows)
+# These targets match what CI runs, allowing local verification before push
+# ============================================================================
+
+#ci-style-checks: @ Run style/lint checks (used by CI style-checks job)
+ci-style-checks: pre-commit
+	@echo "✅ CI style checks complete"
+
+#ci-unit-tests: @ Run unit tests with coverage, excluding integration tests (used by CI)
+ci-unit-tests:
+	@echo "🧪 Running unit tests (excluding integration tests and pkg/testutil)..."
+	@cd homeautomation-go && go build ./...
+	@cd homeautomation-go && go test $$(go list ./... | grep -v /test/integration | grep -v /pkg/testutil) \
+	  -race -v -coverprofile=coverage.out -covermode=atomic -timeout=5m
+	@cd homeautomation-go && \
+	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
+	  echo "Total coverage: $${coverage}%" && \
+	  if [ "$$(echo "$$coverage < 70" | bc -l)" = "1" ]; then \
+	    echo "❌ ERROR: Test coverage $${coverage}% is below required 70%"; \
+	    exit 1; \
+	  fi && \
+	  echo "✅ Test coverage $${coverage}% meets requirement"
+	@echo "✅ Unit tests passed"
+
+#ci-integration-tests: @ Run integration tests with race detector (used by CI)
+ci-integration-tests:
+	@echo "🧪 Running integration tests..."
+	@cd homeautomation-go && go test ./test/integration/... -race -v -timeout=5m
+	@echo "✅ Integration tests passed"
+
 #pre-push: @ Run comprehensive pre-push validation (build, tests, race detector, coverage ≥70%)
 pre-push:
 	@echo ""

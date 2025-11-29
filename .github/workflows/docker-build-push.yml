@@ -21,15 +21,8 @@ jobs:
   test:
     name: Run Go Tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./homeautomation-go
 
     steps:
-      # Test strategy:
-      # 1. Run unit tests with race detector
-      # 2. Run unit tests with coverage (must be >= 70%)
-      # 3. Run integration tests (mock HA server, concurrency, deadlock detection)
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -40,37 +33,13 @@ jobs:
           cache-dependency-path: homeautomation-go/go.sum
 
       - name: Download dependencies
-        run: go mod download
+        run: cd homeautomation-go && go mod download
 
-      - name: Run tests
-        run: go test ./... -race -v
-
-      - name: Run tests with coverage
-        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
-
-      - name: Check test coverage
-        run: |
-          coverage=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Total coverage: ${coverage}%"
-          if (( $(echo "$coverage < 70" | bc -l) )); then
-            echo "ERROR: Test coverage ${coverage}% is below required 70%"
-            exit 1
-          fi
+      - name: Run unit tests with coverage
+        run: make ci-unit-tests
 
       - name: Run integration tests
-        run: |
-          echo "Running integration tests with race detector..."
-          go test -v -race -timeout=5m ./test/integration/...
-        continue-on-error: false
-
-      - name: Test Summary
-        if: always()
-        run: |
-          echo "✅ Unit tests passed with race detector"
-          echo "✅ Test coverage meets minimum requirement (≥70%)"
-          echo "✅ All integration tests passed (11/11 tests)"
-          echo ""
-          echo "All tests passed. Ready for Docker build."
+        run: make ci-integration-tests
 
   build-and-push:
     name: Build and Push Docker Image
