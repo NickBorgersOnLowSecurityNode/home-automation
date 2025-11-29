@@ -489,6 +489,10 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string) {
 			zap.String("area_id", room.HASSAreaID),
 			zap.String("scene", dayPhase),
 			zap.String("entity_id", sceneEntityID))
+		// Record shadow state even in read-only mode for consistency with music plugin
+		m.recordAction(room.HueGroup, "activate_scene",
+			fmt.Sprintf("Would activate scene '%s'", dayPhase),
+			dayPhase, false)
 		return
 	}
 
@@ -543,6 +547,8 @@ func (m *Manager) turnOffRoom(room *RoomConfig) {
 		m.logger.Info("READ-ONLY: Would turn off room",
 			zap.String("room", room.HueGroup),
 			zap.String("area_id", room.HASSAreaID))
+		// Record shadow state even in read-only mode for consistency with music plugin
+		m.recordAction(room.HueGroup, "turn_off", "Would turn off room", "", true)
 		return
 	}
 

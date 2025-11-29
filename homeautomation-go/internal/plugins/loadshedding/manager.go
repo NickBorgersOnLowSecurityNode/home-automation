@@ -185,6 +185,9 @@ func (m *Manager) enableLoadShedding(energyLevel string) {
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would enable thermostat hold mode",
 			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+		// Record shadow state even in read-only mode for consistency
+		reason := fmt.Sprintf("Energy state is %s (low battery) - would restrict HVAC", energyLevel)
+		m.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted)
 		return
 	}
 
@@ -276,6 +279,9 @@ func (m *Manager) disableLoadShedding(energyLevel string) {
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would disable thermostat hold mode (restore schedule)",
 			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+		// Record shadow state even in read-only mode for consistency
+		reason := fmt.Sprintf("Energy state is %s (battery restored) - would return to normal HVAC", energyLevel)
+		m.recordAction(false, "disable", reason, false, 0, 0)
 		return
 	}
 
