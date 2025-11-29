@@ -35,6 +35,13 @@ func (f FixedTimeProvider) Now() time.Time {
 	return f.FixedTime
 }
 
+// Eight Sleep Pod sensor entity IDs
+const (
+	eightSleepNickSensorEntity     = "sensor.nick_s_eight_sleep_side_bed_state_type"
+	eightSleepCarolineSensorEntity = "sensor.caroline_s_eight_sleep_side_bed_state_type"
+	eightSleepAlarmState           = "alarm"
+)
+
 // Manager handles sleep hygiene automations including wake-up sequences
 type Manager struct {
 	haClient        ha.HAClient
@@ -81,26 +88,14 @@ func (m *Manager) Start() error {
 	m.logger.Info("Starting Sleep Hygiene Manager")
 
 	// Track subscriptions locally so we can clean up on partial failure
-	var stateSubscriptions []state.Subscription
 	var haSubscriptions []ha.Subscription
 
 	// Helper to clean up on error
 	cleanup := func() {
-		for _, sub := range stateSubscriptions {
-			sub.Unsubscribe()
-		}
 		for _, sub := range haSubscriptions {
 			sub.Unsubscribe()
 		}
 	}
-
-	// Subscribe to alarmTime changes
-	sub, err := m.stateManager.Subscribe("alarmTime", m.handleAlarmTimeChange)
-	if err != nil {
-		cleanup()
-		return fmt.Errorf("failed to subscribe to alarmTime: %w", err)
-	}
-	stateSubscriptions = append(stateSubscriptions, sub)
 
 	// Subscribe to bedroom lights state changes (for cancel auto-wake logic)
 	lightSub, err := m.haClient.SubscribeStateChanges("light.primary_suite", m.handleBedroomLightsChange)
@@ -110,8 +105,22 @@ func (m *Manager) Start() error {
 	}
 	haSubscriptions = append(haSubscriptions, lightSub)
 
+	// Subscribe to Eight Sleep Pod alarm sensors for instant wake-up triggers
+	nickEightSleepSub, err := m.haClient.SubscribeStateChanges(eightSleepNickSensorEntity, m.handleEightSleepAlarm)
+	if err != nil {
+		cleanup()
+		return fmt.Errorf("failed to subscribe to Nick's Eight Sleep sensor: %w", err)
+	}
+	haSubscriptions = append(haSubscriptions, nickEightSleepSub)
+
+	carolineEightSleepSub, err := m.haClient.SubscribeStateChanges(eightSleepCarolineSensorEntity, m.handleEightSleepAlarm)
+	if err != nil {
+		cleanup()
+		return fmt.Errorf("failed to subscribe to Caroline's Eight Sleep sensor: %w", err)
+	}
+	haSubscriptions = append(haSubscriptions, carolineEightSleepSub)
+
 	// All subscriptions successful - commit them to the manager
-	m.subscriptions = append(m.subscriptions, stateSubscriptions...)
 	m.haSubscriptions = append(m.haSubscriptions, haSubscriptions...)
 
 	// Start ticker to check time triggers every minute
@@ -154,20 +163,6 @@ func (m *Manager) Stop() {
 	m.logger.Info("Sleep Hygiene Manager stopped")
 }
 
-// handleAlarmTimeChange processes alarm time changes
-func (m *Manager) handleAlarmTimeChange(key string, oldValue, newValue interface{}) {
-	m.logger.Debug("Alarm time changed",
-		zap.Any("old", oldValue),
-		zap.Any("new", newValue))
-
-	// When alarm time changes, reset the triggered flags for wake-related triggers
-	delete(m.triggeredToday, "begin_wake")
-	delete(m.triggeredToday, "wake")
-
-	// Check if we should trigger now
-	m.checkTimeTriggers()
-}
-
 // handleBedroomLightsChange processes bedroom lights state changes from Home Assistant
 func (m *Manager) handleBedroomLightsChange(entityID string, oldState, newState *ha.State) {
 	if newState == nil {
@@ -186,6 +181,54 @@ func (m *Manager) handleBedroomLightsChange(entityID string, oldState, newState 
 
 	// Handle the state change
 	m.handleBedroomLightsOff(newState.State)
+}
+
+// handleEightSleepAlarm processes Eight Sleep Pod alarm state changes
+// This provides instant wake-up triggers when the Eight Sleep alarm activates,
+// rather than relying solely on time-based checks
+func (m *Manager) handleEightSleepAlarm(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	m.logger.Debug("Eight Sleep sensor state changed",
+		zap.String("entity_id", entityID),
+		zap.String("new_state", newState.State),
+		zap.String("old_state", func() string {
+			if oldState != nil {
+				return oldState.State
+			}
+			return "unknown"
+		}()))
+
+	// Only trigger when state becomes "alarm"
+	if newState.State != eightSleepAlarmState {
+		m.logger.Debug("Eight Sleep state is not alarm, ignoring",
+			zap.String("entity_id", entityID),
+			zap.String("state", newState.State))
+		return
+	}
+
+	// Check if we already triggered begin_wake today (deduplication)
+	now := m.timeProvider.Now()
+	if triggerTime, triggered := m.triggeredToday["begin_wake"]; triggered {
+		if isSameDay(now, triggerTime) {
+			m.logger.Debug("begin_wake already triggered today, ignoring Eight Sleep alarm",
+				zap.String("entity_id", entityID),
+				zap.Time("triggered_at", triggerTime))
+			return
+		}
+	}
+
+	m.logger.Info("Eight Sleep alarm detected, triggering begin_wake",
+		zap.String("entity_id", entityID),
+		zap.Time("now", now))
+
+	// Mark as triggered to prevent duplicate triggers
+	m.triggeredToday["begin_wake"] = now
+
+	// Trigger the begin_wake sequence
+	m.handleBeginWake()
 }
 
 // runTimerLoop runs the main timer loop that checks for time triggers
@@ -215,22 +258,10 @@ func (m *Manager) runTimerLoop() {
 	}
 }
 
-// checkTimeTriggers checks all time-based triggers and fires them if conditions are met
+// checkTimeTriggers checks schedule-based triggers (stop_screens and go_to_bed)
+// Note: Wake-up triggers (begin_wake and wake) are handled by Eight Sleep alarm sensors
 func (m *Manager) checkTimeTriggers() {
 	now := m.timeProvider.Now()
-
-	// Get alarm time from state
-	alarmTimeMs, err := m.stateManager.GetNumber("alarmTime")
-	if err != nil {
-		m.logger.Debug("Failed to get alarmTime", zap.Error(err))
-		return
-	}
-
-	// Convert milliseconds timestamp to time.Time
-	alarmTime := time.Unix(int64(alarmTimeMs)/1000, 0)
-
-	// Calculate wake time (25 minutes after alarm time)
-	wakeTime := alarmTime.Add(25 * time.Minute)
 
 	// Get today's schedule
 	schedule, err := m.configLoader.GetTodaysSchedule()
@@ -240,28 +271,6 @@ func (m *Manager) checkTimeTriggers() {
 	}
 
 	const ONE_HOUR = time.Hour
-
-	// Check begin_wake trigger
-	if now.After(alarmTime) && now.Before(alarmTime.Add(ONE_HOUR)) {
-		if _, triggered := m.triggeredToday["begin_wake"]; !triggered {
-			m.logger.Info("Triggering begin_wake",
-				zap.Time("alarm_time", alarmTime),
-				zap.Time("now", now))
-			m.triggeredToday["begin_wake"] = now
-			m.handleBeginWake()
-		}
-	}
-
-	// Check wake trigger
-	if now.After(wakeTime) && now.Before(wakeTime.Add(ONE_HOUR)) {
-		if _, triggered := m.triggeredToday["wake"]; !triggered {
-			m.logger.Info("Triggering wake",
-				zap.Time("wake_time", wakeTime),
-				zap.Time("now", now))
-			m.triggeredToday["wake"] = now
-			m.handleWake()
-		}
-	}
 
 	// Check stop_screens trigger
 	if now.After(schedule.StopScreens) && now.Before(schedule.StopScreens.Add(ONE_HOUR)) {
@@ -823,9 +832,6 @@ func (m *Manager) captureCurrentInputs() map[string]interface{} {
 	// Get all subscribed variables
 	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
 		inputs["isMasterAsleep"] = val
-	}
-	if val, err := m.stateManager.GetNumber("alarmTime"); err == nil {
-		inputs["alarmTime"] = val
 	}
 	if val, err := m.stateManager.GetString("musicPlaybackType"); err == nil {
 		inputs["musicPlaybackType"] = val

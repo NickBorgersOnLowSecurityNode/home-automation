@@ -151,6 +151,21 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 - **Purpose**: Enable instant lighting control based on room occupancy
 - **Configuration**: See `configs/hue_config.yaml` for room-specific lighting rules
 
+### Eight Sleep Pod Alarm Sensors
+
+**Behavior**: Direct HA sensor inputs for Eight Sleep mattress alarm state
+
+| Sensor Entity | Description |
+|--------------|-------------|
+| `sensor.nick_s_eight_sleep_side_bed_state_type` | Nick's Eight Sleep bed state (off, awake, alarm, etc.) |
+| `sensor.caroline_s_eight_sleep_side_bed_state_type` | Caroline's Eight Sleep bed state |
+
+- **Purpose**: Provides instant wake-up trigger when Eight Sleep Pod alarm activates
+- **Trigger State**: When sensor state becomes `"alarm"`, triggers `begin_wake` sequence immediately
+- **Plugin**: Sleep Hygiene (`internal/plugins/sleephygiene/manager.go`)
+- **Fallback**: Time-based triggers from `alarmTime` state variable remain as backup
+- **Deduplication**: Only triggers once per day; subsequent alarms (from either sensor) are ignored
+
 ---
 
 ## Implementation Notes

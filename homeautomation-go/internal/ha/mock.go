@@ -387,3 +387,15 @@ func (m *MockClient) ClearGetStateCalls() {
 
 	m.getStateCalls = make(map[string]int)
 }
+
+// GetSubscribedEntities returns a list of all entity IDs that have active subscriptions
+func (m *MockClient) GetSubscribedEntities() []string {
+	m.subsMu.RLock()
+	defer m.subsMu.RUnlock()
+
+	entities := make([]string, 0, len(m.subscribers))
+	for entityID := range m.subscribers {
+		entities = append(entities, entityID)
+	}
+	return entities
+}
