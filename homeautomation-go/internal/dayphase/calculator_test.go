@@ -18,20 +18,25 @@ func TestCalculator_UpdateSunTimes(t *testing.T) {
 	err := calc.UpdateSunTimes()
 	assert.NoError(t, err)
 
-	// Verify sun times are set
-	assert.False(t, calc.sunrise.IsZero(), "Sunrise should be set")
-	assert.False(t, calc.sunriseEnd.IsZero(), "SunriseEnd should be set")
-	assert.False(t, calc.goldenHourEnd.IsZero(), "GoldenHourEnd should be set")
-	assert.False(t, calc.sunset.IsZero(), "Sunset should be set")
-	assert.False(t, calc.dawn.IsZero(), "Dawn should be set")
-	assert.False(t, calc.dusk.IsZero(), "Dusk should be set")
+	// Verify sun times are set using the map
+	sunTimes := calc.GetSunTimes()
+	assert.False(t, sunTimes["sunrise"].IsZero(), "Sunrise should be set")
+	assert.False(t, sunTimes["sunriseEnd"].IsZero(), "SunriseEnd should be set")
+	assert.False(t, sunTimes["goldenHourEnd"].IsZero(), "GoldenHourEnd should be set")
+	assert.False(t, sunTimes["sunset"].IsZero(), "Sunset should be set")
+	assert.False(t, sunTimes["dawn"].IsZero(), "Dawn should be set")
+	assert.False(t, sunTimes["dusk"].IsZero(), "Dusk should be set")
+	assert.False(t, sunTimes["nauticalDusk"].IsZero(), "NauticalDusk should be set")
+	assert.False(t, sunTimes["night"].IsZero(), "Night should be set")
 
 	// Verify times are in reasonable order
-	assert.True(t, calc.dawn.Before(calc.sunrise), "Dawn should be before sunrise")
-	assert.True(t, calc.sunrise.Before(calc.sunriseEnd), "Sunrise should be before sunriseEnd")
-	assert.True(t, calc.sunriseEnd.Before(calc.goldenHourEnd), "SunriseEnd should be before goldenHourEnd")
-	assert.True(t, calc.goldenHourEnd.Before(calc.sunset), "GoldenHourEnd should be before sunset")
-	assert.True(t, calc.sunset.Before(calc.dusk), "Sunset should be before dusk")
+	assert.True(t, sunTimes["dawn"].Before(sunTimes["sunrise"]), "Dawn should be before sunrise")
+	assert.True(t, sunTimes["sunrise"].Before(sunTimes["sunriseEnd"]), "Sunrise should be before sunriseEnd")
+	assert.True(t, sunTimes["sunriseEnd"].Before(sunTimes["goldenHourEnd"]), "SunriseEnd should be before goldenHourEnd")
+	assert.True(t, sunTimes["goldenHourEnd"].Before(sunTimes["sunset"]), "GoldenHourEnd should be before sunset")
+	assert.True(t, sunTimes["sunset"].Before(sunTimes["dusk"]), "Sunset should be before dusk")
+	assert.True(t, sunTimes["dusk"].Before(sunTimes["nauticalDusk"]), "Dusk should be before nauticalDusk")
+	assert.True(t, sunTimes["nauticalDusk"].Before(sunTimes["night"]), "NauticalDusk should be before night")
 }
 
 func TestCalculator_GetSunEvent(t *testing.T) {
@@ -110,6 +115,23 @@ func TestCalculator_CalculateDayPhaseWithoutSchedule(t *testing.T) {
 	assert.NotEmpty(t, dayPhase)
 }
 
+// setSunTimesForTest is a helper to set up sun times for testing
+func setSunTimesForTest(calc *Calculator, now time.Time, dawn, sunrise, sunriseEnd, goldenHourEnd, goldenHour, sunsetStart, sunset, dusk, nauticalDusk, night time.Time) {
+	calc.sunTimes["dawn"] = dawn
+	calc.sunTimes["sunrise"] = sunrise
+	calc.sunTimes["sunriseEnd"] = sunriseEnd
+	calc.sunTimes["goldenHourEnd"] = goldenHourEnd
+	calc.sunTimes["goldenHour"] = goldenHour
+	calc.sunTimes["sunsetStart"] = sunsetStart
+	calc.sunTimes["sunset"] = sunset
+	calc.sunTimes["dusk"] = dusk
+	calc.sunTimes["nauticalDusk"] = nauticalDusk
+	calc.sunTimes["night"] = night
+	calc.sunTimes["nightEnd"] = dawn.Add(-1 * time.Hour) // approximate
+	calc.sunTimes["nauticalDawn"] = dawn.Add(-30 * time.Minute)
+	calc.lastUpdate = now
+}
+
 func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	calc := NewCalculator(32.85486, -97.50515, logger)
@@ -122,9 +144,12 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 		sunrise       time.Time
 		sunriseEnd    time.Time
 		goldenHourEnd time.Time
+		goldenHour    time.Time
 		sunsetStart   time.Time
 		sunset        time.Time
 		dusk          time.Time
+		nauticalDusk  time.Time
+		night         time.Time
 		expected      SunEvent
 	}{
 		{
@@ -133,9 +158,12 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 			sunrise:       now.Add(3 * time.Hour),
 			sunriseEnd:    now.Add(3*time.Hour + 30*time.Minute),
 			goldenHourEnd: now.Add(4 * time.Hour),
-			sunsetStart:   now.Add(12 * time.Hour),
+			goldenHour:    now.Add(12 * time.Hour),
+			sunsetStart:   now.Add(12*time.Hour + 30*time.Minute),
 			sunset:        now.Add(13 * time.Hour),
-			dusk:          now.Add(14 * time.Hour),
+			dusk:          now.Add(13*time.Hour + 30*time.Minute),
+			nauticalDusk:  now.Add(14 * time.Hour),
+			night:         now.Add(15 * time.Hour),
 			expected:      SunEventNight,
 		},
 		{
@@ -144,9 +172,12 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 			sunrise:       now.Add(30 * time.Minute),
 			sunriseEnd:    now.Add(1 * time.Hour),
 			goldenHourEnd: now.Add(90 * time.Minute),
-			sunsetStart:   now.Add(10 * time.Hour),
+			goldenHour:    now.Add(10 * time.Hour),
+			sunsetStart:   now.Add(10*time.Hour + 30*time.Minute),
 			sunset:        now.Add(11 * time.Hour),
-			dusk:          now.Add(12 * time.Hour),
+			dusk:          now.Add(11*time.Hour + 30*time.Minute),
+			nauticalDusk:  now.Add(12 * time.Hour),
+			night:         now.Add(13 * time.Hour),
 			expected:      SunEventMorning,
 		},
 		{
@@ -155,20 +186,26 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 			sunrise:       now.Add(-1 * time.Hour),
 			sunriseEnd:    now.Add(-30 * time.Minute),
 			goldenHourEnd: now.Add(1 * time.Hour),
-			sunsetStart:   now.Add(10 * time.Hour),
+			goldenHour:    now.Add(10 * time.Hour),
+			sunsetStart:   now.Add(10*time.Hour + 30*time.Minute),
 			sunset:        now.Add(11 * time.Hour),
-			dusk:          now.Add(12 * time.Hour),
+			dusk:          now.Add(11*time.Hour + 30*time.Minute),
+			nauticalDusk:  now.Add(12 * time.Hour),
+			night:         now.Add(13 * time.Hour),
 			expected:      SunEventMorning,
 		},
 		{
-			name:          "day - between golden hour end and sunset start",
+			name:          "day - between golden hour end and golden hour start",
 			dawn:          now.Add(-6 * time.Hour),
 			sunrise:       now.Add(-5 * time.Hour),
 			sunriseEnd:    now.Add(-4*time.Hour - 30*time.Minute),
 			goldenHourEnd: now.Add(-4 * time.Hour),
-			sunsetStart:   now.Add(4 * time.Hour),
+			goldenHour:    now.Add(4 * time.Hour),
+			sunsetStart:   now.Add(4*time.Hour + 30*time.Minute),
 			sunset:        now.Add(5 * time.Hour),
-			dusk:          now.Add(6 * time.Hour),
+			dusk:          now.Add(5*time.Hour + 30*time.Minute),
+			nauticalDusk:  now.Add(6 * time.Hour),
+			night:         now.Add(7 * time.Hour),
 			expected:      SunEventDay,
 		},
 		{
@@ -177,31 +214,40 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 			sunrise:       now.Add(-11 * time.Hour),
 			sunriseEnd:    now.Add(-10*time.Hour - 30*time.Minute),
 			goldenHourEnd: now.Add(-10 * time.Hour),
-			sunsetStart:   now.Add(-1 * time.Hour),
-			sunset:        now.Add(1 * time.Hour),
-			dusk:          now.Add(2 * time.Hour),
+			goldenHour:    now.Add(-1 * time.Hour),
+			sunsetStart:   now.Add(-30 * time.Minute),
+			sunset:        now.Add(30 * time.Minute),
+			dusk:          now.Add(1 * time.Hour),
+			nauticalDusk:  now.Add(1*time.Hour + 30*time.Minute),
+			night:         now.Add(2 * time.Hour),
 			expected:      SunEventSunset,
 		},
 		{
-			name:          "dusk - civil twilight",
+			name:          "dusk - civil twilight (between dusk and night)",
 			dawn:          now.Add(-14 * time.Hour),
 			sunrise:       now.Add(-13 * time.Hour),
 			sunriseEnd:    now.Add(-12*time.Hour - 30*time.Minute),
 			goldenHourEnd: now.Add(-12 * time.Hour),
-			sunsetStart:   now.Add(-3 * time.Hour),
+			goldenHour:    now.Add(-3 * time.Hour),
+			sunsetStart:   now.Add(-2*time.Hour - 30*time.Minute),
 			sunset:        now.Add(-2 * time.Hour),
-			dusk:          now.Add(1 * time.Hour),
+			dusk:          now.Add(-1 * time.Hour),
+			nauticalDusk:  now.Add(-30 * time.Minute),
+			night:         now.Add(1 * time.Hour), // Night is in future, so we're in dusk period
 			expected:      SunEventDusk,
 		},
 		{
-			name:          "after dusk - night",
+			name:          "after night starts - night",
 			dawn:          now.Add(-16 * time.Hour),
 			sunrise:       now.Add(-15 * time.Hour),
 			sunriseEnd:    now.Add(-14*time.Hour - 30*time.Minute),
 			goldenHourEnd: now.Add(-14 * time.Hour),
-			sunsetStart:   now.Add(-5 * time.Hour),
+			goldenHour:    now.Add(-5 * time.Hour),
+			sunsetStart:   now.Add(-4*time.Hour - 30*time.Minute),
 			sunset:        now.Add(-4 * time.Hour),
 			dusk:          now.Add(-3 * time.Hour),
+			nauticalDusk:  now.Add(-2 * time.Hour),
+			night:         now.Add(-1 * time.Hour), // Night has already started
 			expected:      SunEventNight,
 		},
 	}
@@ -209,14 +255,10 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set sun times to create the desired test scenario
-			calc.dawn = tt.dawn
-			calc.sunrise = tt.sunrise
-			calc.sunriseEnd = tt.sunriseEnd
-			calc.goldenHourEnd = tt.goldenHourEnd
-			calc.sunsetStart = tt.sunsetStart
-			calc.sunset = tt.sunset
-			calc.dusk = tt.dusk
-			calc.lastUpdate = now
+			setSunTimesForTest(calc, now,
+				tt.dawn, tt.sunrise, tt.sunriseEnd, tt.goldenHourEnd,
+				tt.goldenHour, tt.sunsetStart, tt.sunset,
+				tt.dusk, tt.nauticalDusk, tt.night)
 
 			sunEvent := calc.GetSunEvent()
 			assert.Equal(t, tt.expected, sunEvent, "Expected %s, got %s", tt.expected, sunEvent)
@@ -250,14 +292,18 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			name: "morning period",
 			setupSunTimes: func(c *Calculator) {
 				// Set sun times so current time falls in morning sun event
-				c.dawn = now.Add(-2 * time.Hour)
-				c.sunrise = now.Add(-1 * time.Hour)
-				c.sunriseEnd = now.Add(-30 * time.Minute)
-				c.goldenHourEnd = now.Add(1 * time.Hour) // Still in morning sun event
-				c.sunsetStart = now.Add(10 * time.Hour)
-				c.sunset = now.Add(11 * time.Hour)
-				c.dusk = now.Add(12 * time.Hour)
-				c.lastUpdate = now
+				setSunTimesForTest(c, now,
+					now.Add(-2*time.Hour),                // dawn
+					now.Add(-1*time.Hour),                // sunrise
+					now.Add(-30*time.Minute),             // sunriseEnd
+					now.Add(1*time.Hour),                 // goldenHourEnd (still in morning)
+					now.Add(10*time.Hour),                // goldenHour
+					now.Add(10*time.Hour+30*time.Minute), // sunsetStart
+					now.Add(11*time.Hour),                // sunset
+					now.Add(11*time.Hour+30*time.Minute), // dusk
+					now.Add(12*time.Hour),                // nauticalDusk
+					now.Add(13*time.Hour),                // night
+				)
 			},
 			schedule: schedule,
 			expected: DayPhaseMorning,
@@ -266,14 +312,18 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			name: "day phase",
 			setupSunTimes: func(c *Calculator) {
 				// Set sun times so current time falls in day period
-				c.dawn = now.Add(-8 * time.Hour)
-				c.sunrise = now.Add(-7 * time.Hour)
-				c.sunriseEnd = now.Add(-6*time.Hour - 30*time.Minute)
-				c.goldenHourEnd = now.Add(-6 * time.Hour)
-				c.sunsetStart = now.Add(6 * time.Hour)
-				c.sunset = now.Add(7 * time.Hour)
-				c.dusk = now.Add(8 * time.Hour)
-				c.lastUpdate = now
+				setSunTimesForTest(c, now,
+					now.Add(-8*time.Hour),                // dawn
+					now.Add(-7*time.Hour),                // sunrise
+					now.Add(-6*time.Hour-30*time.Minute), // sunriseEnd
+					now.Add(-6*time.Hour),                // goldenHourEnd
+					now.Add(6*time.Hour),                 // goldenHour
+					now.Add(6*time.Hour+30*time.Minute),  // sunsetStart
+					now.Add(7*time.Hour),                 // sunset
+					now.Add(7*time.Hour+30*time.Minute),  // dusk
+					now.Add(8*time.Hour),                 // nauticalDusk
+					now.Add(9*time.Hour),                 // night
+				)
 			},
 			schedule: schedule,
 			expected: DayPhaseDay,
@@ -281,15 +331,19 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 		{
 			name: "sunset phase",
 			setupSunTimes: func(c *Calculator) {
-				// Set sun times so current time falls in sunset period
-				c.dawn = now.Add(-14 * time.Hour)
-				c.sunrise = now.Add(-13 * time.Hour)
-				c.sunriseEnd = now.Add(-12*time.Hour - 30*time.Minute)
-				c.goldenHourEnd = now.Add(-12 * time.Hour)
-				c.sunsetStart = now.Add(-1 * time.Hour)
-				c.sunset = now.Add(1 * time.Hour) // In golden hour
-				c.dusk = now.Add(2 * time.Hour)
-				c.lastUpdate = now
+				// Set sun times so current time falls in sunset period (golden hour)
+				setSunTimesForTest(c, now,
+					now.Add(-14*time.Hour),                // dawn
+					now.Add(-13*time.Hour),                // sunrise
+					now.Add(-12*time.Hour-30*time.Minute), // sunriseEnd
+					now.Add(-12*time.Hour),                // goldenHourEnd
+					now.Add(-1*time.Hour),                 // goldenHour (in golden hour)
+					now.Add(-30*time.Minute),              // sunsetStart
+					now.Add(30*time.Minute),               // sunset
+					now.Add(1*time.Hour),                  // dusk (future)
+					now.Add(1*time.Hour+30*time.Minute),   // nauticalDusk
+					now.Add(2*time.Hour),                  // night
+				)
 			},
 			schedule: schedule,
 			expected: DayPhaseSunset,
@@ -297,15 +351,19 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 		{
 			name: "dusk phase",
 			setupSunTimes: func(c *Calculator) {
-				// Set sun times so current time falls in dusk period
-				c.dawn = now.Add(-16 * time.Hour)
-				c.sunrise = now.Add(-15 * time.Hour)
-				c.sunriseEnd = now.Add(-14*time.Hour - 30*time.Minute)
-				c.goldenHourEnd = now.Add(-14 * time.Hour)
-				c.sunsetStart = now.Add(-3 * time.Hour)
-				c.sunset = now.Add(-2 * time.Hour)
-				c.dusk = now.Add(1 * time.Hour) // In civil twilight
-				c.lastUpdate = now
+				// Set sun times so current time falls in dusk period (between dusk and night)
+				setSunTimesForTest(c, now,
+					now.Add(-16*time.Hour),                // dawn
+					now.Add(-15*time.Hour),                // sunrise
+					now.Add(-14*time.Hour-30*time.Minute), // sunriseEnd
+					now.Add(-14*time.Hour),                // goldenHourEnd
+					now.Add(-3*time.Hour),                 // goldenHour
+					now.Add(-2*time.Hour-30*time.Minute),  // sunsetStart
+					now.Add(-2*time.Hour),                 // sunset
+					now.Add(-1*time.Hour),                 // dusk (past)
+					now.Add(-30*time.Minute),              // nauticalDusk (past)
+					now.Add(1*time.Hour),                  // night (future - so we're in dusk)
+				)
 			},
 			schedule: schedule,
 			expected: DayPhaseDusk,
@@ -314,14 +372,18 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			name: "night with schedule - after schedule.Night",
 			setupSunTimes: func(c *Calculator) {
 				// Set sun times so current time falls in night period
-				c.dawn = now.Add(4 * time.Hour)
-				c.sunrise = now.Add(5 * time.Hour)
-				c.sunriseEnd = now.Add(5*time.Hour + 30*time.Minute)
-				c.goldenHourEnd = now.Add(6 * time.Hour)
-				c.sunsetStart = now.Add(14 * time.Hour)
-				c.sunset = now.Add(15 * time.Hour)
-				c.dusk = now.Add(-1 * time.Hour) // Past dusk - night
-				c.lastUpdate = now
+				setSunTimesForTest(c, now,
+					now.Add(4*time.Hour),                 // dawn (next morning)
+					now.Add(5*time.Hour),                 // sunrise
+					now.Add(5*time.Hour+30*time.Minute),  // sunriseEnd
+					now.Add(6*time.Hour),                 // goldenHourEnd
+					now.Add(14*time.Hour),                // goldenHour
+					now.Add(14*time.Hour+30*time.Minute), // sunsetStart
+					now.Add(15*time.Hour),                // sunset
+					now.Add(15*time.Hour+30*time.Minute), // dusk
+					now.Add(16*time.Hour),                // nauticalDusk
+					now.Add(-1*time.Hour),                // night (past - we're in night)
+				)
 			},
 			schedule: &config.ParsedSchedule{
 				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
@@ -334,14 +396,18 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			name: "winddown with schedule - before schedule.Night",
 			setupSunTimes: func(c *Calculator) {
 				// Set sun times so current time falls in night period
-				c.dawn = now.Add(4 * time.Hour)
-				c.sunrise = now.Add(5 * time.Hour)
-				c.sunriseEnd = now.Add(5*time.Hour + 30*time.Minute)
-				c.goldenHourEnd = now.Add(6 * time.Hour)
-				c.sunsetStart = now.Add(14 * time.Hour)
-				c.sunset = now.Add(15 * time.Hour)
-				c.dusk = now.Add(-1 * time.Hour) // Past dusk
-				c.lastUpdate = now
+				setSunTimesForTest(c, now,
+					now.Add(4*time.Hour),                 // dawn
+					now.Add(5*time.Hour),                 // sunrise
+					now.Add(5*time.Hour+30*time.Minute),  // sunriseEnd
+					now.Add(6*time.Hour),                 // goldenHourEnd
+					now.Add(14*time.Hour),                // goldenHour
+					now.Add(14*time.Hour+30*time.Minute), // sunsetStart
+					now.Add(15*time.Hour),                // sunset
+					now.Add(15*time.Hour+30*time.Minute), // dusk
+					now.Add(16*time.Hour),                // nauticalDusk
+					now.Add(-1*time.Hour),                // night (past - we're in night sun event)
+				)
 			},
 			schedule: &config.ParsedSchedule{
 				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
@@ -360,14 +426,18 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			name: "night without schedule - late night",
 			setupSunTimes: func(c *Calculator) {
 				// Set sun times so current time falls in night period
-				c.dawn = now.Add(4 * time.Hour)
-				c.sunrise = now.Add(5 * time.Hour)
-				c.sunriseEnd = now.Add(5*time.Hour + 30*time.Minute)
-				c.goldenHourEnd = now.Add(6 * time.Hour)
-				c.sunsetStart = now.Add(14 * time.Hour)
-				c.sunset = now.Add(15 * time.Hour)
-				c.dusk = now.Add(-1 * time.Hour) // Past dusk
-				c.lastUpdate = now
+				setSunTimesForTest(c, now,
+					now.Add(4*time.Hour),                 // dawn
+					now.Add(5*time.Hour),                 // sunrise
+					now.Add(5*time.Hour+30*time.Minute),  // sunriseEnd
+					now.Add(6*time.Hour),                 // goldenHourEnd
+					now.Add(14*time.Hour),                // goldenHour
+					now.Add(14*time.Hour+30*time.Minute), // sunsetStart
+					now.Add(15*time.Hour),                // sunset
+					now.Add(15*time.Hour+30*time.Minute), // dusk
+					now.Add(16*time.Hour),                // nauticalDusk
+					now.Add(-1*time.Hour),                // night (past)
+				)
 			},
 			schedule: nil, // No schedule
 			// Expected phase depends on current time: Night if hour >= 23 or < 6, otherwise Winddown
@@ -399,14 +469,18 @@ func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 	now := time.Now()
 
 	// Test day sun event - sun has already risen (goldenHourEnd in past)
-	calc.dawn = now.Add(-8 * time.Hour)
-	calc.sunrise = now.Add(-7 * time.Hour)
-	calc.sunriseEnd = now.Add(-6*time.Hour - 30*time.Minute)
-	calc.goldenHourEnd = now.Add(-6 * time.Hour)
-	calc.sunsetStart = now.Add(6 * time.Hour)
-	calc.sunset = now.Add(7 * time.Hour)
-	calc.dusk = now.Add(8 * time.Hour)
-	calc.lastUpdate = now
+	setSunTimesForTest(calc, now,
+		now.Add(-8*time.Hour),                // dawn
+		now.Add(-7*time.Hour),                // sunrise
+		now.Add(-6*time.Hour-30*time.Minute), // sunriseEnd
+		now.Add(-6*time.Hour),                // goldenHourEnd
+		now.Add(6*time.Hour),                 // goldenHour
+		now.Add(6*time.Hour+30*time.Minute),  // sunsetStart
+		now.Add(7*time.Hour),                 // sunset
+		now.Add(7*time.Hour+30*time.Minute),  // dusk
+		now.Add(8*time.Hour),                 // nauticalDusk
+		now.Add(9*time.Hour),                 // night
+	)
 
 	// Since sun times show we're in "day" period (after goldenHourEnd), it should be day
 	phase := calc.CalculateDayPhase(nil)
@@ -439,7 +513,8 @@ func TestCalculator_StartPeriodicUpdate(t *testing.T) {
 
 	// Verify initial update happened
 	assert.False(t, calc.lastUpdate.IsZero())
-	assert.False(t, calc.sunrise.IsZero())
+	sunTimes := calc.GetSunTimes()
+	assert.False(t, sunTimes["sunrise"].IsZero())
 
 	// Stop the periodic updates
 	close(stopChan)
@@ -495,4 +570,23 @@ func TestDayPhaseConstants(t *testing.T) {
 	assert.Equal(t, DayPhase("dusk"), DayPhaseDusk)
 	assert.Equal(t, DayPhase("winddown"), DayPhaseWinddown)
 	assert.Equal(t, DayPhase("night"), DayPhaseNight)
+}
+
+func TestCalculator_GetSunTimes(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	calc := NewCalculator(32.85486, -97.50515, logger)
+
+	// Before update, should return empty map
+	sunTimes := calc.GetSunTimes()
+	assert.Empty(t, sunTimes)
+
+	// After update, should return populated map
+	calc.UpdateSunTimes()
+	sunTimes = calc.GetSunTimes()
+	assert.NotEmpty(t, sunTimes)
+	assert.Contains(t, sunTimes, "sunrise")
+	assert.Contains(t, sunTimes, "sunset")
+	assert.Contains(t, sunTimes, "dusk")
+	assert.Contains(t, sunTimes, "nauticalDusk")
+	assert.Contains(t, sunTimes, "night")
 }
