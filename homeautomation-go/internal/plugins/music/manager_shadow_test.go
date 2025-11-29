@@ -50,7 +50,7 @@ func TestMusicShadowState_RecordAction(t *testing.T) {
 	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, timeProvider)
 
 	// Record an action
-	manager.updateShadowState("start_playback", "Test playback started")
+	manager.updateShadowState("start_playback", "Test playback started", "test_trigger")
 
 	// Verify shadow state was updated
 	shadowState := manager.GetShadowState()
@@ -157,7 +157,7 @@ func TestMusicShadowState_GetShadowState(t *testing.T) {
 	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil)
 
 	// Record some state
-	manager.updateShadowState("test_action", "Test reason")
+	manager.updateShadowState("test_action", "Test reason", "test_trigger")
 
 	// Get shadow state
 	shadowState := manager.GetShadowState()
@@ -208,7 +208,7 @@ func TestMusicShadowState_ConcurrentAccess(t *testing.T) {
 	// Writer goroutine - updates shadow state
 	go func() {
 		for i := 0; i < 100; i++ {
-			manager.updateShadowState("test_action", "Concurrent test")
+			manager.updateShadowState("test_action", "Concurrent test", "concurrent_test")
 			time.Sleep(1 * time.Millisecond)
 		}
 		done <- true

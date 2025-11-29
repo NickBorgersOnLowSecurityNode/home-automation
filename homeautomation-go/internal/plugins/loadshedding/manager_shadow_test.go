@@ -57,7 +57,7 @@ func TestLoadSheddingShadowState_RecordEnableAction(t *testing.T) {
 
 	// Record an enable action
 	reason := "Energy state is red (low battery) - restricting HVAC"
-	manager.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted)
+	manager.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted, "test_trigger")
 
 	// Verify shadow state was updated
 	shadowState := manager.GetShadowState()
@@ -114,11 +114,11 @@ func TestLoadSheddingShadowState_RecordDisableAction(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, zap.NewNop(), true)
 
 	// First enable load shedding
-	manager.recordAction(true, "enable", "Test enable", true, tempLowRestricted, tempHighRestricted)
+	manager.recordAction(true, "enable", "Test enable", true, tempLowRestricted, tempHighRestricted, "test_trigger")
 
 	// Then disable it
 	reason := "Energy state is green (battery restored) - returning to normal HVAC"
-	manager.recordAction(false, "disable", reason, false, 0, 0)
+	manager.recordAction(false, "disable", reason, false, 0, 0, "test_trigger")
 
 	// Verify shadow state was updated
 	shadowState := manager.GetShadowState()
@@ -205,7 +205,7 @@ func TestLoadSheddingShadowState_ConcurrentAccess(t *testing.T) {
 	// Writer goroutine - updates shadow state
 	go func() {
 		for i := 0; i < 100; i++ {
-			manager.recordAction(i%2 == 0, "test_action", "Concurrent test", true, 65.0, 80.0)
+			manager.recordAction(i%2 == 0, "test_action", "Concurrent test", true, 65.0, 80.0, "concurrent_test")
 			time.Sleep(1 * time.Millisecond)
 		}
 		done <- true
@@ -263,7 +263,7 @@ func TestLoadSheddingShadowState_InputSnapshot(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, zap.NewNop(), true)
 
 	// Record action with red energy level
-	manager.recordAction(true, "enable", "Low battery", true, tempLowRestricted, tempHighRestricted)
+	manager.recordAction(true, "enable", "Low battery", true, tempLowRestricted, tempHighRestricted, "test_trigger")
 
 	// Verify at-last-action inputs captured red
 	shadowState := manager.GetShadowState()
@@ -299,7 +299,7 @@ func TestLoadSheddingShadowState_MultipleActions(t *testing.T) {
 	if err := stateManager.SetString("currentEnergyLevel", "red"); err != nil {
 		t.Fatalf("Failed to set energy level: %v", err)
 	}
-	manager.recordAction(true, "enable", "Battery low", true, tempLowRestricted, tempHighRestricted)
+	manager.recordAction(true, "enable", "Battery low", true, tempLowRestricted, tempHighRestricted, "test_trigger")
 
 	// Verify enabled
 	shadowState := manager.GetShadowState()
@@ -315,7 +315,7 @@ func TestLoadSheddingShadowState_MultipleActions(t *testing.T) {
 	if err := stateManager.SetString("currentEnergyLevel", "green"); err != nil {
 		t.Fatalf("Failed to change energy level: %v", err)
 	}
-	manager.recordAction(false, "disable", "Battery restored", false, 0, 0)
+	manager.recordAction(false, "disable", "Battery restored", false, 0, 0, "test_trigger")
 
 	// Verify disabled
 	shadowState = manager.GetShadowState()

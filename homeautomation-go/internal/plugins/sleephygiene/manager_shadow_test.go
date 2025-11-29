@@ -57,7 +57,7 @@ func TestSleepHygieneShadowState_RecordAction(t *testing.T) {
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Record an action
-	manager.recordAction("begin_wake", "Starting wake sequence")
+	manager.recordAction("begin_wake", "Starting wake sequence", "test_trigger")
 
 	// Get shadow state
 	shadowState := manager.GetShadowState()
@@ -446,7 +446,7 @@ func TestSleepHygieneShadowState_BedroomLightsNoCancel(t *testing.T) {
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Record an initial action
-	manager.recordAction("test_action", "test reason")
+	manager.recordAction("test_action", "test reason", "test_trigger")
 
 	// Simulate bedroom lights turning off (should not cancel wake)
 	manager.handleBedroomLightsOff("off")

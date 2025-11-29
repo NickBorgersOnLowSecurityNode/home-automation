@@ -777,7 +777,7 @@ func TestOrchestratePlayback(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
 
 	// Test orchestration
-	err := manager.orchestratePlayback("day")
+	err := manager.orchestratePlayback("day", "test_trigger")
 	if err != nil {
 		t.Fatalf("orchestratePlayback() failed: %v", err)
 	}
@@ -800,7 +800,7 @@ func TestOrchestratePlayback(t *testing.T) {
 	}
 
 	// Test with unknown music type
-	err = manager.orchestratePlayback("unknown")
+	err = manager.orchestratePlayback("unknown", "test_trigger")
 	if err == nil {
 		t.Error("orchestratePlayback() with unknown type should return error")
 	}
@@ -1106,7 +1106,7 @@ func TestCurrentlyPlayingMusicUri_SetOnPlayback(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
 
 	// Orchestrate playback
-	err := manager.orchestratePlayback("day")
+	err := manager.orchestratePlayback("day", "test_trigger")
 	if err != nil {
 		t.Fatalf("orchestratePlayback() failed: %v", err)
 	}
@@ -1214,7 +1214,7 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider)
 
 	// Start with day music
-	err := manager.orchestratePlayback("day")
+	err := manager.orchestratePlayback("day", "test_trigger")
 	if err != nil {
 		t.Fatalf("orchestratePlayback(day) failed: %v", err)
 	}
@@ -1233,7 +1233,7 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 	manager.timeProvider = timeProvider
 
 	// Switch to evening music
-	err = manager.orchestratePlayback("evening")
+	err = manager.orchestratePlayback("evening", "test_trigger")
 	if err != nil {
 		t.Fatalf("orchestratePlayback(evening) failed: %v", err)
 	}
