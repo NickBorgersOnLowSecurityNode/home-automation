@@ -93,6 +93,23 @@ func (m *Manager) Start() error {
 	}
 	m.subscriptions = append(m.subscriptions, sub)
 
+	// Subscribe to all occupancy and condition variables from room configs
+	occupancyVars := m.collectConditionVariables()
+	for _, varName := range occupancyVars {
+		varNameCopy := varName // Capture loop variable
+		sub, err = m.stateManager.Subscribe(varNameCopy, m.handleOccupancyChange)
+		if err != nil {
+			// Log warning but don't fail - variable might not exist yet
+			m.logger.Warn("Failed to subscribe to condition variable",
+				zap.String("variable", varNameCopy),
+				zap.Error(err))
+			continue
+		}
+		m.subscriptions = append(m.subscriptions, sub)
+		m.logger.Debug("Subscribed to condition variable",
+			zap.String("variable", varNameCopy))
+	}
+
 	m.logger.Info("Lighting Control Manager started successfully")
 	return nil
 }
@@ -213,6 +230,77 @@ func (m *Manager) handleSleepStateChange(key string, oldValue, newValue interfac
 		return
 	}
 
+	m.evaluateAllRooms(dayPhase, key)
+}
+
+// collectConditionVariables collects all unique variables from room on/off conditions
+// These are variables like isNickOfficeOccupied, isKitchenOccupied that need subscriptions
+func (m *Manager) collectConditionVariables() []string {
+	// Use a map to collect unique variables
+	varMap := make(map[string]bool)
+
+	// Standard variables that are already subscribed to via explicit handlers
+	alreadySubscribed := map[string]bool{
+		"dayPhase":         true,
+		"sunevent":         true,
+		"isAnyoneHome":     true,
+		"isTVPlaying":      true,
+		"isEveryoneAsleep": true,
+		"isMasterAsleep":   true,
+		"isHaveGuests":     true,
+	}
+
+	for _, room := range m.config.Rooms {
+		// Collect from all condition types
+		for _, condition := range room.GetOnIfTrueConditions() {
+			if condition != "" && !alreadySubscribed[condition] {
+				varMap[condition] = true
+			}
+		}
+		for _, condition := range room.GetOnIfFalseConditions() {
+			if condition != "" && !alreadySubscribed[condition] {
+				varMap[condition] = true
+			}
+		}
+		for _, condition := range room.GetOffIfTrueConditions() {
+			if condition != "" && !alreadySubscribed[condition] {
+				varMap[condition] = true
+			}
+		}
+		for _, condition := range room.GetOffIfFalseConditions() {
+			if condition != "" && !alreadySubscribed[condition] {
+				varMap[condition] = true
+			}
+		}
+	}
+
+	// Convert map to slice
+	result := make([]string, 0, len(varMap))
+	for varName := range varMap {
+		result = append(result, varName)
+	}
+
+	return result
+}
+
+// handleOccupancyChange processes occupancy and other room-specific condition changes
+func (m *Manager) handleOccupancyChange(key string, oldValue, newValue interface{}) {
+	// Update shadow state current inputs immediately
+	m.updateShadowInputs()
+
+	m.logger.Info("Occupancy/condition state changed",
+		zap.String("key", key),
+		zap.Any("old", oldValue),
+		zap.Any("new", newValue))
+
+	// Get current day phase for scene activation
+	dayPhase, err := m.stateManager.GetString("dayPhase")
+	if err != nil {
+		m.logger.Error("Failed to get dayPhase", zap.Error(err))
+		return
+	}
+
+	// Evaluate rooms that use this variable
 	m.evaluateAllRooms(dayPhase, key)
 }
 
