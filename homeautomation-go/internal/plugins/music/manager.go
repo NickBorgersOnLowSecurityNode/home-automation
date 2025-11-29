@@ -174,8 +174,21 @@ func (m *Manager) handleStateChange(key string, oldValue, newValue interface{}) 
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
 
-	// Re-evaluate music mode
-	m.selectAppropriateMusicMode()
+	// Detect wake-up event: isAnyoneAsleep changed from true to false
+	// This matches Node-RED behavior where msg.topic and msg.payload are checked:
+	//   if (msg.topic == "isAnyoneAsleep" && msg.payload == false) { ... }
+	isWakeUpEvent := false
+	if key == "isAnyoneAsleep" {
+		oldBool, oldOk := oldValue.(bool)
+		newBool, newOk := newValue.(bool)
+		if oldOk && newOk && oldBool && !newBool {
+			isWakeUpEvent = true
+			m.logger.Info("Wake-up event detected: isAnyoneAsleep changed from true to false")
+		}
+	}
+
+	// Re-evaluate music mode with context
+	m.selectAppropriateMusicModeWithContext(key, isWakeUpEvent)
 }
 
 // selectAppropriateMusicMode determines which music mode should be active (without trigger context)
