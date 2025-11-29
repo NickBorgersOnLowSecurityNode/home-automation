@@ -80,19 +80,39 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader 
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Sleep Hygiene Manager")
 
+	// Track subscriptions locally so we can clean up on partial failure
+	var stateSubscriptions []state.Subscription
+	var haSubscriptions []ha.Subscription
+
+	// Helper to clean up on error
+	cleanup := func() {
+		for _, sub := range stateSubscriptions {
+			sub.Unsubscribe()
+		}
+		for _, sub := range haSubscriptions {
+			sub.Unsubscribe()
+		}
+	}
+
 	// Subscribe to alarmTime changes
 	sub, err := m.stateManager.Subscribe("alarmTime", m.handleAlarmTimeChange)
 	if err != nil {
+		cleanup()
 		return fmt.Errorf("failed to subscribe to alarmTime: %w", err)
 	}
-	m.subscriptions = append(m.subscriptions, sub)
+	stateSubscriptions = append(stateSubscriptions, sub)
 
 	// Subscribe to bedroom lights state changes (for cancel auto-wake logic)
 	lightSub, err := m.haClient.SubscribeStateChanges("light.primary_suite", m.handleBedroomLightsChange)
 	if err != nil {
+		cleanup()
 		return fmt.Errorf("failed to subscribe to bedroom lights: %w", err)
 	}
-	m.haSubscriptions = append(m.haSubscriptions, lightSub)
+	haSubscriptions = append(haSubscriptions, lightSub)
+
+	// All subscriptions successful - commit them to the manager
+	m.subscriptions = append(m.subscriptions, stateSubscriptions...)
+	m.haSubscriptions = append(m.haSubscriptions, haSubscriptions...)
 
 	// Start ticker to check time triggers every minute
 	m.ticker = time.NewTicker(1 * time.Minute)
