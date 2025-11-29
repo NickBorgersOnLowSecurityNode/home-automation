@@ -93,6 +93,22 @@ func (m *Manager) Start() error {
 	}
 	m.subscriptions = append(m.subscriptions, sub)
 
+	// Subscribe to computed presence state (isAnyoneHomeAndAwake)
+	// This is used by Living Room and Sitting Room for on_if_true conditions
+	sub, err = m.stateManager.Subscribe("isAnyoneHomeAndAwake", m.handlePresenceChange)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to isAnyoneHomeAndAwake: %w", err)
+	}
+	m.subscriptions = append(m.subscriptions, sub)
+
+	// Subscribe to owner return state (didOwnerJustReturnHome)
+	// This is a local-only variable used by Front of House for on_if_true/off_if_false
+	sub, err = m.stateManager.Subscribe("didOwnerJustReturnHome", m.handlePresenceChange)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to didOwnerJustReturnHome: %w", err)
+	}
+	m.subscriptions = append(m.subscriptions, sub)
+
 	m.logger.Info("Lighting Control Manager started successfully")
 	return nil
 }
@@ -533,6 +549,12 @@ func (m *Manager) updateShadowInputs() {
 	}
 	if val, err := m.stateManager.GetBool("isHaveGuests"); err == nil {
 		inputs["isHaveGuests"] = val
+	}
+	if val, err := m.stateManager.GetBool("isAnyoneHomeAndAwake"); err == nil {
+		inputs["isAnyoneHomeAndAwake"] = val
+	}
+	if val, err := m.stateManager.GetBool("didOwnerJustReturnHome"); err == nil {
+		inputs["didOwnerJustReturnHome"] = val
 	}
 
 	m.shadowTracker.UpdateCurrentInputs(inputs)

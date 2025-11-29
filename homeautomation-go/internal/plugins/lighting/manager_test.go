@@ -443,8 +443,10 @@ func TestLightingManager_Stop(t *testing.T) {
 	err := manager.Start()
 	assert.NoError(t, err)
 
-	// Verify subscriptions were created (7 subscriptions)
-	assert.Equal(t, 7, len(manager.subscriptions), "Should have 7 subscriptions")
+	// Verify subscriptions were created (9 subscriptions)
+	// dayPhase, sunevent, isAnyoneHome, isTVPlaying, isEveryoneAsleep,
+	// isMasterAsleep, isHaveGuests, isAnyoneHomeAndAwake, didOwnerJustReturnHome
+	assert.Equal(t, 9, len(manager.subscriptions), "Should have 9 subscriptions")
 
 	// Stop manager
 	manager.Stop()

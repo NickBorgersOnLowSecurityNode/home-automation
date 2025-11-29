@@ -3,7 +3,7 @@
 rooms:
   - hue_group: Living Room
     hass_area_id: living_room
-    on_if_true: isAnyoneHome
+    on_if_true: isAnyoneHomeAndAwake
     on_if_false: isTVPlaying
     off_if_true: isEveryoneAsleep
     off_if_false: isAnyoneHome
@@ -14,6 +14,28 @@ rooms:
     on_if_true: ~
     on_if_false: isMasterAsleep
     off_if_true: isMasterAsleep
+    off_if_false: isAnyoneHome
+    increase_brightness_if_true: ~
+    transition_seconds: 5
+  # Room for testing didOwnerJustReturnHome trigger (matches production Front of House config)
+  - hue_group: Front of House
+    hass_area_id: front_of_house
+    on_if_true:
+      - isHaveGuests
+      - didOwnerJustReturnHome
+    on_if_false: ~
+    off_if_true: isEveryoneAsleep
+    off_if_false:
+      - isHaveGuests
+      - didOwnerJustReturnHome
+    increase_brightness_if_true: ~
+    transition_seconds: 5
+  # Room for testing isAnyoneHomeAndAwake trigger (matches production Sitting Room config)
+  - hue_group: Sitting Room
+    hass_area_id: sitting_room
+    on_if_true: isAnyoneHomeAndAwake
+    on_if_false: ~
+    off_if_true: isEveryoneAsleep
     off_if_false: isAnyoneHome
     increase_brightness_if_true: ~
     transition_seconds: 5
