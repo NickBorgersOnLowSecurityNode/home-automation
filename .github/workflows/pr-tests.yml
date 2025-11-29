@@ -15,8 +15,35 @@ permissions:
   pull-requests: read
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      docker: ${{ steps.filter.outputs.docker }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for code changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'homeautomation-go/**'
+              - 'configs/**'
+            docker:
+              - 'homeautomation-go/Dockerfile'
+              - 'homeautomation-go/go.mod'
+              - 'homeautomation-go/go.sum'
+              - 'homeautomation-go/**/*.go'
+              - 'configs/**'
+
   style-checks:
     name: Go Style & Linting
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -32,10 +59,17 @@ jobs:
           go-version: '1.23'
           cache-dependency-path: homeautomation-go/go.sum
 
+      - name: Cache Go tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: go-tools-${{ runner.os }}-v1
+
       - name: Install tools
         run: |
-          go install golang.org/x/tools/cmd/goimports@latest
-          go install honnef.co/go/tools/cmd/staticcheck@latest
+          # Only install if not already cached
+          command -v goimports >/dev/null 2>&1 || go install golang.org/x/tools/cmd/goimports@latest
+          command -v staticcheck >/dev/null 2>&1 || go install honnef.co/go/tools/cmd/staticcheck@latest
 
       - name: Check code formatting (gofmt)
         run: |
@@ -89,8 +123,10 @@ jobs:
           echo "✅ ALL STYLE CHECKS PASSED"
           echo "==============================================="
 
-  go-tests:
-    name: Go Tests (Required for PR Merge)
+  unit-tests:
+    name: Unit Tests (Required for PR Merge)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -112,11 +148,11 @@ jobs:
       - name: Verify all code compiles (including tests)
         run: go build ./...
 
-      - name: Run all tests with coverage and race detector
+      - name: Run unit tests with coverage and race detector
         run: |
-          echo "Running all tests (unit + integration) with race detector and coverage..."
-          echo "Time-dependent tests use mock clocks for instant execution"
-          go test ./... -race -v -coverprofile=coverage.out -covermode=atomic -timeout=5m
+          echo "Running unit tests with race detector and coverage..."
+          echo "Excluding integration tests (run separately in parallel)"
+          go test $(go list ./... | grep -v /test/integration) -race -v -coverprofile=coverage.out -covermode=atomic -timeout=5m
 
       - name: Check minimum test coverage (≥70%)
         run: |
@@ -128,27 +164,67 @@ jobs:
           fi
           echo "✅ Test coverage ${coverage}% meets requirement"
 
-      - name: Test Summary
+      - name: Unit Test Summary
         if: always()
         run: |
-          # Count integration tests dynamically
-          cd test/integration
-          integration_test_count=$(go test -list=. 2>/dev/null | grep -c "^Test" || echo "unknown")
-          cd ../..
-          
           echo "==============================================="
-          echo "             TEST RESULTS SUMMARY"
+          echo "           UNIT TEST RESULTS SUMMARY"
           echo "==============================================="
           echo "✅ All code compiles (including test files)"
           echo "✅ Unit tests passed with race detector"
           echo "✅ Test coverage meets minimum requirement (≥70%)"
-          echo "✅ All integration tests passed (${integration_test_count} tests)"
           echo ""
-          echo "✅ ALL REQUIRED TESTS PASSED - PR can be merged"
+          echo "✅ UNIT TESTS PASSED"
+          echo "==============================================="
+
+  integration-tests:
+    name: Integration Tests (Required for PR Merge)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./homeautomation-go
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: homeautomation-go/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run integration tests with race detector
+        run: |
+          echo "Running integration tests with race detector..."
+          echo "Time-dependent tests use mock clocks for instant execution"
+          go test ./test/integration/... -race -v -timeout=5m
+
+      - name: Integration Test Summary
+        if: always()
+        run: |
+          # Count integration tests dynamically
+          integration_test_count=$(go test -list=. ./test/integration/... 2>/dev/null | grep -c "^Test" || echo "unknown")
+
+          echo "==============================================="
+          echo "        INTEGRATION TEST RESULTS SUMMARY"
+          echo "==============================================="
+          echo "✅ All integration tests passed (${integration_test_count} tests)"
+          echo "✅ Concurrent load scenarios validated"
+          echo "✅ No race conditions detected"
+          echo ""
+          echo "✅ INTEGRATION TESTS PASSED"
           echo "==============================================="
 
   config-tests:
     name: Config Validation Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -179,6 +255,8 @@ jobs:
 
   docker-build:
     name: Docker Build Validation
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -189,10 +267,14 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Validate Docker build with repository root context
-        run: |
-          echo "Building Docker image with repository root context..."
-          echo "This validates that config files are accessible in the build"
-          docker build -f ./homeautomation-go/Dockerfile -t homeautomation-test:pr .
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./homeautomation-go/Dockerfile
+          tags: homeautomation-test:pr
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Verify config files are accessible in image
         run: |
@@ -226,18 +308,52 @@ jobs:
   all-tests-passed:
     name: All Required Tests
     runs-on: ubuntu-latest
-    needs: [style-checks, go-tests, config-tests, docker-build]
+    needs: [changes, style-checks, unit-tests, integration-tests, config-tests, docker-build]
     if: always()
 
     steps:
       - name: Check test results
         run: |
-          if [ "${{ needs.style-checks.result }}" != "success" ] || [ "${{ needs.go-tests.result }}" != "success" ] || [ "${{ needs.config-tests.result }}" != "success" ] || [ "${{ needs.docker-build.result }}" != "success" ]; then
+          # A job is considered passed if it succeeded OR was skipped (due to path filtering)
+          check_result() {
+            local result=$1
+            [[ "$result" == "success" || "$result" == "skipped" ]]
+          }
+
+          failed=false
+
+          if ! check_result "${{ needs.style-checks.result }}"; then
+            echo "❌ Style Checks: ${{ needs.style-checks.result }}"
+            failed=true
+          fi
+          if ! check_result "${{ needs.unit-tests.result }}"; then
+            echo "❌ Unit Tests: ${{ needs.unit-tests.result }}"
+            failed=true
+          fi
+          if ! check_result "${{ needs.integration-tests.result }}"; then
+            echo "❌ Integration Tests: ${{ needs.integration-tests.result }}"
+            failed=true
+          fi
+          if ! check_result "${{ needs.config-tests.result }}"; then
+            echo "❌ Config Tests: ${{ needs.config-tests.result }}"
+            failed=true
+          fi
+          if ! check_result "${{ needs.docker-build.result }}"; then
+            echo "❌ Docker Build: ${{ needs.docker-build.result }}"
+            failed=true
+          fi
+
+          if [ "$failed" = true ]; then
+            echo ""
             echo "❌ Some required tests failed"
-            echo "Style Checks: ${{ needs.style-checks.result }}"
-            echo "Go Tests: ${{ needs.go-tests.result }}"
-            echo "Config Tests: ${{ needs.config-tests.result }}"
-            echo "Docker Build: ${{ needs.docker-build.result }}"
             exit 1
           fi
+
           echo "✅ All required tests passed - PR is ready to merge"
+          echo ""
+          echo "Job Results:"
+          echo "  Style Checks: ${{ needs.style-checks.result }}"
+          echo "  Unit Tests: ${{ needs.unit-tests.result }}"
+          echo "  Integration Tests: ${{ needs.integration-tests.result }}"
+          echo "  Config Tests: ${{ needs.config-tests.result }}"
+          echo "  Docker Build: ${{ needs.docker-build.result }}"
