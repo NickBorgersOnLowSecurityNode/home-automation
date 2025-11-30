@@ -6,6 +6,9 @@ This document provides Mermaid diagrams to visualize the Golang home automation 
 - [System Architecture](#system-architecture)
 - [Plugin System Architecture](#plugin-system-architecture)
 - [State Synchronization Flow](#state-synchronization-flow)
+- [Shadow State System](#shadow-state-system)
+- [API Server Endpoints](#api-server-endpoints)
+- [Reset Coordinator Flow](#reset-coordinator-flow)
 - [Music Manager Logic Flow](#music-manager-logic-flow)
 - [Lighting Control Logic Flow](#lighting-control-logic-flow)
 - [Energy State Logic Flow](#energy-state-logic-flow)
@@ -26,23 +29,37 @@ graph TB
             HAClient[HA WebSocket Client<br/>internal/ha/client.go]
             StateManager[State Manager<br/>internal/state/manager.go]
             Variables[State Variables<br/>internal/state/variables.go]
+            Computed[Computed State<br/>internal/state/computed.go]
+        end
+
+        subgraph "Observability Layer"
+            ShadowTracker[Shadow State Tracker<br/>internal/shadowstate/tracker.go]
+            APIServer[HTTP API Server<br/>internal/api/server.go]
         end
 
         subgraph "Plugin Layer"
+            StateTracking[State Tracking<br/>internal/plugins/statetracking/]
+            DayPhase[Day Phase<br/>internal/plugins/dayphase/]
             Music[Music Manager<br/>internal/plugins/music/]
             Lighting[Lighting Manager<br/>internal/plugins/lighting/]
             Energy[Energy Manager<br/>internal/plugins/energy/]
             TV[TV Manager<br/>internal/plugins/tv/]
-            Sleep[Sleep Hygiene Manager<br/>internal/plugins/sleephygiene/]
+            Sleep[Sleep Hygiene<br/>internal/plugins/sleephygiene/]
             Security[Security Manager<br/>internal/plugins/security/]
-            LoadShed[Load Shedding Manager<br/>internal/plugins/loadshedding/]
+            LoadShed[Load Shedding<br/>internal/plugins/loadshedding/]
+            ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
+        end
+
+        subgraph "Public Interfaces"
+            PkgPlugin[pkg/plugin/interfaces.go]
+            PkgHA[pkg/ha/interfaces.go]
+            PkgState[pkg/state/interfaces.go]
         end
 
         subgraph "Configuration"
             ConfigLoader[Config Loader<br/>internal/config/loader.go]
-            MusicConfig[music_config.yaml]
-            LightConfig[hue_config.yaml]
-            EnergyConfig[energy_config.yaml]
+            DayPhaseCalc[Day Phase Calculator<br/>internal/dayphase/calculator.go]
+            Clock[Clock Interface<br/>internal/clock/clock.go]
         end
     end
 
@@ -50,83 +67,112 @@ graph TB
         HA[Home Assistant<br/>WebSocket API]
         Sonos[Sonos Speakers]
         Hue[Phillips Hue]
+        TV_Ext[Apple TV / LG TV]
     end
 
     Main --> HAClient
     Main --> StateManager
+    Main --> ShadowTracker
+    Main --> APIServer
     Main --> ConfigLoader
 
     HAClient <-->|WebSocket<br/>Auth, Commands,<br/>State Changes| HA
 
     StateManager -->|Read/Write<br/>State Variables| HAClient
     StateManager -.->|Subscribe to<br/>State Changes| Variables
+    StateManager --> Computed
 
-    ConfigLoader -->|Load YAML| MusicConfig
-    ConfigLoader -->|Load YAML| LightConfig
-    ConfigLoader -->|Load YAML| EnergyConfig
+    APIServer -->|Query State| StateManager
+    APIServer -->|Query Shadow| ShadowTracker
+
+    %% Plugin connections
+    StateTracking -->|Get/Set State| StateManager
+    StateTracking -.->|Register Shadow| ShadowTracker
+
+    DayPhase -->|Get/Set State| StateManager
+    DayPhase -->|Use| DayPhaseCalc
+    DayPhase -.->|Register Shadow| ShadowTracker
 
     Music -->|Get/Set State| StateManager
     Music -->|Call Services| HAClient
-    Music -.->|Uses Config| MusicConfig
+    Music -.->|Register Shadow| ShadowTracker
 
     Lighting -->|Get/Set State| StateManager
     Lighting -->|Call Services| HAClient
-    Lighting -.->|Uses Config| LightConfig
+    Lighting -.->|Register Shadow| ShadowTracker
 
     Energy -->|Get/Set State| StateManager
-    Energy -.->|Uses Config| EnergyConfig
+    Energy -.->|Register Shadow| ShadowTracker
 
     TV -->|Get/Set State| StateManager
-    TV -->|Subscribe to<br/>Media Players| HAClient
 
     Sleep -->|Get/Set State| StateManager
-    Sleep -->|Trigger Music| Music
-    Sleep -->|Trigger Lights| Lighting
+    Sleep -->|Call Services| HAClient
+    Sleep -.->|Register Shadow| ShadowTracker
 
     Security -->|Get/Set State| StateManager
     Security -->|Call Services| HAClient
+    Security -.->|Register Shadow| ShadowTracker
 
     LoadShed -->|Get/Set State| StateManager
     LoadShed -->|Call Services| HAClient
+    LoadShed -.->|Register Shadow| ShadowTracker
+
+    ResetCoord -->|Subscribe to reset| StateManager
+    ResetCoord -.->|Reset All| StateTracking
+    ResetCoord -.->|Reset All| Music
+    ResetCoord -.->|Reset All| Lighting
 
     HA -->|Control| Sonos
     HA -->|Control| Hue
+    HA -->|Monitor| TV_Ext
 
     style Main fill:#e1f5ff
     style HAClient fill:#fff3e0
     style StateManager fill:#fff3e0
-    style Music fill:#e8f5e9
-    style Lighting fill:#e8f5e9
-    style Energy fill:#e8f5e9
-    style TV fill:#e8f5e9
-    style Sleep fill:#e8f5e9
-    style Security fill:#e8f5e9
-    style LoadShed fill:#e8f5e9
+    style ShadowTracker fill:#e8f5e9
+    style APIServer fill:#e8f5e9
+    style Music fill:#f3e5f5
+    style Lighting fill:#f3e5f5
+    style Energy fill:#f3e5f5
+    style TV fill:#f3e5f5
+    style Sleep fill:#f3e5f5
+    style Security fill:#f3e5f5
+    style LoadShed fill:#f3e5f5
+    style StateTracking fill:#f3e5f5
+    style DayPhase fill:#f3e5f5
+    style ResetCoord fill:#ffebee
 ```
 
 ---
 
 ## Plugin System Architecture
 
-How plugins interact with the core state management system.
+The plugin system supports priority-based registration, allowing private implementations to override public plugins.
 
 ```mermaid
 sequenceDiagram
     participant Main as cmd/main.go
     participant SM as State Manager
     participant HAC as HA Client
+    participant ST as Shadow Tracker
     participant Plugin as Plugin Manager
+    participant API as API Server
     participant HA as Home Assistant
 
     Main->>HAC: NewClient(url, token)
-    Main->>SM: NewManager(haClient, logger)
+    Main->>SM: NewManager(haClient, logger, readOnly)
     Main->>SM: SyncFromHA()
     SM->>HAC: GetAllStates()
     HAC->>HA: Get All States (WS)
     HA-->>HAC: State Array
     HAC-->>SM: States
     SM->>SM: Parse & Cache All Variables
-    SM->>HAC: SubscribeStateChanges(entityID)
+    SM->>SM: SetupComputedState()
+
+    Main->>ST: NewTracker()
+    Main->>API: NewServer(stateManager, shadowTracker, port)
+    API->>API: Start HTTP Server
 
     Main->>Plugin: NewManager(haClient, stateManager, config)
     Main->>Plugin: Start()
@@ -137,6 +183,9 @@ sequenceDiagram
     Plugin->>SM: Subscribe("isAnyoneHome", handler)
     SM-->>Plugin: Subscription
 
+    Plugin->>ST: RegisterPluginProvider("music", getStateFunc)
+    ST-->>Plugin: Registered
+
     Note over Plugin: Plugin is now monitoring state changes
 
     HA->>HAC: State Change Event (WS)
@@ -144,9 +193,84 @@ sequenceDiagram
     SM->>SM: Update Cache
     SM->>Plugin: Notify Subscribed Handler
     Plugin->>Plugin: Business Logic
+    Plugin->>Plugin: Update Shadow State
     Plugin->>SM: SetBool/SetString/SetNumber
     SM->>HAC: SetInputBoolean/Text/Number
     HAC->>HA: Call Service (WS)
+
+    Note over API: HTTP Request arrives
+    API->>SM: GetBool/GetString/GetNumber
+    SM-->>API: State Values
+    API->>ST: GetAllPluginStates()
+    ST-->>API: Shadow States
+    API-->>API: Return JSON Response
+```
+
+### Plugin Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created: NewManager()
+    Created --> Starting: Start()
+    Starting --> Running: Subscriptions Active
+    Running --> Resetting: Reset() called
+    Resetting --> Running: Reset Complete
+    Running --> Stopping: Stop()
+    Stopping --> Stopped: Cleanup Complete
+    Stopped --> [*]
+
+    note right of Running
+        Plugin monitors state changes
+        and executes business logic
+    end note
+
+    note right of Resetting
+        Plugin re-evaluates all
+        conditions and recalculates state
+    end note
+```
+
+### Plugin Interfaces
+
+```mermaid
+classDiagram
+    class Plugin {
+        <<interface>>
+        +Name() string
+        +Start() error
+        +Stop()
+    }
+
+    class Resettable {
+        <<interface>>
+        +Reset() error
+    }
+
+    class ShadowStateProvider {
+        <<interface>>
+        +GetShadowState() PluginShadowState
+    }
+
+    class PluginInfo {
+        +Name string
+        +Description string
+        +Priority int
+        +Order int
+        +Factory Factory
+    }
+
+    class Registry {
+        -plugins map~string~PluginInfo
+        +Register(info PluginInfo) error
+        +Get(name string) *PluginInfo
+        +List() []PluginInfo
+        +CreateAll(ctx *Context) []Plugin
+    }
+
+    Plugin <|-- Resettable : optional
+    Plugin <|-- ShadowStateProvider : optional
+    Registry --> PluginInfo : manages
+    PluginInfo --> Plugin : creates via Factory
 ```
 
 ---
@@ -184,7 +308,7 @@ flowchart TD
 
     UpdateCache[Update State Manager Cache] --> RecomputeDerived{Triggers<br/>Computed State?}
 
-    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>e.g. isAnyoneHomeAndAwake =<br/>isAnyoneHome && !isAnyoneAsleep]
+    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>isAnyoneHomeAndAwake =<br/>isAnyoneHome && !isAnyoneAsleep]
     RecomputeDerived -->|No| NotifyPlugins
 
     Recompute --> SyncDerived[Sync Derived Value to HA]
@@ -196,7 +320,8 @@ flowchart TD
     NotifyPlugins -->|Yes| CallPluginHandlers[Call Plugin Handlers]
 
     CallPluginHandlers --> PluginLogic[Plugin Business Logic]
-    PluginLogic --> Decision{Plugin Needs<br/>to Update State?}
+    PluginLogic --> UpdateShadow[Update Shadow State]
+    UpdateShadow --> Decision{Plugin Needs<br/>to Update State?}
 
     Decision -->|No| End3([End])
     Decision -->|Yes| SetState[Plugin Calls SetBool/SetString/SetNumber]
@@ -214,7 +339,251 @@ flowchart TD
     style RecomputeDerived fill:#fff3e0
     style Recompute fill:#e8f5e9
     style PluginLogic fill:#e8f5e9
+    style UpdateShadow fill:#e8f5e9
     style CallService fill:#ffebee
+```
+
+---
+
+## Shadow State System
+
+Shadow state captures the decision-making context for each plugin, enabling debugging and observability.
+
+```mermaid
+graph TB
+    subgraph "Shadow State Tracker"
+        Tracker[Tracker<br/>shadowstate/tracker.go]
+        PluginStates[pluginStates<br/>map~string~PluginShadowState]
+        Providers[stateProviders<br/>map~string~func]
+    end
+
+    subgraph "Plugin Shadow States"
+        LightingShadow[LightingShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: rooms, scenes<br/>- Metadata]
+
+        MusicShadow[MusicShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: mode, playlist, speakers<br/>- Metadata]
+
+        SecurityShadow[SecurityShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: lockdown, doorbell, garage<br/>- Metadata]
+
+        EnergyShadow[EnergyShadowState<br/>- Inputs: current<br/>- Outputs: levels, sensor readings<br/>- Metadata]
+
+        StateTrackingShadow[StateTrackingShadowState<br/>- Inputs: current<br/>- Outputs: derived states, timers<br/>- Metadata]
+
+        DayPhaseShadow[DayPhaseShadowState<br/>- Inputs: current<br/>- Outputs: sunEvent, dayPhase<br/>- Metadata]
+    end
+
+    subgraph "API Server"
+        APIEndpoint["API: /api/shadow/*"]
+    end
+
+    Tracker --> PluginStates
+    Tracker --> Providers
+
+    Providers --> LightingShadow
+    Providers --> MusicShadow
+    Providers --> SecurityShadow
+    Providers --> EnergyShadow
+    Providers --> StateTrackingShadow
+    Providers --> DayPhaseShadow
+
+    APIEndpoint -->|GetAllPluginStates| Tracker
+    APIEndpoint -->|GetPluginState| Tracker
+
+    style Tracker fill:#e1f5ff
+    style APIEndpoint fill:#e8f5e9
+```
+
+### Shadow State Interface
+
+```mermaid
+classDiagram
+    class PluginShadowState {
+        <<interface>>
+        +GetCurrentInputs() map~string~interface
+        +GetLastActionInputs() map~string~interface
+        +GetOutputs() interface
+        +GetMetadata() StateMetadata
+    }
+
+    class StateMetadata {
+        +LastUpdated time.Time
+        +PluginName string
+    }
+
+    class LightingShadowState {
+        +Plugin string
+        +Inputs LightingInputs
+        +Outputs LightingOutputs
+        +Metadata StateMetadata
+    }
+
+    class MusicShadowState {
+        +Plugin string
+        +Inputs MusicInputs
+        +Outputs MusicOutputs
+        +Metadata StateMetadata
+    }
+
+    class SecurityShadowState {
+        +Plugin string
+        +Inputs SecurityInputs
+        +Outputs SecurityOutputs
+        +Metadata StateMetadata
+    }
+
+    PluginShadowState <|.. LightingShadowState
+    PluginShadowState <|.. MusicShadowState
+    PluginShadowState <|.. SecurityShadowState
+    LightingShadowState --> StateMetadata
+    MusicShadowState --> StateMetadata
+    SecurityShadowState --> StateMetadata
+```
+
+---
+
+## API Server Endpoints
+
+The HTTP API server provides observability into the system state.
+
+```mermaid
+graph LR
+    subgraph "HTTP API Server :8080"
+        Root["GET /"]
+        Health["GET /health"]
+        State["GET /api/state"]
+        States["GET /api/states"]
+        Shadow["GET /api/shadow"]
+        ShadowLighting["GET /api/shadow/lighting"]
+        ShadowMusic["GET /api/shadow/music"]
+        ShadowSecurity["GET /api/shadow/security"]
+        ShadowEnergy["GET /api/shadow/energy"]
+        ShadowLoadShed["GET /api/shadow/loadshedding"]
+        ShadowSleep["GET /api/shadow/sleephygiene"]
+        ShadowState["GET /api/shadow/statetracking"]
+        ShadowDayPhase["GET /api/shadow/dayphase"]
+        ShadowTV["GET /api/shadow/tv"]
+    end
+
+    subgraph "Response Types"
+        Sitemap[Sitemap<br/>HTML/Text]
+        HealthCheck["Health Check<br/>status: ok"]
+        AllState[All Variables<br/>by Type]
+        ByPlugin[Variables<br/>by Plugin]
+        AllShadow[All Plugin<br/>Shadow States]
+        PluginShadow[Single Plugin<br/>Shadow State]
+    end
+
+    Root --> Sitemap
+    Health --> HealthCheck
+    State --> AllState
+    States --> ByPlugin
+    Shadow --> AllShadow
+    ShadowLighting --> PluginShadow
+    ShadowMusic --> PluginShadow
+    ShadowSecurity --> PluginShadow
+    ShadowEnergy --> PluginShadow
+    ShadowLoadShed --> PluginShadow
+    ShadowSleep --> PluginShadow
+    ShadowState --> PluginShadow
+    ShadowDayPhase --> PluginShadow
+    ShadowTV --> PluginShadow
+
+    style Root fill:#e1f5ff
+    style Health fill:#e8f5e9
+    style State fill:#fff3e0
+    style States fill:#fff3e0
+    style Shadow fill:#f3e5f5
+```
+
+### API Response Structure
+
+```mermaid
+classDiagram
+    class StateResponse {
+        +Booleans map~string~bool
+        +Numbers map~string~float64
+        +Strings map~string~string
+        +JSONs map~string~any
+    }
+
+    class PluginStatesResponse {
+        +Plugins map~string~map~string~PluginStateValue
+    }
+
+    class PluginStateValue {
+        +Value interface
+        +Type string
+    }
+
+    class AllShadowStatesResponse {
+        +Plugins map~string~interface
+        +Metadata ShadowMetadata
+    }
+
+    class ShadowMetadata {
+        +Timestamp time.Time
+        +Version string
+    }
+
+    PluginStatesResponse --> PluginStateValue
+    AllShadowStatesResponse --> ShadowMetadata
+```
+
+---
+
+## Reset Coordinator Flow
+
+The Reset Coordinator watches for the `reset` boolean and orchestrates system-wide resets.
+
+```mermaid
+flowchart TD
+    Start([Reset Boolean = true<br/>in Home Assistant]) --> Subscribe[Reset Coordinator<br/>Subscribed to 'reset']
+
+    Subscribe --> HandleChange["handleResetChange()"]
+    HandleChange --> CheckValue{newValue == true?}
+
+    CheckValue -->|No| End1([End - No Action])
+    CheckValue -->|Yes| LogStart["Log: Reset triggered"]
+
+    LogStart --> TurnOff{Read-Only Mode?}
+    TurnOff -->|Yes| LogOnly1["Log: Would turn reset off"]
+    TurnOff -->|No| SetFalse["Set reset = false"]
+
+    LogOnly1 --> Execute
+    SetFalse --> Execute
+
+    Execute["executeReset()"] --> ForEach[For Each Plugin]
+
+    ForEach --> Plugin1[Reset State Tracking]
+    Plugin1 --> Plugin2[Reset Day Phase]
+    Plugin2 --> Plugin3[Reset Energy]
+    Plugin3 --> Plugin4[Reset Load Shedding]
+    Plugin4 --> Plugin5[Reset Lighting]
+    Plugin5 --> Plugin6[Reset Music]
+    Plugin6 --> Plugin7[Reset Security]
+    Plugin7 --> Plugin8[Reset Sleep Hygiene]
+
+    Plugin8 --> Summary[Log Summary:<br/>success/error counts]
+    Summary --> End2([Reset Complete])
+
+    subgraph "Plugin Reset Actions"
+        ResetAction[Each Plugin Reset:<br/>1. Clear rate limiters<br/>2. Re-evaluate conditions<br/>3. Recalculate state<br/>4. Update shadow state]
+    end
+
+    Plugin1 -.-> ResetAction
+    Plugin5 -.-> ResetAction
+    Plugin6 -.-> ResetAction
+
+    style Start fill:#e1f5ff
+    style Execute fill:#fff3e0
+    style Plugin1 fill:#e8f5e9
+    style Plugin2 fill:#e8f5e9
+    style Plugin3 fill:#e8f5e9
+    style Plugin4 fill:#e8f5e9
+    style Plugin5 fill:#e8f5e9
+    style Plugin6 fill:#e8f5e9
+    style Plugin7 fill:#e8f5e9
+    style Plugin8 fill:#e8f5e9
+    style End2 fill:#c8e6c9
 ```
 
 ---
@@ -277,7 +646,8 @@ flowchart TD
     StartPlayback --> EnableShuffle[Enable Shuffle for Playlists]
     EnableShuffle --> EvalConditions[Evaluate Mute Conditions<br/>for Each Speaker]
     EvalConditions --> FadeIn[Fade In Eligible Speakers<br/>Gradually 0→targetVolume]
-    FadeIn --> Complete([Playback Complete])
+    FadeIn --> UpdateShadow[Update Shadow State:<br/>mode, playlist, speakers]
+    UpdateShadow --> Complete([Playback Complete])
 
     style Start fill:#e1f5ff
     style CheckHome fill:#fff3e0
@@ -285,6 +655,7 @@ flowchart TD
     style CheckDayPhase fill:#fff3e0
     style SelectPlaylist fill:#e8f5e9
     style StartPlayback fill:#e8f5e9
+    style UpdateShadow fill:#f3e5f5
 ```
 
 **Reference:** See `homeautomation-go/internal/plugins/music/manager.go` for implementation details.
@@ -301,7 +672,9 @@ flowchart TD
 
     GetState --> LoadConfig[Load hue_config.yaml<br/>Scene Configurations]
 
-    LoadConfig --> IterateRooms[For Each Room in Config]
+    LoadConfig --> UpdateShadow1[Update Shadow State:<br/>Current Inputs]
+
+    UpdateShadow1 --> IterateRooms[For Each Room in Config]
 
     IterateRooms --> CheckConditions{Evaluate Room<br/>Conditions}
 
@@ -322,11 +695,17 @@ flowchart TD
     TurnOff1 --> CallLightOff1[Call light.turn_off<br/>for room entities]
     TurnOff2 --> CallLightOff2[Call light.turn_off<br/>for room entities]
 
-    ActivateScene1 --> NextRoom1{More Rooms?}
-    ActivateScene2 --> NextRoom2{More Rooms?}
-    ActivateScene3 --> NextRoom3{More Rooms?}
-    CallLightOff1 --> NextRoom4{More Rooms?}
-    CallLightOff2 --> NextRoom5{More Rooms?}
+    ActivateScene1 --> RecordAction1[Record Room Action<br/>in Shadow State]
+    ActivateScene2 --> RecordAction2[Record Room Action<br/>in Shadow State]
+    ActivateScene3 --> RecordAction3[Record Room Action<br/>in Shadow State]
+    CallLightOff1 --> RecordAction4[Record Room Action<br/>in Shadow State]
+    CallLightOff2 --> RecordAction5[Record Room Action<br/>in Shadow State]
+
+    RecordAction1 --> NextRoom1{More Rooms?}
+    RecordAction2 --> NextRoom2{More Rooms?}
+    RecordAction3 --> NextRoom3{More Rooms?}
+    RecordAction4 --> NextRoom4{More Rooms?}
+    RecordAction5 --> NextRoom5{More Rooms?}
 
     NextRoom1 -->|Yes| IterateRooms
     NextRoom2 -->|Yes| IterateRooms
@@ -345,6 +724,9 @@ flowchart TD
     style ActivateScene1 fill:#e8f5e9
     style ActivateScene2 fill:#e8f5e9
     style ActivateScene3 fill:#e8f5e9
+    style RecordAction1 fill:#f3e5f5
+    style RecordAction2 fill:#f3e5f5
+    style RecordAction3 fill:#f3e5f5
 ```
 
 **Reference:** See `homeautomation-go/internal/plugins/lighting/manager.go` for implementation details.
@@ -368,7 +750,9 @@ flowchart TD
 
     GetBatteryPercent --> LoadConfig[Load energy_config.yaml<br/>Battery Level Thresholds]
 
-    LoadConfig --> CheckLevels{Compare Battery %<br/>to Thresholds}
+    LoadConfig --> UpdateShadow1[Update Shadow State:<br/>Sensor Readings]
+
+    UpdateShadow1 --> CheckLevels{Compare Battery %<br/>to Thresholds}
 
     CheckLevels -->|< critical_threshold| SetCritical[batteryEnergyLevel = 'critical']
     CheckLevels -->|< low_threshold| SetLow[batteryEnergyLevel = 'low']
@@ -376,73 +760,50 @@ flowchart TD
     CheckLevels -->|< high_threshold| SetHigh[batteryEnergyLevel = 'high']
     CheckLevels -->|>= high_threshold| SetFull[batteryEnergyLevel = 'full']
 
-    SetCritical --> SyncToHA1[Sync to HA:<br/>input_text.battery_energy_level]
-    SetLow --> SyncToHA2[Sync to HA:<br/>input_text.battery_energy_level]
-    SetMedium --> SyncToHA3[Sync to HA:<br/>input_text.battery_energy_level]
-    SetHigh --> SyncToHA4[Sync to HA:<br/>input_text.battery_energy_level]
-    SetFull --> SyncToHA5[Sync to HA:<br/>input_text.battery_energy_level]
+    SetCritical --> UpdateBattery1[Update Shadow State:<br/>Battery Level]
+    SetLow --> UpdateBattery2[Update Shadow State:<br/>Battery Level]
+    SetMedium --> UpdateBattery3[Update Shadow State:<br/>Battery Level]
+    SetHigh --> UpdateBattery4[Update Shadow State:<br/>Battery Level]
+    SetFull --> UpdateBattery5[Update Shadow State:<br/>Battery Level]
 
-    SyncToHA1 --> CalculateCurrent1
-    SyncToHA2 --> CalculateCurrent2
-    SyncToHA3 --> CalculateCurrent3
-    SyncToHA4 --> CalculateCurrent4
-    SyncToHA5 --> CalculateCurrent5
+    UpdateBattery1 --> SyncToHA1[Sync to HA:<br/>input_text.battery_energy_level]
+    UpdateBattery2 --> SyncToHA2[Sync to HA:<br/>input_text.battery_energy_level]
+    UpdateBattery3 --> SyncToHA3[Sync to HA:<br/>input_text.battery_energy_level]
+    UpdateBattery4 --> SyncToHA4[Sync to HA:<br/>input_text.battery_energy_level]
+    UpdateBattery5 --> SyncToHA5[Sync to HA:<br/>input_text.battery_energy_level]
 
-    CalculateCurrent1[Calculate currentEnergyLevel] --> CheckFreeEnergy1
-    CalculateCurrent2[Calculate currentEnergyLevel] --> CheckFreeEnergy2
-    CalculateCurrent3[Calculate currentEnergyLevel] --> CheckFreeEnergy3
-    CalculateCurrent4[Calculate currentEnergyLevel] --> CheckFreeEnergy4
-    CalculateCurrent5[Calculate currentEnergyLevel] --> CheckFreeEnergy5
+    SyncToHA1 --> CalculateCurrent
+    SyncToHA2 --> CalculateCurrent
+    SyncToHA3 --> CalculateCurrent
+    SyncToHA4 --> CalculateCurrent
+    SyncToHA5 --> CalculateCurrent
 
-    CheckFreeEnergy1{isFreeEnergyAvailable?} -->|Yes| SetInfinite1[currentEnergyLevel = 'infinite']
-    CheckFreeEnergy2{isFreeEnergyAvailable?} -->|Yes| SetInfinite2[currentEnergyLevel = 'infinite']
-    CheckFreeEnergy3{isFreeEnergyAvailable?} -->|Yes| SetInfinite3[currentEnergyLevel = 'infinite']
-    CheckFreeEnergy4{isFreeEnergyAvailable?} -->|Yes| SetInfinite4[currentEnergyLevel = 'infinite']
-    CheckFreeEnergy5{isFreeEnergyAvailable?} -->|Yes| SetInfinite5[currentEnergyLevel = 'infinite']
+    CalculateCurrent[Calculate currentEnergyLevel] --> CheckFreeEnergy{isFreeEnergyAvailable?}
 
-    CheckFreeEnergy1 -->|No| CheckGrid1{isGridAvailable?}
-    CheckFreeEnergy2 -->|No| CheckGrid2{isGridAvailable?}
-    CheckFreeEnergy3 -->|No| CheckGrid3{isGridAvailable?}
-    CheckFreeEnergy4 -->|No| CheckGrid4{isGridAvailable?}
-    CheckFreeEnergy5 -->|No| CheckGrid5{isGridAvailable?}
+    CheckFreeEnergy -->|Yes| SetInfinite[currentEnergyLevel = 'infinite']
+    CheckFreeEnergy -->|No| CheckGrid{isGridAvailable?}
 
-    CheckGrid1 -->|Yes & battery high/full| SetAbundant1[currentEnergyLevel = 'abundant']
-    CheckGrid2 -->|Yes & battery high/full| SetAbundant2[currentEnergyLevel = 'abundant']
-    CheckGrid3 -->|Yes & battery medium| SetPlenty1[currentEnergyLevel = 'plenty']
-    CheckGrid4 -->|Yes & battery high| SetPlenty2[currentEnergyLevel = 'plenty']
-    CheckGrid5 -->|Yes & battery full| SetAbundant3[currentEnergyLevel = 'abundant']
+    CheckGrid -->|Yes & battery high/full| SetAbundant[currentEnergyLevel = 'abundant']
+    CheckGrid -->|Yes & battery medium| SetPlenty[currentEnergyLevel = 'plenty']
+    CheckGrid -->|No or battery low/critical| UseBattery[currentEnergyLevel = batteryEnergyLevel]
 
-    CheckGrid1 -->|No or battery low/critical| UseBattery1[currentEnergyLevel = batteryEnergyLevel]
-    CheckGrid2 -->|No or battery low/critical| UseBattery2[currentEnergyLevel = batteryEnergyLevel]
-    CheckGrid3 -->|No| UseBattery3[currentEnergyLevel = batteryEnergyLevel]
-    CheckGrid4 -->|No| UseBattery4[currentEnergyLevel = batteryEnergyLevel]
-    CheckGrid5 -->|No| UseBattery5[currentEnergyLevel = batteryEnergyLevel]
+    SetInfinite --> UpdateOverall[Update Shadow State:<br/>Overall Level]
+    SetAbundant --> UpdateOverall
+    SetPlenty --> UpdateOverall
+    UseBattery --> UpdateOverall
 
-    SetInfinite1 --> End1([End])
-    SetInfinite2 --> End2([End])
-    SetInfinite3 --> End3([End])
-    SetInfinite4 --> End4([End])
-    SetInfinite5 --> End5([End])
-
-    SetAbundant1 --> End6([End])
-    SetAbundant2 --> End7([End])
-    SetAbundant3 --> End8([End])
-    SetPlenty1 --> End9([End])
-    SetPlenty2 --> End10([End])
-
-    UseBattery1 --> End11([End])
-    UseBattery2 --> End12([End])
-    UseBattery3 --> End13([End])
-    UseBattery4 --> End14([End])
-    UseBattery5 --> End15([End])
+    UpdateOverall --> End([End])
 
     style Start fill:#e1f5ff
     style CheckLevels fill:#fff3e0
-    style CheckFreeEnergy1 fill:#fff3e0
-    style CheckGrid1 fill:#fff3e0
-    style SetInfinite1 fill:#c8e6c9
-    style SetAbundant1 fill:#e8f5e9
-    style UseBattery1 fill:#ffebee
+    style CheckFreeEnergy fill:#fff3e0
+    style CheckGrid fill:#fff3e0
+    style SetInfinite fill:#c8e6c9
+    style SetAbundant fill:#e8f5e9
+    style UseBattery fill:#ffebee
+    style UpdateShadow1 fill:#f3e5f5
+    style UpdateBattery1 fill:#f3e5f5
+    style UpdateOverall fill:#f3e5f5
 ```
 
 **Reference:** See `homeautomation-go/internal/plugins/energy/manager.go` for implementation details.
@@ -451,11 +812,11 @@ flowchart TD
 
 ## State Variable Dependency Graph
 
-Shows which plugins read/write which state variables.
+Shows which plugins read/write which state variables (37 total: 26 booleans, 3 numbers, 6 strings, 2 local-only).
 
 ```mermaid
 graph LR
-    subgraph "State Variables (inputs)"
+    subgraph "Input State Variables"
         NickHome[isNickHome]
         CarolineHome[isCarolineHome]
         ToriHere[isToriHere]
@@ -464,6 +825,14 @@ graph LR
         TVPlaying[isTVPlaying]
         AlarmTime[alarmTime]
         BatteryPercent[sensor.span_battery_*]
+        GuestDoor[isGuestBedroomDoorOpen]
+        HaveGuests[isHaveGuests]
+        Reset[reset]
+        NickNearHome[isNickNearHome]
+        CarolineNearHome[isCarolineNearHome]
+        NickOffice[isNickOfficeOccupied]
+        Kitchen[isKitchenOccupied]
+        PrimaryDoor[isPrimaryBedroomDoorOpen]
     end
 
     subgraph "Computed State Variables"
@@ -473,18 +842,27 @@ graph LR
         EveryoneAsleep[isEveryoneAsleep]
         AnyoneHomeAndAwake[isAnyoneHomeAndAwake]
         DayPhase[dayPhase]
+        SunEvent[sunevent]
         BatteryLevel[batteryEnergyLevel]
+        SolarLevel[solarProductionEnergyLevel]
         CurrentEnergy[currentEnergyLevel]
+        FreeEnergy[isFreeEnergyAvailable]
+        OwnerJustReturned[didOwnerJustReturnHome]
     end
 
     subgraph "Output State Variables"
         MusicType[musicPlaybackType]
         MusicURI[currentlyPlayingMusicUri]
         FadeOut[isFadeOutInProgress]
+        Lockdown[isLockdown]
+        AppleTVPlaying[isAppleTVPlaying]
+        TVon[isTVon]
+        GridAvailable[isGridAvailable]
+        Expecting[isExpectingSomeone]
     end
 
     subgraph "Plugins"
-        StateTracking[State Tracking Plugin]
+        StateTracking[State Tracking Plugin<br/>Order: 10]
         DayPhasePlugin[Day Phase Plugin]
         Music[Music Plugin]
         Lighting[Lighting Plugin]
@@ -493,6 +871,7 @@ graph LR
         TV[TV Plugin]
         Security[Security Plugin]
         LoadShedding[Load Shedding Plugin]
+        ResetCoord[Reset Coordinator<br/>Order: 90]
     end
 
     NickHome --> StateTracking
@@ -500,16 +879,22 @@ graph LR
     ToriHere --> StateTracking
     MasterAsleep --> StateTracking
     GuestAsleep --> StateTracking
+    GuestDoor --> StateTracking
+    HaveGuests --> StateTracking
+    NickNearHome --> StateTracking
+    CarolineNearHome --> StateTracking
 
     StateTracking --> AnyOwnerHome
     StateTracking --> AnyoneHome
     StateTracking --> AnyoneAsleep
     StateTracking --> EveryoneAsleep
+    StateTracking --> OwnerJustReturned
 
     AnyoneHome --> AnyoneHomeAndAwake
     AnyoneAsleep --> AnyoneHomeAndAwake
 
     DayPhasePlugin --> DayPhase
+    DayPhasePlugin --> SunEvent
 
     AnyoneHome --> Music
     AnyoneAsleep --> Music
@@ -518,14 +903,21 @@ graph LR
     Music --> MusicURI
 
     DayPhase --> Lighting
+    SunEvent --> Lighting
     AnyoneHome --> Lighting
     AnyoneAsleep --> Lighting
     AnyoneHomeAndAwake --> Lighting
     TVPlaying --> Lighting
+    HaveGuests --> Lighting
+    NickOffice --> Lighting
+    Kitchen --> Lighting
+    PrimaryDoor --> Lighting
 
     BatteryPercent --> Energy
     Energy --> BatteryLevel
+    Energy --> SolarLevel
     Energy --> CurrentEnergy
+    Energy --> FreeEnergy
 
     AlarmTime --> SleepHygiene
     MasterAsleep --> SleepHygiene
@@ -533,12 +925,27 @@ graph LR
     SleepHygiene -.->|Triggers| Music
     SleepHygiene -.->|Triggers| Lighting
 
+    TV --> AppleTVPlaying
+    TV --> TVon
     TV --> TVPlaying
 
     AnyoneHome --> Security
     EveryoneAsleep --> Security
+    OwnerJustReturned --> Security
+    Expecting --> Security
+    Security --> Lockdown
 
     CurrentEnergy --> LoadShedding
+
+    Reset --> ResetCoord
+    ResetCoord -.->|Reset| StateTracking
+    ResetCoord -.->|Reset| DayPhasePlugin
+    ResetCoord -.->|Reset| Energy
+    ResetCoord -.->|Reset| LoadShedding
+    ResetCoord -.->|Reset| Lighting
+    ResetCoord -.->|Reset| Music
+    ResetCoord -.->|Reset| Security
+    ResetCoord -.->|Reset| SleepHygiene
 
     style AnyOwnerHome fill:#fff3e0
     style AnyoneHome fill:#fff3e0
@@ -546,13 +953,32 @@ graph LR
     style EveryoneAsleep fill:#fff3e0
     style AnyoneHomeAndAwake fill:#fff3e0
     style DayPhase fill:#fff3e0
+    style SunEvent fill:#fff3e0
     style BatteryLevel fill:#fff3e0
+    style SolarLevel fill:#fff3e0
     style CurrentEnergy fill:#fff3e0
+    style FreeEnergy fill:#fff3e0
+    style OwnerJustReturned fill:#fff3e0
 
     style MusicType fill:#e8f5e9
     style MusicURI fill:#e8f5e9
     style FadeOut fill:#e8f5e9
+    style Lockdown fill:#e8f5e9
+
+    style ResetCoord fill:#ffebee
 ```
+
+### State Variable Summary
+
+| Category | Count | Examples |
+|----------|-------|----------|
+| **Boolean (input)** | 17 | isNickHome, isCarolineHome, isToriHere, isMasterAsleep, isGuestAsleep |
+| **Boolean (computed)** | 5 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake |
+| **Boolean (output)** | 4 | isFadeOutInProgress, isLockdown, isAppleTVPlaying, isTVon |
+| **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |
+| **String (computed)** | 5 | dayPhase, sunevent, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel |
+| **String (output)** | 2 | musicPlaybackType, currentlyPlayingMusicUri |
+| **Local-only** | 2 | didOwnerJustReturnHome, currentlyPlayingMusic |
 
 ---
 
@@ -577,6 +1003,7 @@ Follow these conventions:
   - Light blue (`#e1f5ff`) for entry points
   - Light orange (`#fff3e0`) for decision/branching logic
   - Light green (`#e8f5e9`) for actions/outputs
+  - Light purple (`#f3e5f5`) for shadow state / observability
   - Light red (`#ffebee`) for error/critical paths
 - Include file references for traceability
 - Keep diagrams focused on one concept/flow
@@ -584,7 +1011,7 @@ Follow these conventions:
 
 ---
 
-**Last Updated:** 2025-11-16
+**Last Updated:** 2025-11-30
 **Maintained By:** Development Team
 **Related Documentation:**
 - [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) - Architecture and design decisions
