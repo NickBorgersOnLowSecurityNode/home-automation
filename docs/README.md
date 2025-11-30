@@ -1,57 +1,74 @@
 # Documentation
 
-This directory contains all project documentation, organized by topic.
+This directory contains all project documentation, organized by audience and topic.
 
 ## Structure
 
 ```
 docs/
-├── architecture/          # Architecture and design documentation
-│   ├── IMPLEMENTATION_PLAN.md     # Complete architecture, design decisions, and migration strategy
-│   └── GOLANG_DESIGN.md           # Detailed Golang implementation design
+├── architecture/           # System design
+│   └── ARCHITECTURE.md     # Complete architecture, implementation status, roadmap
 │
-├── development/          # Development guides and standards
-│   ├── BRANCH_PROTECTION.md       # PR requirements and branch protection setup
-│   └── CONCURRENCY_LESSONS.md     # Concurrency patterns and lessons learned
+├── human/                  # Human-focused visual documentation
+│   ├── VISUAL_ARCHITECTURE.md  # Mermaid diagrams of system architecture
+│   └── DIAGRAM_QUICK_START.md  # Quick guide to navigating diagrams
 │
-├── migration/           # Migration-related documentation
-│   └── migration_mapping.md       # State variable mapping from Node-RED to HA
+├── reference/              # Technical reference (for engineers/AI agents)
+│   ├── SHADOW_STATE.md     # Shadow state pattern for plugin observability
+│   ├── PLUGIN_SYSTEM.md    # Plugin interfaces and lifecycle
+│   ├── migration_mapping.md # State variable mapping from Node-RED to HA
+│   └── CONCURRENCY_LESSONS.md # Concurrency patterns and lessons learned
 │
-├── deployment/          # Deployment and operations guides
-│   └── DOCKER.md                  # Docker build, run, and deployment guide
+├── operations/             # Deployment and process documentation
+│   ├── DOCKER.md           # Docker build, run, and deployment guide
+│   └── BRANCH_PROTECTION.md # PR requirements and branch protection setup
 │
-└── REVIEW.md           # Code review notes and findings
+└── archive/                # Historical documents (not required reading)
+    ├── NODE_RED_TABS_ANALYSIS.md
+    ├── MUSIC_FLOW_ANALYSIS.md
+    ├── DIAGRAM_GENERATION_RULES.md
+    └── SCENARIO_BASED_TESTING_PROPOSAL.md
 ```
 
 ## Quick Links
 
-### Essential Documentation
-- **Getting Started**: See [../README.md](../README.md) for project overview
-- **Development Guide**: See [../AGENTS.md](../AGENTS.md) for development standards and testing
-- **Architecture**: Start with [architecture/IMPLEMENTATION_PLAN.md](./architecture/IMPLEMENTATION_PLAN.md)
+### For Engineers / AI Agents
+Technical reference documentation for development:
+- **[architecture/ARCHITECTURE.md](./architecture/ARCHITECTURE.md)** - Complete system design
+- **[reference/SHADOW_STATE.md](./reference/SHADOW_STATE.md)** - Shadow state pattern (**READ BEFORE WRITING PLUGINS**)
+- **[reference/PLUGIN_SYSTEM.md](./reference/PLUGIN_SYSTEM.md)** - Plugin interfaces
+- **[reference/migration_mapping.md](./reference/migration_mapping.md)** - State variable mapping
+- **[reference/CONCURRENCY_LESSONS.md](./reference/CONCURRENCY_LESSONS.md)** - Concurrency patterns
 
-### For Developers
-- [../AGENTS.md](../AGENTS.md) - Development standards, testing requirements, CI/CD guidelines
-- [development/BRANCH_PROTECTION.md](./development/BRANCH_PROTECTION.md) - PR requirements
-- [development/CONCURRENCY_LESSONS.md](./development/CONCURRENCY_LESSONS.md) - Concurrency patterns
-- [deployment/DOCKER.md](./deployment/DOCKER.md) - Docker deployment
+### For Human Developers
+Visual documentation for understanding the system:
+- **[human/VISUAL_ARCHITECTURE.md](./human/VISUAL_ARCHITECTURE.md)** - Mermaid diagrams
+- **[human/DIAGRAM_QUICK_START.md](./human/DIAGRAM_QUICK_START.md)** - Diagram navigation guide
 
-### For Architecture & Design
-- [architecture/IMPLEMENTATION_PLAN.md](./architecture/IMPLEMENTATION_PLAN.md) - Complete migration plan
-- [architecture/GOLANG_DESIGN.md](./architecture/GOLANG_DESIGN.md) - Detailed design decisions
-- [migration/migration_mapping.md](./migration/migration_mapping.md) - State variable mapping
+### Operations
+Deployment and process documentation:
+- **[operations/DOCKER.md](./operations/DOCKER.md)** - Docker deployment
+- **[operations/BRANCH_PROTECTION.md](./operations/BRANCH_PROTECTION.md)** - PR requirements
+
+### Archive
+Historical and proposal documents (not required reading):
+- **[archive/](./archive/)** - Old analysis, future work proposals
 
 ## Root-Level Documentation
 
 Some documentation files remain in the repository root because they are required there:
 - **[CLAUDE.md](../CLAUDE.md)** - Claude Code project instructions (must be in root)
-- **[AGENTS.md](../AGENTS.md)** - Development guide (must be in root)
+- **[AGENTS.md](../AGENTS.md)** - Development guide for AI agents (must be in root)
 - **[README.md](../README.md)** - Project overview (standard location)
 
 ## Contributing
 
 When adding new documentation:
-1. Place it in the appropriate subdirectory based on its topic
+1. Place it in the appropriate subdirectory based on its audience:
+   - `human/` for visual, diagram-heavy docs
+   - `reference/` for technical patterns and guides
+   - `operations/` for deployment and process docs
+   - `archive/` for historical or proposal documents
 2. Update this README with a link to the new document
-3. Update relevant cross-references in other documents
+3. Update AGENTS.md if it's required reading for development
 4. Follow markdown best practices (headers, links, code blocks)

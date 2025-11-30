@@ -133,7 +133,7 @@ When you submit a PR:
 **The PR merge button is blocked until all required tests pass.**
 
 For detailed information:
-- **[docs/development/BRANCH_PROTECTION.md](./docs/development/BRANCH_PROTECTION.md)** - Complete guide to PR requirements and branch protection
+- **[docs/operations/BRANCH_PROTECTION.md](./docs/operations/BRANCH_PROTECTION.md)** - Complete guide to PR requirements and branch protection
 - **[AGENTS.md](./AGENTS.md)** - Development standards and testing guide
 - **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation documentation
 

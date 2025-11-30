@@ -220,7 +220,7 @@ go test -race ./...
 
 - [AGENTS.md](../../AGENTS.md) - Development standards and test guide
 - [homeautomation-go/test/integration/README.md](../../homeautomation-go/test/integration/README.md) - Integration test details
-- [docs/development/CONCURRENCY_LESSONS.md](../development/CONCURRENCY_LESSONS.md) - Concurrency patterns and lessons learned
+- [CONCURRENCY_LESSONS.md](../reference/CONCURRENCY_LESSONS.md) - Concurrency patterns and lessons learned
 
 ## Questions?
 

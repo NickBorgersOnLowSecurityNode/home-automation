@@ -1038,10 +1038,9 @@ import (
 
 ## Related Documentation
 
-- **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** - Overall project architecture and status
-- **[VISUAL_ARCHITECTURE.md](./VISUAL_ARCHITECTURE.md)** - System diagrams and flow charts
-- **[GOLANG_DESIGN.md](./GOLANG_DESIGN.md)** - Detailed plugin descriptions and Node-RED mappings
-- **[../development/CONCURRENCY_LESSONS.md](../development/CONCURRENCY_LESSONS.md)** - Concurrency patterns
+- **[ARCHITECTURE.md](../architecture/ARCHITECTURE.md)** - Overall project architecture and status
+- **[VISUAL_ARCHITECTURE.md](../human/VISUAL_ARCHITECTURE.md)** - System diagrams and flow charts
+- **[CONCURRENCY_LESSONS.md](./CONCURRENCY_LESSONS.md)** - Concurrency patterns
 - **[../../homeautomation-go/README.md](../../homeautomation-go/README.md)** - User guide
 
 ---

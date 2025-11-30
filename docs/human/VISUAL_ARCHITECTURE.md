@@ -1014,6 +1014,5 @@ Follow these conventions:
 **Last Updated:** 2025-11-30
 **Maintained By:** Development Team
 **Related Documentation:**
-- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) - Architecture and design decisions
-- [GOLANG_DESIGN.md](./GOLANG_DESIGN.md) - Detailed flow descriptions
-- [../migration/migration_mapping.md](../migration/migration_mapping.md) - State variable mapping
+- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) - Architecture and design decisions
+- [migration_mapping.md](../reference/migration_mapping.md) - State variable mapping

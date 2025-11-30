@@ -94,7 +94,7 @@ validate-mermaid:
 	@echo ""
 	@# Extract and validate each mermaid block from VISUAL_ARCHITECTURE.md
 	@rm -rf .mermaid-tmp && mkdir -p .mermaid-tmp && chmod 777 .mermaid-tmp
-	@awk '/^```mermaid$$/,/^```$$/' docs/architecture/VISUAL_ARCHITECTURE.md | \
+	@awk '/^```mermaid$$/,/^```$$/' docs/human/VISUAL_ARCHITECTURE.md | \
 	  awk 'BEGIN{n=0} /^```mermaid$$/{n++;f=".mermaid-tmp/diagram-"n".mmd";next} /^```$$/{close(f);next} {print > f}'
 	@diagram_count=$$(ls -1 .mermaid-tmp/*.mmd 2>/dev/null | wc -l); \
 	  echo "Found $$diagram_count Mermaid diagrams to validate"; \

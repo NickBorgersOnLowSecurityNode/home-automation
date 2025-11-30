@@ -11,11 +11,11 @@ This guide helps you quickly navigate the visual documentation for the Golang ho
 | **Understand music selection logic** | [Music Manager Flow](#music-manager-logic-flow) in VISUAL_ARCHITECTURE.md |
 | **Understand lighting control** | [Lighting Control Flow](#lighting-control-logic-flow) in VISUAL_ARCHITECTURE.md |
 | **See state variable dependencies** | [State Dependency Graph](#state-variable-dependency-graph) in VISUAL_ARCHITECTURE.md |
-| **Learn about diagram automation** | [Diagram Generation Rules](./architecture/DIAGRAM_GENERATION_RULES.md) |
+| **Learn about diagram automation** | [Diagram Generation Rules](../archive/DIAGRAM_GENERATION_RULES.md) |
 
 ## 📚 Main Documentation Files
 
-### [VISUAL_ARCHITECTURE.md](./architecture/VISUAL_ARCHITECTURE.md)
+### [VISUAL_ARCHITECTURE.md](./VISUAL_ARCHITECTURE.md)
 **Purpose:** Visual representation of the Go implementation using Mermaid diagrams
 
 **Contents:**
@@ -33,7 +33,7 @@ This guide helps you quickly navigate the visual documentation for the Golang ho
 - Debugging state flow issues
 - Comparing Go implementation to Node-RED flows
 
-### [DIAGRAM_GENERATION_RULES.md](./architecture/DIAGRAM_GENERATION_RULES.md)
+### [DIAGRAM_GENERATION_RULES.md](../archive/DIAGRAM_GENERATION_RULES.md)
 **Purpose:** Strategy for automated diagram generation from code
 
 **Contents:**
@@ -108,14 +108,14 @@ This guide helps you quickly navigate the visual documentation for the Golang ho
 
 | Node-RED Flow | Go Implementation | Visual Diagram |
 |---------------|-------------------|----------------|
-| **Music** | `internal/plugins/music/manager.go` | [Music Manager Logic Flow](./architecture/VISUAL_ARCHITECTURE.md#music-manager-logic-flow) |
-| **Lighting Control** | `internal/plugins/lighting/manager.go` | [Lighting Control Logic Flow](./architecture/VISUAL_ARCHITECTURE.md#lighting-control-logic-flow) |
-| **Energy State** | `internal/plugins/energy/manager.go` | [Energy State Logic Flow](./architecture/VISUAL_ARCHITECTURE.md#energy-state-logic-flow) |
-| **State Tracking** | `internal/plugins/statetracking/manager.go` | [State Dependency Graph](./architecture/VISUAL_ARCHITECTURE.md#state-variable-dependency-graph) |
-| **Sleep Hygiene** | `internal/plugins/sleephygiene/manager.go` | [State Synchronization Flow](./architecture/VISUAL_ARCHITECTURE.md#state-synchronization-flow) |
-| **TV Monitoring** | `internal/plugins/tv/manager.go` | [State Dependency Graph](./architecture/VISUAL_ARCHITECTURE.md#state-variable-dependency-graph) |
-| **Security** | `internal/plugins/security/manager.go` | [State Dependency Graph](./architecture/VISUAL_ARCHITECTURE.md#state-variable-dependency-graph) |
-| **Load Shedding** | `internal/plugins/loadshedding/manager.go` | [State Dependency Graph](./architecture/VISUAL_ARCHITECTURE.md#state-variable-dependency-graph) |
+| **Music** | `internal/plugins/music/manager.go` | [Music Manager Logic Flow](./VISUAL_ARCHITECTURE.md#music-manager-logic-flow) |
+| **Lighting Control** | `internal/plugins/lighting/manager.go` | [Lighting Control Logic Flow](./VISUAL_ARCHITECTURE.md#lighting-control-logic-flow) |
+| **Energy State** | `internal/plugins/energy/manager.go` | [Energy State Logic Flow](./VISUAL_ARCHITECTURE.md#energy-state-logic-flow) |
+| **State Tracking** | `internal/plugins/statetracking/manager.go` | [State Dependency Graph](./VISUAL_ARCHITECTURE.md#state-variable-dependency-graph) |
+| **Sleep Hygiene** | `internal/plugins/sleephygiene/manager.go` | [State Synchronization Flow](./VISUAL_ARCHITECTURE.md#state-synchronization-flow) |
+| **TV Monitoring** | `internal/plugins/tv/manager.go` | [State Dependency Graph](./VISUAL_ARCHITECTURE.md#state-variable-dependency-graph) |
+| **Security** | `internal/plugins/security/manager.go` | [State Dependency Graph](./VISUAL_ARCHITECTURE.md#state-variable-dependency-graph) |
+| **Load Shedding** | `internal/plugins/loadshedding/manager.go` | [State Dependency Graph](./VISUAL_ARCHITECTURE.md#state-variable-dependency-graph) |
 
 ## 🛠️ Maintaining Diagrams
 
@@ -130,7 +130,7 @@ Update diagrams when:
 
 ### How to Update
 
-1. **Find the relevant diagram** in [VISUAL_ARCHITECTURE.md](./architecture/VISUAL_ARCHITECTURE.md)
+1. **Find the relevant diagram** in [VISUAL_ARCHITECTURE.md](./VISUAL_ARCHITECTURE.md)
 2. **Edit the Mermaid code** directly in markdown
 3. **Preview** in VS Code or Mermaid Live Editor
 4. **Verify** rendering in GitHub
@@ -163,7 +163,7 @@ graph TD
 ## 🚀 Next Steps
 
 ### For Developers
-1. ✅ Read [VISUAL_ARCHITECTURE.md](./architecture/VISUAL_ARCHITECTURE.md) to understand the system
+1. ✅ Read [VISUAL_ARCHITECTURE.md](./VISUAL_ARCHITECTURE.md) to understand the system
 2. ✅ Use diagrams to understand plugin logic before making changes
 3. ✅ Update diagrams when changing code
 4. ✅ Reference diagrams in PR descriptions
@@ -173,7 +173,7 @@ graph TD
 2. ⏳ Generate variable usage matrix automatically
 3. ⏳ Add CI/CD checks for diagram freshness
 
-See [DIAGRAM_GENERATION_RULES.md](./architecture/DIAGRAM_GENERATION_RULES.md) for automation strategy.
+See [DIAGRAM_GENERATION_RULES.md](../archive/DIAGRAM_GENERATION_RULES.md) for automation strategy.
 
 ---
 
@@ -181,7 +181,7 @@ See [DIAGRAM_GENERATION_RULES.md](./architecture/DIAGRAM_GENERATION_RULES.md) fo
 
 | Task | Command/Link |
 |------|--------------|
-| View all diagrams | Open [VISUAL_ARCHITECTURE.md](./architecture/VISUAL_ARCHITECTURE.md) |
+| View all diagrams | Open [VISUAL_ARCHITECTURE.md](./VISUAL_ARCHITECTURE.md) |
 | Edit diagram | Edit Mermaid code block in markdown |
 | Preview diagram | Use VS Code with Mermaid extension |
 | Test diagram | Paste into https://mermaid.live/ |
