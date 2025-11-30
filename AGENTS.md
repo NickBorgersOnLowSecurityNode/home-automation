@@ -363,6 +363,138 @@ If `/api/shadow/{plugin}` shows `inputs.current: {}` (empty), the plugin is miss
 - [ ] Call output update methods (e.g., `UpdateSomeLevel()`) when computing outputs
 - [ ] Test that shadow state is populated after handlers run
 
+### 📝 Documentation Maintenance Requirements
+
+**Documentation must stay in sync with code changes.** When making changes to the codebase, update the relevant documentation as part of the same work session.
+
+#### When to Update Documentation
+
+| Change Type | Documentation to Update |
+|-------------|------------------------|
+| **New plugin added** | `VISUAL_ARCHITECTURE.md` (System Architecture, State Variable Dependency Graph), `IMPLEMENTATION_PLAN.md` |
+| **New state variable** | `VISUAL_ARCHITECTURE.md` (State Variable Dependency Graph, summary table), `migration_mapping.md` |
+| **Plugin interface changes** | `VISUAL_ARCHITECTURE.md` (Plugin Interfaces diagram), `pkg/plugin/interfaces.go` godocs |
+| **New API endpoint** | `VISUAL_ARCHITECTURE.md` (API Server Endpoints), `internal/api/server.go` godocs |
+| **Shadow state changes** | `VISUAL_ARCHITECTURE.md` (Shadow State System, Interface diagram), `SHADOW_STATE.md` |
+| **State flow changes** | `VISUAL_ARCHITECTURE.md` (State Synchronization Flow) |
+| **New computed state** | `VISUAL_ARCHITECTURE.md` (State Synchronization Flow), `internal/state/computed.go` |
+| **Architecture changes** | `VISUAL_ARCHITECTURE.md`, `IMPLEMENTATION_PLAN.md`, `GOLANG_DESIGN.md` |
+| **Bug fixes** | `CONCURRENCY_LESSONS.md` (if concurrency-related), `AGENTS.md` (if adds to common issues) |
+
+#### Key Documentation Files
+
+| File | Purpose | Update Frequency |
+|------|---------|------------------|
+| **`docs/architecture/VISUAL_ARCHITECTURE.md`** | Mermaid diagrams of system architecture, flows, and dependencies | When architecture changes |
+| **`docs/architecture/SHADOW_STATE.md`** | Shadow state pattern implementation guide | When shadow state patterns change |
+| **`docs/architecture/IMPLEMENTATION_PLAN.md`** | Task tracking, design decisions, migration status | As tasks complete |
+| **`docs/architecture/GOLANG_DESIGN.md`** | Detailed technical design | Major design changes |
+| **`docs/migration/migration_mapping.md`** | State variable mapping between Node-RED and Go | New state variables |
+| **`docs/development/CONCURRENCY_LESSONS.md`** | Patterns and lessons for concurrent code | New concurrency patterns |
+| **`AGENTS.md`** | This file - development guide | Process/workflow changes |
+| **`homeautomation-go/README.md`** | User guide for running the Go app | User-facing changes |
+
+#### Documentation Update Checklist
+
+When completing a task, verify:
+- [ ] **VISUAL_ARCHITECTURE.md diagrams are current** - Do diagrams reflect actual code structure?
+- [ ] **State variables are documented** - Are new variables in the dependency graph?
+- [ ] **API endpoints are listed** - Are new endpoints in the API diagram?
+- [ ] **Plugin list is complete** - Are all plugins shown in System Architecture?
+- [ ] **Shadow state types are documented** - Are new shadow state interfaces shown?
+- [ ] **"Last Updated" dates are current** - Update dates in modified docs
+- [ ] **Mermaid diagrams validate** - Run `make validate-mermaid` to check for syntax errors
+
+#### Validating Mermaid Diagrams
+
+**⚠️ IMPORTANT:** Always validate Mermaid diagrams after editing them. Mermaid has strict syntax rules that can cause silent rendering failures.
+
+```bash
+# Validate all Mermaid diagrams in VISUAL_ARCHITECTURE.md
+make validate-mermaid
+
+# This uses the mermaid-cli Docker image to render each diagram
+# and will report any syntax errors
+```
+
+**Common Mermaid Syntax Pitfalls:**
+- **Forward slashes in node labels**: Use quotes around labels containing `/`
+  - ❌ `Node[/api/endpoint]` - Mermaid interprets `[/` as parallelogram shape
+  - ✅ `Node["GET /api/endpoint"]` - Quoted text is treated as literal
+- **Curly braces in labels**: Use quotes or avoid `{}`
+  - ❌ `Node[{"key": "value"}]` - `{` starts a diamond shape
+  - ✅ `Node["key: value"]` - Simplified without braces
+- **Special characters**: When in doubt, wrap the label in double quotes
+- **Decision nodes**: Only use `{text}` for actual decision/diamond nodes
+
+**Example fixes:**
+```mermaid
+%% BAD - will cause parse errors
+Root[/]
+Health[/health]
+Response[{"status": "ok"}]
+
+%% GOOD - properly quoted
+Root["GET /"]
+Health["GET /health"]
+Response["status: ok"]
+```
+
+#### Specific Diagram Updates
+
+**System Architecture Diagram** (`VISUAL_ARCHITECTURE.md`):
+- Add new plugins to "Plugin Layer" subgraph
+- Add new core components to appropriate layer
+- Update connections when dependencies change
+- Add new external systems
+
+**State Variable Dependency Graph** (`VISUAL_ARCHITECTURE.md`):
+- Add new input variables to "Input State Variables"
+- Add computed variables to "Computed State Variables"
+- Add output variables to "Output State Variables"
+- Draw arrows showing which plugins read/write each variable
+- Update the State Variable Summary table counts
+
+**API Server Endpoints** (`VISUAL_ARCHITECTURE.md`):
+- Add new endpoints to the endpoint list
+- Update response type descriptions
+- Add new shadow state endpoints when plugins add shadow state
+
+**Plugin Interfaces** (`VISUAL_ARCHITECTURE.md`):
+- Update class diagrams when interfaces change
+- Add new optional interfaces (like `Resettable`, `ShadowStateProvider`)
+
+#### Example: Adding a New Plugin
+
+When adding a new plugin (e.g., `calendar`):
+
+1. **Code changes:**
+   - Create `internal/plugins/calendar/manager.go`
+   - Add to `cmd/main.go` initialization
+   - Add shadow state type if needed
+
+2. **Documentation updates:**
+   ```markdown
+   # In VISUAL_ARCHITECTURE.md:
+
+   ## System Architecture
+   - Add "Calendar[Calendar Manager<br/>internal/plugins/calendar/]" to Plugin Layer
+   - Add connection arrows to StateManager, HAClient
+
+   ## State Variable Dependency Graph
+   - Add any new state variables the plugin uses
+   - Add the plugin to the Plugins subgraph
+   - Draw arrows showing read/write relationships
+
+   ## Shadow State System (if applicable)
+   - Add CalendarShadowState to Plugin Shadow States
+   - Add /api/shadow/calendar to API endpoints
+   ```
+
+3. **Update IMPLEMENTATION_PLAN.md:**
+   - Mark the calendar plugin task as complete
+   - Add any follow-up tasks discovered
+
 ### Update docs/architecture/IMPLEMENTATION_PLAN.md
 As you complete tasks, update the implementation plan with progress, and add additional work items as additional problems to solve are identified.
 
@@ -916,7 +1048,7 @@ A: MUST test with `-race` flag and run integration tests. Protect WebSocket writ
 
 ---
 
-**Last Updated**: 2025-11-15
+**Last Updated**: 2025-11-30
 **Go Version**: 1.23
 **Project Status**: MVP Complete, Integration Testing Added, Parallel Testing Phase
 
