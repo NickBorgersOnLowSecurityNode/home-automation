@@ -169,6 +169,9 @@ func (m *Manager) handleBatteryChange(percentage float64) {
 		return
 	}
 
+	// Update shadow state sensor reading for battery
+	m.shadowTracker.UpdateBatteryPercentage(percentage)
+
 	// Determine battery energy level
 	level := m.determineBatteryEnergyLevel(percentage)
 	if level == "" {
@@ -207,6 +210,9 @@ func (m *Manager) handleThisHourSolarChange(kw float64) {
 		return
 	}
 
+	// Update shadow state sensor reading
+	m.shadowTracker.UpdateThisHourSolarKW(kw)
+
 	// Update state variable
 	if err := m.stateManager.SetNumber("thisHourSolarGeneration", kw); err != nil {
 		if errors.Is(err, state.ErrReadOnlyMode) {
@@ -232,6 +238,9 @@ func (m *Manager) handleRemainingSolarChange(kwh float64) {
 			zap.Float64("kwh", kwh))
 		return
 	}
+
+	// Update shadow state sensor reading
+	m.shadowTracker.UpdateRemainingSolarKWH(kwh)
 
 	// Update state variable
 	if err := m.stateManager.SetNumber("remainingSolarGeneration", kwh); err != nil {
@@ -261,6 +270,9 @@ func (m *Manager) handleGridAvailabilityChange(key string, oldValue, newValue in
 			zap.Any("value", newValue))
 		return
 	}
+
+	// Update shadow state sensor reading
+	m.shadowTracker.UpdateGridAvailable(gridAvailable)
 
 	// Skip HA sync in read-only mode
 	if m.readOnly {

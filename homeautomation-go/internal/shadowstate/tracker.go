@@ -623,6 +623,46 @@ func (et *EnergyTracker) UpdateSensorReadings(batteryPct, thisHourKW, remainingK
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
+// UpdateBatteryPercentage updates the battery percentage sensor reading
+func (et *EnergyTracker) UpdateBatteryPercentage(pct float64) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.SensorReadings.BatteryPercentage = pct
+	et.state.Outputs.SensorReadings.LastUpdate = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateThisHourSolarKW updates the this-hour solar generation sensor reading
+func (et *EnergyTracker) UpdateThisHourSolarKW(kw float64) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.SensorReadings.ThisHourSolarGenerationKW = kw
+	et.state.Outputs.SensorReadings.LastUpdate = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateRemainingSolarKWH updates the remaining solar generation sensor reading
+func (et *EnergyTracker) UpdateRemainingSolarKWH(kwh float64) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.SensorReadings.RemainingSolarGenerationKWH = kwh
+	et.state.Outputs.SensorReadings.LastUpdate = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateGridAvailable updates the grid availability sensor reading
+func (et *EnergyTracker) UpdateGridAvailable(available bool) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.SensorReadings.IsGridAvailable = available
+	et.state.Outputs.SensorReadings.LastUpdate = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
 // UpdateBatteryLevel updates the computed battery energy level
 func (et *EnergyTracker) UpdateBatteryLevel(level string) {
 	et.mu.Lock()
