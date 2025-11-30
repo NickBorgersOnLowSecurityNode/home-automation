@@ -85,6 +85,54 @@ build-config-tester:
 	docker build -t node-red-config-tester ./config-test/
 
 # ============================================================================
+# Documentation Validation Targets
+# ============================================================================
+
+#validate-mermaid: @ Validate all Mermaid diagrams in documentation can be rendered
+validate-mermaid:
+	@echo "🔍 Validating Mermaid diagrams..."
+	@echo ""
+	@# Extract and validate each mermaid block from VISUAL_ARCHITECTURE.md
+	@rm -rf .mermaid-tmp && mkdir -p .mermaid-tmp && chmod 777 .mermaid-tmp
+	@awk '/^```mermaid$$/,/^```$$/' docs/architecture/VISUAL_ARCHITECTURE.md | \
+	  awk 'BEGIN{n=0} /^```mermaid$$/{n++;f=".mermaid-tmp/diagram-"n".mmd";next} /^```$$/{close(f);next} {print > f}'
+	@diagram_count=$$(ls -1 .mermaid-tmp/*.mmd 2>/dev/null | wc -l); \
+	  echo "Found $$diagram_count Mermaid diagrams to validate"; \
+	  if [ "$$diagram_count" -eq 0 ]; then \
+	    echo "⚠️  No diagrams found"; \
+	    rm -rf .mermaid-tmp; \
+	    exit 0; \
+	  fi
+	@failed=0; \
+	  for f in .mermaid-tmp/*.mmd; do \
+	    name=$$(basename $$f); \
+	    echo -n "  Validating $$name... "; \
+	    if docker run --rm --user $$(id -u):$$(id -g) -v "$${PWD}/.mermaid-tmp:/data" minlag/mermaid-cli:latest \
+	      -i /data/$$name -o /data/$${name%.mmd}.png -q 2>/dev/null; then \
+	      echo "✅"; \
+	    else \
+	      echo "❌ FAILED"; \
+	      echo "    Error in diagram $$name:"; \
+	      docker run --rm --user $$(id -u):$$(id -g) -v "$${PWD}/.mermaid-tmp:/data" minlag/mermaid-cli:latest \
+	        -i /data/$$name -o /data/$${name%.mmd}.png 2>&1 | grep -E "(Error|error|Parse)" | head -5 | sed 's/^/    /'; \
+	      failed=1; \
+	    fi; \
+	  done; \
+	  rm -rf .mermaid-tmp; \
+	  if [ "$$failed" -eq 1 ]; then \
+	    echo ""; \
+	    echo "❌ Some Mermaid diagrams failed validation"; \
+	    exit 1; \
+	  fi
+	@echo ""
+	@echo "✅ All Mermaid diagrams validated successfully"
+
+#validate-docs: @ Validate all documentation (Mermaid diagrams, etc.)
+validate-docs: validate-mermaid
+	@echo ""
+	@echo "✅ All documentation validation passed"
+
+# ============================================================================
 # Go Application (homeautomation-go) Targets
 # ============================================================================
 
