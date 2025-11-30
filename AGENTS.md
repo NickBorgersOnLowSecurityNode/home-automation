@@ -49,17 +49,22 @@ make generate-screenshots
 │   │   ├── docker-build-push.yml # Docker build + push (main/master only)
 │   │   └── [other workflows]
 ├── docs/
-│   ├── architecture/           # Architecture documentation
-│   │   ├── IMPLEMENTATION_PLAN.md
-│   │   └── GOLANG_DESIGN.md
-│   ├── development/            # Development guides
-│   │   ├── BRANCH_PROTECTION.md
-│   │   └── CONCURRENCY_LESSONS.md
-│   ├── migration/              # Migration documentation
-│   │   └── migration_mapping.md
-│   ├── deployment/             # Deployment guides
-│   │   └── DOCKER.md
-│   └── REVIEW.md               # Code review notes
+│   ├── architecture/           # System design
+│   │   └── ARCHITECTURE.md     # Complete architecture and implementation status
+│   ├── human/                  # Human-focused visual documentation
+│   │   ├── VISUAL_ARCHITECTURE.md  # Mermaid diagrams
+│   │   └── DIAGRAM_QUICK_START.md  # Visual navigation guide
+│   ├── reference/              # Technical reference (for engineers/agents)
+│   │   ├── SHADOW_STATE.md     # Shadow state pattern
+│   │   ├── PLUGIN_SYSTEM.md    # Plugin interfaces
+│   │   ├── migration_mapping.md # State variable mapping
+│   │   └── CONCURRENCY_LESSONS.md # Concurrency patterns
+│   ├── operations/             # Deployment and process docs
+│   │   ├── DOCKER.md           # Docker deployment guide
+│   │   └── BRANCH_PROTECTION.md # PR requirements
+│   └── archive/                # Historical docs (not required reading)
+│       ├── NODE_RED_TABS_ANALYSIS.md
+│       └── [other archived docs]
 ├── homeautomation-go/          # Golang implementation
 │   ├── cmd/main.go             # Demo application
 │   ├── internal/ha/            # Home Assistant WebSocket client
@@ -75,16 +80,22 @@ make generate-screenshots
 
 ## Key Documentation
 
-### Required Reading
-1. **[docs/architecture/IMPLEMENTATION_PLAN.md](./docs/architecture/IMPLEMENTATION_PLAN.md)** - Complete architecture, design decisions, and migration strategy
-2. **[docs/architecture/VISUAL_ARCHITECTURE.md](./docs/architecture/VISUAL_ARCHITECTURE.md)** - Mermaid diagrams visualizing system architecture and plugin logic
-3. **[docs/architecture/SHADOW_STATE.md](./docs/architecture/SHADOW_STATE.md)** - Shadow state pattern for plugin observability (**READ THIS BEFORE WRITING PLUGINS**)
-4. **[docs/DIAGRAM_QUICK_START.md](./docs/DIAGRAM_QUICK_START.md)** - Quick guide to navigating visual documentation
-5. **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation user guide
-6. **[HA_SYNC_README.md](./HA_SYNC_README.md)** - Home Assistant synchronization details
+### For Engineers / AI Agents (Technical Reference)
+1. **[docs/architecture/ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md)** - Complete system design, implementation status, and migration roadmap
+2. **[docs/reference/SHADOW_STATE.md](./docs/reference/SHADOW_STATE.md)** - Shadow state pattern for plugin observability (**READ THIS BEFORE WRITING PLUGINS**)
+3. **[docs/reference/PLUGIN_SYSTEM.md](./docs/reference/PLUGIN_SYSTEM.md)** - Plugin interfaces and lifecycle
+4. **[docs/reference/migration_mapping.md](./docs/reference/migration_mapping.md)** - State variable mapping from Node-RED to HA
+5. **[docs/reference/CONCURRENCY_LESSONS.md](./docs/reference/CONCURRENCY_LESSONS.md)** - Concurrency patterns and lessons learned
+6. **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation user guide
 7. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide
-8. **[docs/development/CONCURRENCY_LESSONS.md](./docs/development/CONCURRENCY_LESSONS.md)** - Concurrency patterns and lessons learned
-9. **[docs/development/BRANCH_PROTECTION.md](./docs/development/BRANCH_PROTECTION.md)** - PR requirements and branch protection setup
+
+### For Human Developers (Visual Documentation)
+1. **[docs/human/VISUAL_ARCHITECTURE.md](./docs/human/VISUAL_ARCHITECTURE.md)** - Mermaid diagrams visualizing system architecture and plugin logic
+2. **[docs/human/DIAGRAM_QUICK_START.md](./docs/human/DIAGRAM_QUICK_START.md)** - Quick guide to navigating visual documentation
+
+### Operations
+1. **[docs/operations/DOCKER.md](./docs/operations/DOCKER.md)** - Docker deployment guide
+2. **[docs/operations/BRANCH_PROTECTION.md](./docs/operations/BRANCH_PROTECTION.md)** - PR requirements and branch protection setup
 
 ### External Documentation
 - [Go Documentation](https://go.dev/doc/)
@@ -231,7 +242,7 @@ When implementing a feature, follow this workflow:
 
 4. **Check state variables used** in the flow
    ```bash
-   # Cross-reference with docs/migration/migration_mapping.md
+   # Cross-reference with docs/reference/migration_mapping.md
    grep "input_boolean\|input_number\|input_text" music_flow.json
    ```
 
@@ -283,7 +294,7 @@ grep -A 10 '"type":"server-state-changed"' /tmp/music.json | grep "dayPhase\|isN
 cat configs/music_config.yaml
 
 # 6. Verify state variable definitions
-grep "musicPlaybackType" docs/migration/migration_mapping.md
+grep "musicPlaybackType" docs/reference/migration_mapping.md
 
 # 7. Test on live instance
 # Visit https://node-red.featherback-mermaid.ts.net/#flow/90f5fe8cb80ae6a7
@@ -307,15 +318,15 @@ grep "musicPlaybackType" docs/migration/migration_mapping.md
 ### Additional Resources
 
 - **[README.md](./README.md)** - High-level overview of all flows with visual diagrams
-- **[docs/architecture/GOLANG_DESIGN.md](./docs/architecture/GOLANG_DESIGN.md)** - Detailed flow descriptions and migration strategy
-- **[docs/migration/migration_mapping.md](./docs/migration/migration_mapping.md)** - Complete state variable mapping
+- **[docs/architecture/ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md)** - Detailed flow descriptions and migration strategy
+- **[docs/reference/migration_mapping.md](./docs/reference/migration_mapping.md)** - Complete state variable mapping
 - **[configs/](./configs/)** - YAML configuration files defining behavior
 
 ## Development Standards
 
 ### Shadow State Pattern (CRITICAL)
 
-**Every plugin MUST properly implement shadow state tracking.** See [docs/architecture/SHADOW_STATE.md](./docs/architecture/SHADOW_STATE.md) for full details.
+**Every plugin MUST properly implement shadow state tracking.** See [docs/reference/SHADOW_STATE.md](./docs/reference/SHADOW_STATE.md) for full details.
 
 #### Quick Reference: Required Pattern
 
@@ -385,12 +396,11 @@ If `/api/shadow/{plugin}` shows `inputs.current: {}` (empty), the plugin is miss
 
 | File | Purpose | Update Frequency |
 |------|---------|------------------|
-| **`docs/architecture/VISUAL_ARCHITECTURE.md`** | Mermaid diagrams of system architecture, flows, and dependencies | When architecture changes |
-| **`docs/architecture/SHADOW_STATE.md`** | Shadow state pattern implementation guide | When shadow state patterns change |
-| **`docs/architecture/IMPLEMENTATION_PLAN.md`** | Task tracking, design decisions, migration status | As tasks complete |
-| **`docs/architecture/GOLANG_DESIGN.md`** | Detailed technical design | Major design changes |
-| **`docs/migration/migration_mapping.md`** | State variable mapping between Node-RED and Go | New state variables |
-| **`docs/development/CONCURRENCY_LESSONS.md`** | Patterns and lessons for concurrent code | New concurrency patterns |
+| **`docs/human/VISUAL_ARCHITECTURE.md`** | Mermaid diagrams of system architecture, flows, and dependencies | When architecture changes |
+| **`docs/reference/SHADOW_STATE.md`** | Shadow state pattern implementation guide | When shadow state patterns change |
+| **`docs/architecture/ARCHITECTURE.md`** | Task tracking, design decisions, migration status | As tasks complete |
+| **`docs/reference/migration_mapping.md`** | State variable mapping between Node-RED and Go | New state variables |
+| **`docs/reference/CONCURRENCY_LESSONS.md`** | Patterns and lessons for concurrent code | New concurrency patterns |
 | **`AGENTS.md`** | This file - development guide | Process/workflow changes |
 | **`homeautomation-go/README.md`** | User guide for running the Go app | User-facing changes |
 
@@ -495,7 +505,7 @@ When adding a new plugin (e.g., `calendar`):
    - Mark the calendar plugin task as complete
    - Add any follow-up tasks discovered
 
-### Update docs/architecture/IMPLEMENTATION_PLAN.md
+### Update docs/architecture/ARCHITECTURE.md
 As you complete tasks, update the implementation plan with progress, and add additional work items as additional problems to solve are identified.
 
 ### Go Code Standards
@@ -773,7 +783,7 @@ go install honnef.co/go/tools/cmd/staticcheck@latest
 
 ## Critical Bugs Found by Integration Tests
 
-The integration test suite discovered and helped fix production-critical bugs. See [docs/development/CONCURRENCY_LESSONS.md](./docs/development/CONCURRENCY_LESSONS.md) for concurrency patterns and lessons learned.
+The integration test suite discovered and helped fix production-critical bugs. See [docs/reference/CONCURRENCY_LESSONS.md](./docs/reference/CONCURRENCY_LESSONS.md) for concurrency patterns and lessons learned.
 
 ### Fixed Bugs ✅
 1. **Concurrent WebSocket Writes** - Would cause panics under load
@@ -990,7 +1000,7 @@ dlv debug ./cmd/main.go         # Debug with delve (if installed)
 - **Do not add new features to Node-RED**
 
 ### Migration Strategy
-See docs/architecture/IMPLEMENTATION_PLAN.md for complete migration roadmap.
+See docs/architecture/ARCHITECTURE.md for complete migration roadmap.
 
 **Current Phase**: MVP Complete + Integration Testing ✅
 - Go implementation is ready for parallel testing
@@ -1009,11 +1019,10 @@ See docs/architecture/IMPLEMENTATION_PLAN.md for complete migration roadmap.
 ## Getting Help
 
 ### Internal Resources
-- [docs/architecture/IMPLEMENTATION_PLAN.md](./docs/architecture/IMPLEMENTATION_PLAN.md) - Architecture decisions
+- [docs/architecture/ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md) - Architecture decisions
 - [homeautomation-go/README.md](./homeautomation-go/README.md) - User guide
-- [HA_SYNC_README.md](./HA_SYNC_README.md) - Sync details
-- [test/integration/README.md](./homeautomation-go/test/integration/README.md) - Integration testing
-- [docs/development/CONCURRENCY_LESSONS.md](./docs/development/CONCURRENCY_LESSONS.md) - Concurrency patterns and lessons
+- [homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md) - Integration testing
+- [docs/reference/CONCURRENCY_LESSONS.md](./docs/reference/CONCURRENCY_LESSONS.md) - Concurrency patterns and lessons
 
 ### External Resources
 - [Go Documentation](https://go.dev/doc/)
@@ -1023,7 +1032,7 @@ See docs/architecture/IMPLEMENTATION_PLAN.md for complete migration roadmap.
 ### Common Questions
 
 **Q: Why Go instead of Node-RED?**
-A: Type safety, better testing, easier maintenance, no NPM dependency hell. See docs/architecture/IMPLEMENTATION_PLAN.md.
+A: Type safety, better testing, easier maintenance, no NPM dependency hell. See docs/architecture/ARCHITECTURE.md.
 
 **Q: Can I run both implementations simultaneously?**
 A: Yes! Use READ_ONLY=true in Go implementation to safely run in parallel.

@@ -269,6 +269,6 @@ When debugging unexpected behavior:
 
 ## Related Documentation
 
-- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) - Overall architecture
-- [VISUAL_ARCHITECTURE.md](./VISUAL_ARCHITECTURE.md) - System diagrams
-- [../development/CONCURRENCY_LESSONS.md](../development/CONCURRENCY_LESSONS.md) - Thread safety patterns
+- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) - Overall architecture
+- [VISUAL_ARCHITECTURE.md](../human/VISUAL_ARCHITECTURE.md) - System diagrams
+- [CONCURRENCY_LESSONS.md](./CONCURRENCY_LESSONS.md) - Thread safety patterns
