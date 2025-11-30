@@ -192,6 +192,9 @@ func (m *Manager) handlePrimarySuiteLightsChange(entityID string, oldState, newS
 		return
 	}
 
+	// Update shadow state inputs
+	m.updateShadowInputs()
+
 	lightsOff := newState.State == "off"
 
 	m.logger.Debug("Primary suite lights changed",
@@ -268,6 +271,9 @@ func (m *Manager) handlePrimaryBedroomDoorChange(entityID string, oldState, newS
 		return
 	}
 
+	// Update shadow state inputs
+	m.updateShadowInputs()
+
 	doorOpen := newState.State == "on"
 
 	m.logger.Debug("Primary bedroom door changed",
@@ -318,6 +324,9 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 		return
 	}
 
+	// Update shadow state inputs
+	m.updateShadowInputs()
+
 	// Check if Nick just arrived (state changed to "on" from something else)
 	if newState.State == "on" && oldState.State != "on" {
 		m.logger.Debug("Nick arrived home, checking if should announce",
@@ -361,6 +370,9 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 		return
 	}
 
+	// Update shadow state inputs
+	m.updateShadowInputs()
+
 	// Check if Caroline just arrived (state changed to "on" from something else)
 	if newState.State == "on" && oldState.State != "on" {
 		m.logger.Debug("Caroline arrived home, checking if should announce",
@@ -403,6 +415,9 @@ func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.S
 	if newState == nil || oldState == nil {
 		return
 	}
+
+	// Update shadow state inputs
+	m.updateShadowInputs()
 
 	// Check if Tori just arrived (state changed to "on" from something else)
 	if newState.State == "on" && oldState.State != "on" {
@@ -550,4 +565,47 @@ func (m *Manager) Reset() error {
 	}
 
 	return nil
+}
+
+// updateShadowInputs captures the current input values used for state tracking
+func (m *Manager) updateShadowInputs() {
+	inputs := make(map[string]interface{})
+
+	// Capture presence states (primary inputs)
+	if val, err := m.stateManager.GetBool("isNickHome"); err == nil {
+		inputs["isNickHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isCarolineHome"); err == nil {
+		inputs["isCarolineHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isToriHere"); err == nil {
+		inputs["isToriHere"] = val
+	}
+
+	// Capture sleep states
+	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
+		inputs["isMasterAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isGuestAsleep"); err == nil {
+		inputs["isGuestAsleep"] = val
+	}
+
+	// Capture derived states (outputs that become inputs for other plugins)
+	if val, err := m.stateManager.GetBool("isAnyOwnerHome"); err == nil {
+		inputs["isAnyOwnerHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
+		inputs["isAnyoneHome"] = val
+	}
+	if val, err := m.stateManager.GetBool("isAnyoneAsleep"); err == nil {
+		inputs["isAnyoneAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
+		inputs["isEveryoneAsleep"] = val
+	}
+	if val, err := m.stateManager.GetBool("didOwnerJustReturnHome"); err == nil {
+		inputs["didOwnerJustReturnHome"] = val
+	}
+
+	m.shadowTracker.UpdateCurrentInputs(inputs)
 }

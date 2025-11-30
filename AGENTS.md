@@ -77,13 +77,14 @@ make generate-screenshots
 
 ### Required Reading
 1. **[docs/architecture/IMPLEMENTATION_PLAN.md](./docs/architecture/IMPLEMENTATION_PLAN.md)** - Complete architecture, design decisions, and migration strategy
-2. **[docs/architecture/VISUAL_ARCHITECTURE.md](./docs/architecture/VISUAL_ARCHITECTURE.md)** - Mermaid diagrams visualizing system architecture and plugin logic (NEW)
-3. **[docs/DIAGRAM_QUICK_START.md](./docs/DIAGRAM_QUICK_START.md)** - Quick guide to navigating visual documentation (NEW)
-4. **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation user guide
-5. **[HA_SYNC_README.md](./HA_SYNC_README.md)** - Home Assistant synchronization details
-6. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide
-7. **[docs/development/CONCURRENCY_LESSONS.md](./docs/development/CONCURRENCY_LESSONS.md)** - Concurrency patterns and lessons learned
-8. **[docs/development/BRANCH_PROTECTION.md](./docs/development/BRANCH_PROTECTION.md)** - PR requirements and branch protection setup
+2. **[docs/architecture/VISUAL_ARCHITECTURE.md](./docs/architecture/VISUAL_ARCHITECTURE.md)** - Mermaid diagrams visualizing system architecture and plugin logic
+3. **[docs/architecture/SHADOW_STATE.md](./docs/architecture/SHADOW_STATE.md)** - Shadow state pattern for plugin observability (**READ THIS BEFORE WRITING PLUGINS**)
+4. **[docs/DIAGRAM_QUICK_START.md](./docs/DIAGRAM_QUICK_START.md)** - Quick guide to navigating visual documentation
+5. **[homeautomation-go/README.md](./homeautomation-go/README.md)** - Go implementation user guide
+6. **[HA_SYNC_README.md](./HA_SYNC_README.md)** - Home Assistant synchronization details
+7. **[homeautomation-go/test/integration/README.md](./homeautomation-go/test/integration/README.md)** - Integration testing guide
+8. **[docs/development/CONCURRENCY_LESSONS.md](./docs/development/CONCURRENCY_LESSONS.md)** - Concurrency patterns and lessons learned
+9. **[docs/development/BRANCH_PROTECTION.md](./docs/development/BRANCH_PROTECTION.md)** - PR requirements and branch protection setup
 
 ### External Documentation
 - [Go Documentation](https://go.dev/doc/)
@@ -312,6 +313,56 @@ grep "musicPlaybackType" docs/migration/migration_mapping.md
 
 ## Development Standards
 
+### Shadow State Pattern (CRITICAL)
+
+**Every plugin MUST properly implement shadow state tracking.** See [docs/architecture/SHADOW_STATE.md](./docs/architecture/SHADOW_STATE.md) for full details.
+
+#### Quick Reference: Required Pattern
+
+```go
+// EVERY handler must update shadow inputs at the start
+func (m *Manager) handleSomeChange(entityID string, oldState, newState *ha.State) {
+    if newState == nil {
+        return
+    }
+
+    // 1. FIRST: Update shadow state inputs (captures what triggered this)
+    m.updateShadowInputs()
+
+    // 2. Then: Process the change
+    // 3. Update state variables
+    // 4. Update shadow state outputs
+}
+
+// This method captures ALL subscribed inputs
+func (m *Manager) updateShadowInputs() {
+    inputs := make(map[string]interface{})
+
+    // Capture state variables this plugin subscribes to
+    if val, err := m.stateManager.GetBool("someInput"); err == nil {
+        inputs["someInput"] = val
+    }
+
+    // Capture raw HA entity states
+    if state, err := m.haClient.GetState("sensor.something"); err == nil && state != nil {
+        inputs["sensor.something"] = state.State
+    }
+
+    m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+```
+
+#### Common Bug: Forgetting to Track Inputs
+
+If `/api/shadow/{plugin}` shows `inputs.current: {}` (empty), the plugin is missing `updateShadowInputs()` calls.
+
+**Checklist for new plugins:**
+- [ ] Add `shadowTracker` field to Manager struct
+- [ ] Implement `updateShadowInputs()` method
+- [ ] Call `updateShadowInputs()` at the START of every handler
+- [ ] Call output update methods (e.g., `UpdateSomeLevel()`) when computing outputs
+- [ ] Test that shadow state is populated after handlers run
+
 ### 📝 Documentation Maintenance Requirements
 
 **Documentation must stay in sync with code changes.** When making changes to the codebase, update the relevant documentation as part of the same work session.
@@ -324,7 +375,7 @@ grep "musicPlaybackType" docs/migration/migration_mapping.md
 | **New state variable** | `VISUAL_ARCHITECTURE.md` (State Variable Dependency Graph, summary table), `migration_mapping.md` |
 | **Plugin interface changes** | `VISUAL_ARCHITECTURE.md` (Plugin Interfaces diagram), `pkg/plugin/interfaces.go` godocs |
 | **New API endpoint** | `VISUAL_ARCHITECTURE.md` (API Server Endpoints), `internal/api/server.go` godocs |
-| **Shadow state changes** | `VISUAL_ARCHITECTURE.md` (Shadow State System, Interface diagram) |
+| **Shadow state changes** | `VISUAL_ARCHITECTURE.md` (Shadow State System, Interface diagram), `SHADOW_STATE.md` |
 | **State flow changes** | `VISUAL_ARCHITECTURE.md` (State Synchronization Flow) |
 | **New computed state** | `VISUAL_ARCHITECTURE.md` (State Synchronization Flow), `internal/state/computed.go` |
 | **Architecture changes** | `VISUAL_ARCHITECTURE.md`, `IMPLEMENTATION_PLAN.md`, `GOLANG_DESIGN.md` |
@@ -335,6 +386,7 @@ grep "musicPlaybackType" docs/migration/migration_mapping.md
 | File | Purpose | Update Frequency |
 |------|---------|------------------|
 | **`docs/architecture/VISUAL_ARCHITECTURE.md`** | Mermaid diagrams of system architecture, flows, and dependencies | When architecture changes |
+| **`docs/architecture/SHADOW_STATE.md`** | Shadow state pattern implementation guide | When shadow state patterns change |
 | **`docs/architecture/IMPLEMENTATION_PLAN.md`** | Task tracking, design decisions, migration status | As tasks complete |
 | **`docs/architecture/GOLANG_DESIGN.md`** | Detailed technical design | Major design changes |
 | **`docs/migration/migration_mapping.md`** | State variable mapping between Node-RED and Go | New state variables |

@@ -141,6 +141,9 @@ func (m *Manager) handleAppleTVStateChange(entityID string, oldState, newState *
 		return
 	}
 
+	// Update shadow state inputs with raw HA entity value
+	m.updateShadowInputs()
+
 	// Check if Apple TV is playing
 	isPlaying := newState.State == "playing"
 
@@ -168,6 +171,9 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 	if newState == nil {
 		return
 	}
+
+	// Update shadow state inputs with raw HA entity value
+	m.updateShadowInputs()
 
 	// Check if sync box is on
 	isTVOn := newState.State == "on"
@@ -211,6 +217,9 @@ func (m *Manager) handleHDMIInputChange(entityID string, oldState, newState *ha.
 		return
 	}
 
+	// Update shadow state inputs with raw HA entity value
+	m.updateShadowInputs()
+
 	hdmiInput := newState.State
 
 	m.logger.Debug("HDMI input changed",
@@ -241,6 +250,32 @@ func (m *Manager) handleAppleTVPlayingChange(key string, oldValue, newValue inte
 	if hdmiInputState != nil {
 		m.calculateTVPlaying(hdmiInputState.State)
 	}
+}
+
+// updateShadowInputs captures the current input values from HA entities
+func (m *Manager) updateShadowInputs() {
+	inputs := make(map[string]interface{})
+
+	// Capture raw HA entity states
+	if state, err := m.haClient.GetState("media_player.big_beautiful_oled"); err == nil && state != nil {
+		inputs["media_player.big_beautiful_oled"] = state.State
+	}
+	if state, err := m.haClient.GetState("switch.sync_box_power"); err == nil && state != nil {
+		inputs["switch.sync_box_power"] = state.State
+	}
+	if state, err := m.haClient.GetState("select.sync_box_hdmi_input"); err == nil && state != nil {
+		inputs["select.sync_box_hdmi_input"] = state.State
+	}
+
+	// Also capture derived state variables
+	if val, err := m.stateManager.GetBool("isAppleTVPlaying"); err == nil {
+		inputs["isAppleTVPlaying"] = val
+	}
+	if val, err := m.stateManager.GetBool("isTVon"); err == nil {
+		inputs["isTVon"] = val
+	}
+
+	m.shadowTracker.UpdateCurrentInputs(inputs)
 }
 
 // calculateTVPlaying determines isTVPlaying based on HDMI input and Apple TV state

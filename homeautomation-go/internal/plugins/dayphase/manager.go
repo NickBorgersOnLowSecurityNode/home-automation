@@ -140,6 +140,9 @@ func (m *Manager) periodicUpdate() {
 
 // updateSunEventAndDayPhase calculates and updates sunevent and dayPhase
 func (m *Manager) updateSunEventAndDayPhase() error {
+	// Update shadow state inputs with current calculation context
+	m.updateShadowInputs()
+
 	// Get current sun event
 	sunEvent := m.calculator.GetSunEvent()
 	sunEventStr := string(sunEvent)
@@ -220,4 +223,29 @@ func (m *Manager) Reset() error {
 
 	m.logger.Info("Successfully reset Day Phase")
 	return nil
+}
+
+// updateShadowInputs captures the current input values used for day phase calculation
+func (m *Manager) updateShadowInputs() {
+	inputs := make(map[string]interface{})
+
+	// Capture current time (the primary input for day phase calculation)
+	inputs["currentTime"] = time.Now().Format(time.RFC3339)
+
+	// Capture sun times from calculator if available
+	// Note: range over nil map is safe in Go (no iterations)
+	for name, t := range m.calculator.GetSunTimes() {
+		inputs[name] = t.Format(time.RFC3339)
+	}
+
+	// Get current schedule info if available
+	schedule, err := m.configLoader.GetTodaysSchedule()
+	if err == nil && schedule != nil {
+		inputs["scheduleWake"] = schedule.Wake.Format(time.RFC3339)
+		inputs["scheduleBeginWake"] = schedule.BeginWake.Format(time.RFC3339)
+		inputs["scheduleWinddown"] = schedule.Winddown.Format(time.RFC3339)
+		inputs["scheduleNight"] = schedule.Night.Format(time.RFC3339)
+	}
+
+	m.shadowTracker.UpdateCurrentInputs(inputs)
 }
