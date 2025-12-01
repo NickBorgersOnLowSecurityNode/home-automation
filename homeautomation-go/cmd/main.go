@@ -147,7 +147,7 @@ func main() {
 	logger.Info("Shadow State Tracker created")
 
 	// Start HTTP API server
-	apiServer := api.NewServer(stateManager, shadowTracker, logger, httpPort)
+	apiServer := api.NewServer(stateManager, shadowTracker, logger, httpPort, timezone)
 	if err := apiServer.Start(); err != nil {
 		logger.Fatal("Failed to start HTTP API server", zap.Error(err))
 	}
