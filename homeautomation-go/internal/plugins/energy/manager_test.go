@@ -445,16 +445,16 @@ func TestEnergyManager_Stop(t *testing.T) {
 	err := manager.Start()
 	assert.NoError(t, err)
 
-	// Verify subscriptions were created
-	assert.Equal(t, 3, len(manager.haSubscriptions), "Should have 3 HA subscriptions")
-	assert.Equal(t, 4, len(manager.stateSubscriptions), "Should have 4 state subscriptions")
+	// Verify subscriptions were created via subHelper
+	assert.Equal(t, 3, len(manager.subHelper.GetHASubscriptions()), "Should have 3 HA subscriptions")
+	assert.Equal(t, 4, len(manager.subHelper.GetStateSubscriptions()), "Should have 4 state subscriptions")
 
 	// Stop manager
 	manager.Stop()
 
 	// Verify subscriptions were cleaned up
-	assert.Nil(t, manager.haSubscriptions, "HA subscriptions should be nil after Stop")
-	assert.Nil(t, manager.stateSubscriptions, "State subscriptions should be nil after Stop")
+	assert.Equal(t, 0, len(manager.subHelper.GetHASubscriptions()), "HA subscriptions should be empty after Stop")
+	assert.Equal(t, 0, len(manager.subHelper.GetStateSubscriptions()), "State subscriptions should be empty after Stop")
 }
 
 func TestEnergyManager_ReadOnlyMode(t *testing.T) {
