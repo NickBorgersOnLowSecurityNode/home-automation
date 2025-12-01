@@ -32,16 +32,21 @@ type Manager struct {
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.EnergyTracker
+
+	// Automatic input capture for shadow state
+	pluginName  string
+	registry    *shadowstate.SubscriptionRegistry
+	inputHelper *shadowstate.InputCaptureHelper
 }
 
 // NewManager creates a new Energy State manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *EnergyConfig, logger *zap.Logger, readOnly bool, timezone *time.Location) *Manager {
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *EnergyConfig, logger *zap.Logger, readOnly bool, timezone *time.Location, registry *shadowstate.SubscriptionRegistry) *Manager {
 	// Default to UTC if no timezone provided
 	if timezone == nil {
 		timezone = time.UTC
 	}
 
-	return &Manager{
+	m := &Manager{
 		haClient:           haClient,
 		stateManager:       stateManager,
 		config:             config,
@@ -52,7 +57,16 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Energ
 		stateSubscriptions: make([]state.Subscription, 0),
 		stopChecker:        make(chan struct{}),
 		shadowTracker:      shadowstate.NewEnergyTracker(),
+		pluginName:         "energy",
+		registry:           registry,
 	}
+
+	// Create input helper if registry provided
+	if registry != nil {
+		m.inputHelper = shadowstate.NewInputCaptureHelper(registry, haClient, stateManager)
+	}
+
+	return m
 }
 
 // GetShadowState returns the current shadow state
@@ -60,23 +74,44 @@ func (m *Manager) GetShadowState() *shadowstate.EnergyShadowState {
 	return m.shadowTracker.GetState()
 }
 
+// updateShadowInputs captures all subscribed inputs for shadow state tracking
+func (m *Manager) updateShadowInputs() {
+	if m.inputHelper == nil {
+		return
+	}
+	inputs := m.inputHelper.CaptureInputs(m.pluginName)
+	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
 // Start begins monitoring energy state
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Energy State Manager")
 
 	// Subscribe to battery level changes
-	if err := m.subscribeToSensor("sensor.span_panel_span_storage_battery_percentage_2", m.handleBatteryChange); err != nil {
+	batteryEntity := "sensor.span_panel_span_storage_battery_percentage_2"
+	if err := m.subscribeToSensor(batteryEntity, m.handleBatteryChange); err != nil {
 		return fmt.Errorf("failed to subscribe to battery sensor: %w", err)
+	}
+	if m.registry != nil {
+		m.registry.RegisterHASubscription(m.pluginName, batteryEntity)
 	}
 
 	// Subscribe to this hour solar generation
-	if err := m.subscribeToSensor("sensor.energy_next_hour", m.handleThisHourSolarChange); err != nil {
+	thisHourSolarEntity := "sensor.energy_next_hour"
+	if err := m.subscribeToSensor(thisHourSolarEntity, m.handleThisHourSolarChange); err != nil {
 		return fmt.Errorf("failed to subscribe to this hour solar sensor: %w", err)
+	}
+	if m.registry != nil {
+		m.registry.RegisterHASubscription(m.pluginName, thisHourSolarEntity)
 	}
 
 	// Subscribe to remaining solar generation
-	if err := m.subscribeToSensor("sensor.energy_production_today_remaining", m.handleRemainingSolarChange); err != nil {
+	remainingSolarEntity := "sensor.energy_production_today_remaining"
+	if err := m.subscribeToSensor(remainingSolarEntity, m.handleRemainingSolarChange); err != nil {
 		return fmt.Errorf("failed to subscribe to remaining solar sensor: %w", err)
+	}
+	if m.registry != nil {
+		m.registry.RegisterHASubscription(m.pluginName, remainingSolarEntity)
 	}
 
 	// Subscribe to grid availability changes
@@ -85,6 +120,9 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to grid availability: %w", err)
 	}
 	m.stateSubscriptions = append(m.stateSubscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "isGridAvailable")
+	}
 
 	// Subscribe to battery and solar energy level changes to recalculate overall level
 	sub, err = m.stateManager.Subscribe("batteryEnergyLevel", m.handleIntermediateLevelChange)
@@ -92,18 +130,27 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to battery energy level: %w", err)
 	}
 	m.stateSubscriptions = append(m.stateSubscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "batteryEnergyLevel")
+	}
 
 	sub, err = m.stateManager.Subscribe("solarProductionEnergyLevel", m.handleIntermediateLevelChange)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to solar production energy level: %w", err)
 	}
 	m.stateSubscriptions = append(m.stateSubscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "solarProductionEnergyLevel")
+	}
 
 	sub, err = m.stateManager.Subscribe("isFreeEnergyAvailable", m.handleIntermediateLevelChange)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to free energy available: %w", err)
 	}
 	m.stateSubscriptions = append(m.stateSubscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "isFreeEnergyAvailable")
+	}
 
 	// Start free energy check timer (check every minute)
 	go m.runFreeEnergyChecker()
@@ -159,6 +206,9 @@ func (m *Manager) subscribeToSensor(entityID string, callback func(state float64
 
 // handleBatteryChange processes battery percentage changes
 func (m *Manager) handleBatteryChange(percentage float64) {
+	// Capture shadow state inputs at the start of every handler
+	m.updateShadowInputs()
+
 	m.logger.Info("Battery level changed",
 		zap.Float64("percentage", percentage))
 
@@ -200,6 +250,9 @@ func (m *Manager) handleBatteryChange(percentage float64) {
 
 // handleThisHourSolarChange processes this hour solar generation changes
 func (m *Manager) handleThisHourSolarChange(kw float64) {
+	// Capture shadow state inputs at the start of every handler
+	m.updateShadowInputs()
+
 	m.logger.Info("This hour solar generation changed",
 		zap.Float64("kw", kw))
 
@@ -229,6 +282,9 @@ func (m *Manager) handleThisHourSolarChange(kw float64) {
 
 // handleRemainingSolarChange processes remaining solar generation changes
 func (m *Manager) handleRemainingSolarChange(kwh float64) {
+	// Capture shadow state inputs at the start of every handler
+	m.updateShadowInputs()
+
 	m.logger.Info("Remaining solar generation changed",
 		zap.Float64("kwh", kwh))
 
@@ -258,6 +314,9 @@ func (m *Manager) handleRemainingSolarChange(kwh float64) {
 
 // handleGridAvailabilityChange processes grid availability changes
 func (m *Manager) handleGridAvailabilityChange(key string, oldValue, newValue interface{}) {
+	// Capture shadow state inputs at the start of every handler
+	m.updateShadowInputs()
+
 	m.logger.Info("Grid availability changed",
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
@@ -297,6 +356,9 @@ func (m *Manager) handleGridAvailabilityChange(key string, oldValue, newValue in
 
 // handleIntermediateLevelChange recalculates overall energy level when intermediate levels change
 func (m *Manager) handleIntermediateLevelChange(key string, oldValue, newValue interface{}) {
+	// Capture shadow state inputs at the start of every handler
+	m.updateShadowInputs()
+
 	m.logger.Debug("Intermediate energy level changed",
 		zap.String("key", key),
 		zap.Any("old", oldValue),

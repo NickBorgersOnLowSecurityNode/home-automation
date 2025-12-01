@@ -117,7 +117,7 @@ func TestScenario_NickOfficeOccupied_TurnsOnLights(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createOccupancyTestConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	// Initialize required state variables
 	// dayPhase determines which scene to activate (e.g., "day" -> scene.n_office_day)
@@ -195,7 +195,7 @@ func TestScenario_NickOfficeUnoccupied_TurnsOffLights(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createOccupancyTestConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	// Initialize required state variables - office is currently OCCUPIED
 	_ = stateManager.SetString("dayPhase", "day")
@@ -270,7 +270,7 @@ func TestScenario_KitchenOccupied_TurnsOnLights(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createOccupancyTestConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	// Initialize required state variables
 	// Using "evening" dayPhase to verify correct scene selection
@@ -347,7 +347,7 @@ func TestScenario_OccupancyChangeOnlyAffectsRelevantRoom(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createOccupancyTestConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	// Initialize required state variables
 	_ = stateManager.SetString("dayPhase", "day")

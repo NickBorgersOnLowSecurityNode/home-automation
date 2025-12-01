@@ -51,7 +51,7 @@ func TestTVManager_AppleTVStateChange(t *testing.T) {
 			stateMgr := state.NewManager(mockHA, logger, false)
 
 			// Create TV manager
-			manager := NewManager(mockHA, stateMgr, logger, false)
+			manager := NewManager(mockHA, stateMgr, logger, false, nil)
 
 			// Simulate Apple TV state change
 			newState := &ha.State{
@@ -102,7 +102,7 @@ func TestTVManager_SyncBoxPowerChange(t *testing.T) {
 			stateMgr := state.NewManager(mockHA, logger, false)
 
 			// Create TV manager
-			manager := NewManager(mockHA, stateMgr, logger, false)
+			manager := NewManager(mockHA, stateMgr, logger, false, nil)
 
 			// Simulate sync box state change
 			newState := &ha.State{
@@ -131,7 +131,7 @@ func TestTVManager_SyncBoxOff_SetsTVPlayingFalse(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
 
 	// Initially set isTVPlaying to true
 	if err := stateMgr.SetBool("isTVPlaying", true); err != nil {
@@ -209,7 +209,7 @@ func TestTVManager_HDMIInputChange(t *testing.T) {
 			stateMgr := state.NewManager(mockHA, logger, false)
 
 			// Create TV manager
-			manager := NewManager(mockHA, stateMgr, logger, false)
+			manager := NewManager(mockHA, stateMgr, logger, false, nil)
 
 			// Set isAppleTVPlaying state
 			if err := stateMgr.SetBool("isAppleTVPlaying", tt.isAppleTVPlaying); err != nil {
@@ -280,7 +280,7 @@ func TestTVManager_AppleTVPlayingChange_RecalculatesTVPlaying(t *testing.T) {
 			stateMgr := state.NewManager(mockHA, logger, false)
 
 			// Create TV manager
-			manager := NewManager(mockHA, stateMgr, logger, false)
+			manager := NewManager(mockHA, stateMgr, logger, false, nil)
 
 			// Set initial HDMI input in mock HA client
 			mockHA.SetState("select.sync_box_hdmi_input", tt.hdmiInput, nil)
@@ -327,7 +327,7 @@ func TestTVManager_Start_InitializesStates(t *testing.T) {
 	mockHA.SetState("select.sync_box_hdmi_input", "AppleTV", nil)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
 
 	// Start the manager
 	if err := manager.Start(); err != nil {
@@ -373,7 +373,7 @@ func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
 
 	// Start the manager
 	if err := manager.Start(); err != nil {
@@ -415,7 +415,7 @@ func TestTVManager_ReadOnlyMode(t *testing.T) {
 	}
 
 	// Create TV manager in read-only mode
-	_ = NewManager(mockHA, stateMgr, logger, true)
+	_ = NewManager(mockHA, stateMgr, logger, true, nil)
 
 	// Simulate HA state change (this should update local cache)
 	mockHA.SimulateStateChange("input_boolean.apple_tv_playing", "on")

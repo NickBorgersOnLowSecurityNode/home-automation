@@ -37,6 +37,11 @@ type Manager struct {
 	clock         clock.Clock
 	shadowTracker *shadowstate.SecurityTracker
 
+	// Automatic shadow state input tracking
+	pluginName  string
+	registry    *shadowstate.SubscriptionRegistry
+	inputHelper *shadowstate.InputCaptureHelper
+
 	// Subscriptions for cleanup
 	haSubscriptions    []ha.Subscription
 	stateSubscriptions []state.Subscription
@@ -48,17 +53,27 @@ type Manager struct {
 }
 
 // NewManager creates a new Security manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) *Manager {
-	return &Manager{
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+	const pluginName = "security"
+	m := &Manager{
 		haClient:           haClient,
 		stateManager:       stateManager,
 		logger:             logger.Named("security"),
 		readOnly:           readOnly,
 		clock:              clock.NewRealClock(),
 		shadowTracker:      shadowstate.NewSecurityTracker(),
+		pluginName:         pluginName,
+		registry:           registry,
 		haSubscriptions:    make([]ha.Subscription, 0),
 		stateSubscriptions: make([]state.Subscription, 0),
 	}
+
+	// Create input capture helper if registry is provided
+	if registry != nil {
+		m.inputHelper = shadowstate.NewInputCaptureHelper(registry, haClient, stateManager)
+	}
+
+	return m
 }
 
 // SetClock sets the clock implementation (useful for testing)
@@ -69,6 +84,20 @@ func (m *Manager) SetClock(c clock.Clock) {
 // Start begins monitoring security-related events
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Security Manager")
+
+	// Register subscriptions with the registry for automatic input tracking
+	if m.registry != nil {
+		// State subscriptions
+		m.registry.RegisterStateSubscription(m.pluginName, "isEveryoneAsleep")
+		m.registry.RegisterStateSubscription(m.pluginName, "isAnyoneHome")
+		m.registry.RegisterStateSubscription(m.pluginName, "didOwnerJustReturnHome")
+		m.registry.RegisterStateSubscription(m.pluginName, "isExpectingSomeone")
+
+		// HA subscriptions
+		m.registry.RegisterHASubscription(m.pluginName, "input_button.doorbell")
+		m.registry.RegisterHASubscription(m.pluginName, "input_button.vehicle_arriving")
+		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.lockdown")
+	}
 
 	// Initialize shadow state with current input values
 	m.updateShadowInputs()
@@ -409,6 +438,14 @@ func (m *Manager) sendTTSNotification(message string) {
 
 // updateShadowInputs updates the current shadow state inputs
 func (m *Manager) updateShadowInputs() {
+	// Use automatic input capture if available
+	if m.inputHelper != nil {
+		inputs := m.inputHelper.CaptureInputs(m.pluginName)
+		m.shadowTracker.UpdateCurrentInputs(inputs)
+		return
+	}
+
+	// Fallback to manual capture if no registry
 	inputs := make(map[string]interface{})
 
 	// Get all subscribed variables
@@ -430,6 +467,16 @@ func (m *Manager) updateShadowInputs() {
 
 // updateShadowInputsWithTrigger updates the current shadow state inputs including the trigger
 func (m *Manager) updateShadowInputsWithTrigger(trigger string) {
+	additional := map[string]interface{}{"trigger": trigger}
+
+	// Use automatic input capture with additional fields if available
+	if m.inputHelper != nil {
+		inputs := m.inputHelper.CaptureInputsWithAdditional(m.pluginName, additional)
+		m.shadowTracker.UpdateCurrentInputs(inputs)
+		return
+	}
+
+	// Fallback to manual capture if no registry
 	inputs := make(map[string]interface{})
 
 	// Get all subscribed variables

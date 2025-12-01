@@ -146,6 +146,10 @@ func main() {
 	shadowTracker := shadowstate.NewTracker()
 	logger.Info("Shadow State Tracker created")
 
+	// Create Subscription Registry for automatic shadow state input tracking
+	subscriptionRegistry := shadowstate.NewSubscriptionRegistry()
+	logger.Info("Subscription Registry created for automatic input tracking")
+
 	// Start HTTP API server
 	apiServer := api.NewServer(stateManager, shadowTracker, logger, httpPort, timezone)
 	if err := apiServer.Start(); err != nil {
@@ -163,7 +167,7 @@ func main() {
 	subscribeToChanges(stateManager, logger)
 
 	// Start State Tracking Manager (MUST start before other plugins that depend on derived states)
-	stateTrackingManager := statetracking.NewManager(client, stateManager, logger, readOnly)
+	stateTrackingManager := statetracking.NewManager(client, stateManager, logger, readOnly, subscriptionRegistry)
 	if err := stateTrackingManager.Start(); err != nil {
 		logger.Fatal("Failed to start State Tracking Manager", zap.Error(err))
 	}
@@ -181,7 +185,7 @@ func main() {
 	defer dayPhaseManager.Stop()
 
 	// Start Energy State Manager
-	energyManager, err := startEnergyManager(client, stateManager, logger, readOnly, configDir, timezone)
+	energyManager, err := startEnergyManager(client, stateManager, logger, readOnly, configDir, timezone, subscriptionRegistry)
 	if err != nil {
 		logger.Fatal("Failed to start Energy State Manager", zap.Error(err))
 	}
@@ -201,7 +205,7 @@ func main() {
 	logger.Info("Registered music shadow state with tracker")
 
 	// Start Lighting Manager
-	lightingManager, err := startLightingManager(client, stateManager, logger, readOnly, configDir)
+	lightingManager, err := startLightingManager(client, stateManager, logger, readOnly, configDir, subscriptionRegistry)
 	if err != nil {
 		logger.Fatal("Failed to start Lighting Manager", zap.Error(err))
 	}
@@ -214,7 +218,7 @@ func main() {
 	logger.Info("Registered lighting shadow state with tracker")
 
 	// Start Security Manager
-	securityManager := security.NewManager(client, stateManager, logger, readOnly)
+	securityManager := security.NewManager(client, stateManager, logger, readOnly, subscriptionRegistry)
 	if err := securityManager.Start(); err != nil {
 		logger.Fatal("Failed to start Security Manager", zap.Error(err))
 	}
@@ -241,7 +245,7 @@ func main() {
 	logger.Info("Registered sleep hygiene shadow state with tracker")
 
 	// Start Load Shedding Manager
-	loadSheddingManager := loadshedding.NewManager(client, stateManager, logger, readOnly)
+	loadSheddingManager := loadshedding.NewManager(client, stateManager, logger, readOnly, subscriptionRegistry)
 	if err := loadSheddingManager.Start(); err != nil {
 		logger.Fatal("Failed to start Load Shedding Manager", zap.Error(err))
 	}
@@ -254,7 +258,7 @@ func main() {
 	})
 
 	// Start TV Manager
-	tvManager := tv.NewManager(client, stateManager, logger, readOnly)
+	tvManager := tv.NewManager(client, stateManager, logger, readOnly, subscriptionRegistry)
 	if err := tvManager.Start(); err != nil {
 		logger.Fatal("Failed to start TV Manager", zap.Error(err))
 	}
@@ -433,7 +437,7 @@ func demonstrateStateChanges(manager *state.Manager, logger *zap.Logger) {
 	logger.Info("===================================")
 }
 
-func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, timezone *time.Location) (*energy.Manager, error) {
+func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, timezone *time.Location, registry *shadowstate.SubscriptionRegistry) (*energy.Manager, error) {
 	// Load energy configuration
 	configPath := filepath.Join(configDir, "energy_config.yaml")
 	energyConfig, err := energy.LoadConfig(configPath)
@@ -447,7 +451,7 @@ func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger 
 		zap.String("free_energy_end", energyConfig.Energy.FreeEnergyTime.End))
 
 	// Create and start energy manager
-	energyManager := energy.NewManager(client, stateManager, energyConfig, logger, readOnly, timezone)
+	energyManager := energy.NewManager(client, stateManager, energyConfig, logger, readOnly, timezone, registry)
 	if err := energyManager.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start energy manager: %w", err)
 	}
@@ -477,7 +481,7 @@ func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *
 	return musicManager, nil
 }
 
-func startLightingManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*lighting.Manager, error) {
+func startLightingManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, registry *shadowstate.SubscriptionRegistry) (*lighting.Manager, error) {
 	// Load lighting configuration
 	configPath := filepath.Join(configDir, "hue_config.yaml")
 	lightingConfig, err := lighting.LoadConfig(configPath)
@@ -489,7 +493,7 @@ func startLightingManager(client ha.HAClient, stateManager *state.Manager, logge
 		zap.Int("rooms", len(lightingConfig.Rooms)))
 
 	// Create and start lighting manager
-	lightingManager := lighting.NewManager(client, stateManager, lightingConfig, logger, readOnly)
+	lightingManager := lighting.NewManager(client, stateManager, lightingConfig, logger, readOnly, registry)
 	if err := lightingManager.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start lighting manager: %w", err)
 	}

@@ -22,7 +22,7 @@ func TestSecurityManager_LockdownOnEveryoneAsleep(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager (not read-only so it can call services)
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestSecurityManager_LockdownOnNoOneHome(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestSecurityManager_LockdownAutoReset(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestSecurityManager_GarageAutoOpen(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestSecurityManager_GarageNotOpenedWhenOccupied(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestSecurityManager_DoorbellNotification(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestSecurityManager_DoorbellRateLimiting(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestSecurityManager_VehicleArrivalWithExpecting(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestSecurityManager_VehicleArrivalWithoutExpecting(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestSecurityManager_ReadOnlyMode(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager in read-only mode (this is what we're testing)
-	securityManager := NewManager(mockHA, stateManager, logger, true)
+	securityManager := NewManager(mockHA, stateManager, logger, true, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -456,7 +456,7 @@ func TestSecurityManager_InvalidTypeHandling(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestSecurityManager_OwnerReturnHome_DidNotReturn(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -539,7 +539,7 @@ func TestSecurityManager_VehicleArrivalRateLimiting(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(mockHA, stateManager, logger, false)
+	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestSecurityManager_ReadOnlyModeGarage(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager in READ-ONLY mode
-	securityManager := NewManager(mockHA, stateManager, logger, true)
+	securityManager := NewManager(mockHA, stateManager, logger, true, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -614,7 +614,7 @@ func TestSecurityManager_ReadOnlyModeLockdownReset(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager in READ-ONLY mode
-	securityManager := NewManager(mockHA, stateManager, logger, true)
+	securityManager := NewManager(mockHA, stateManager, logger, true, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -648,7 +648,7 @@ func TestSecurityManager_ReadOnlyModeVehicleArrival(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager in READ-ONLY mode
-	securityManager := NewManager(mockHA, stateManager, logger, true)
+	securityManager := NewManager(mockHA, stateManager, logger, true, nil)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
