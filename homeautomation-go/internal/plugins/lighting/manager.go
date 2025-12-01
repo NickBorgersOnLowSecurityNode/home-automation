@@ -23,11 +23,16 @@ type Manager struct {
 
 	// Subscriptions for cleanup
 	subscriptions []state.Subscription
+
+	// Automatic input capture for shadow state
+	pluginName  string
+	registry    *shadowstate.SubscriptionRegistry
+	inputHelper *shadowstate.InputCaptureHelper
 }
 
 // NewManager creates a new Lighting Control manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueConfig, logger *zap.Logger, readOnly bool) *Manager {
-	return &Manager{
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueConfig, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+	m := &Manager{
 		haClient:      haClient,
 		stateManager:  stateManager,
 		config:        config,
@@ -35,7 +40,16 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueCo
 		readOnly:      readOnly,
 		shadowTracker: shadowstate.NewLightingTracker(),
 		subscriptions: make([]state.Subscription, 0),
+		pluginName:    "lighting",
+		registry:      registry,
 	}
+
+	// Create input helper if registry provided
+	if registry != nil {
+		m.inputHelper = shadowstate.NewInputCaptureHelper(registry, haClient, stateManager)
+	}
+
+	return m
 }
 
 // Start begins monitoring lighting state and triggers
@@ -51,6 +65,9 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to dayPhase: %w", err)
 	}
 	m.subscriptions = append(m.subscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "dayPhase")
+	}
 
 	// Subscribe to sun event changes
 	sub, err = m.stateManager.Subscribe("sunevent", m.handleSunEventChange)
@@ -58,6 +75,9 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to sunevent: %w", err)
 	}
 	m.subscriptions = append(m.subscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "sunevent")
+	}
 
 	// Subscribe to presence changes that might affect lighting
 	sub, err = m.stateManager.Subscribe("isAnyoneHome", m.handlePresenceChange)
@@ -65,6 +85,9 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
 	}
 	m.subscriptions = append(m.subscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "isAnyoneHome")
+	}
 
 	// Subscribe to TV state for brightness adjustments
 	sub, err = m.stateManager.Subscribe("isTVPlaying", m.handleTVStateChange)
@@ -72,6 +95,9 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to isTVPlaying: %w", err)
 	}
 	m.subscriptions = append(m.subscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "isTVPlaying")
+	}
 
 	// Subscribe to sleep state changes
 	sub, err = m.stateManager.Subscribe("isEveryoneAsleep", m.handleSleepStateChange)
@@ -79,12 +105,18 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to isEveryoneAsleep: %w", err)
 	}
 	m.subscriptions = append(m.subscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "isEveryoneAsleep")
+	}
 
 	sub, err = m.stateManager.Subscribe("isMasterAsleep", m.handleSleepStateChange)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to isMasterAsleep: %w", err)
 	}
 	m.subscriptions = append(m.subscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "isMasterAsleep")
+	}
 
 	// Subscribe to guest presence
 	sub, err = m.stateManager.Subscribe("isHaveGuests", m.handlePresenceChange)
@@ -92,6 +124,9 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to isHaveGuests: %w", err)
 	}
 	m.subscriptions = append(m.subscriptions, sub)
+	if m.registry != nil {
+		m.registry.RegisterStateSubscription(m.pluginName, "isHaveGuests")
+	}
 
 	// Subscribe to all occupancy and condition variables from room configs
 	occupancyVars := m.collectConditionVariables()
@@ -106,6 +141,9 @@ func (m *Manager) Start() error {
 			continue
 		}
 		m.subscriptions = append(m.subscriptions, sub)
+		if m.registry != nil {
+			m.registry.RegisterStateSubscription(m.pluginName, varNameCopy)
+		}
 		m.logger.Debug("Subscribed to condition variable",
 			zap.String("variable", varNameCopy))
 	}
@@ -608,31 +646,36 @@ func (m *Manager) Reset() error {
 
 // updateShadowInputs updates the current shadow state inputs
 func (m *Manager) updateShadowInputs() {
-	inputs := make(map[string]interface{})
+	if m.inputHelper == nil {
+		// Fall back to manual capture if no registry
+		inputs := make(map[string]interface{})
+		if val, err := m.stateManager.GetString("dayPhase"); err == nil {
+			inputs["dayPhase"] = val
+		}
+		if val, err := m.stateManager.GetString("sunevent"); err == nil {
+			inputs["sunevent"] = val
+		}
+		if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
+			inputs["isAnyoneHome"] = val
+		}
+		if val, err := m.stateManager.GetBool("isTVPlaying"); err == nil {
+			inputs["isTVPlaying"] = val
+		}
+		if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
+			inputs["isEveryoneAsleep"] = val
+		}
+		if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
+			inputs["isMasterAsleep"] = val
+		}
+		if val, err := m.stateManager.GetBool("isHaveGuests"); err == nil {
+			inputs["isHaveGuests"] = val
+		}
+		m.shadowTracker.UpdateCurrentInputs(inputs)
+		return
+	}
 
-	// Get all subscribed variables
-	if val, err := m.stateManager.GetString("dayPhase"); err == nil {
-		inputs["dayPhase"] = val
-	}
-	if val, err := m.stateManager.GetString("sunevent"); err == nil {
-		inputs["sunevent"] = val
-	}
-	if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
-		inputs["isAnyoneHome"] = val
-	}
-	if val, err := m.stateManager.GetBool("isTVPlaying"); err == nil {
-		inputs["isTVPlaying"] = val
-	}
-	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
-		inputs["isEveryoneAsleep"] = val
-	}
-	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
-		inputs["isMasterAsleep"] = val
-	}
-	if val, err := m.stateManager.GetBool("isHaveGuests"); err == nil {
-		inputs["isHaveGuests"] = val
-	}
-
+	// Use automatic input capture
+	inputs := m.inputHelper.CaptureInputs(m.pluginName)
 	m.shadowTracker.UpdateCurrentInputs(inputs)
 }
 

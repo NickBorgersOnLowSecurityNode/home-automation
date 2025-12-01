@@ -32,7 +32,7 @@ func setupLightingScenarioTest(t *testing.T) (*MockHAServer, *lighting.Manager, 
 	logger, _ := zap.NewDevelopment()
 
 	// Create lighting plugin (read-only mode for testing)
-	lightingMgr := lighting.NewManager(client, manager, lightingConfig, logger, false)
+	lightingMgr := lighting.NewManager(client, manager, lightingConfig, logger, false, nil)
 
 	// Start the lighting plugin
 	err = lightingMgr.Start()

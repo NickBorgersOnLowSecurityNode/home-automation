@@ -37,7 +37,7 @@ func setupEnergyScenarioTest(t *testing.T) (*MockHAServer, *energy.Manager, *sta
 	timezone := time.UTC
 
 	// Create energy plugin (read-only mode for testing)
-	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, timezone)
+	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, timezone, nil)
 
 	// Start the energy plugin
 	err = energyMgr.Start()
@@ -180,7 +180,7 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	testTimezone := time.FixedZone("TEST_NOON", currentOffset+hoursToAdd*3600)
 
 	// Create energy plugin (NOT read-only so it can set states)
-	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone)
+	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone, nil)
 	err = energyMgr.Start()
 	require.NoError(t, err, "Failed to start energy manager")
 	defer energyMgr.Stop()
@@ -255,7 +255,7 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	testTimezone := time.FixedZone("TEST_NOON", currentOffset+hoursToAdd*3600)
 
 	// Create energy plugin
-	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone)
+	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone, nil)
 	err = energyMgr.Start()
 	require.NoError(t, err, "Failed to start energy manager")
 	defer energyMgr.Stop()
@@ -337,7 +337,7 @@ func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
 	require.NoError(t, err)
 
 	logger, _ := zap.NewDevelopment()
-	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone)
+	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone, nil)
 	err = energyMgr.Start()
 	require.NoError(t, err)
 	defer energyMgr.Stop()

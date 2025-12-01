@@ -25,11 +25,17 @@ type Manager struct {
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.TVTracker
+
+	// Automatic shadow state input tracking
+	pluginName  string
+	registry    *shadowstate.SubscriptionRegistry
+	inputHelper *shadowstate.InputCaptureHelper
 }
 
 // NewManager creates a new TV manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) *Manager {
-	return &Manager{
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+	const pluginName = "tv"
+	m := &Manager{
 		haClient:           haClient,
 		stateManager:       stateManager,
 		logger:             logger.Named("tv"),
@@ -37,7 +43,16 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		haSubscriptions:    make([]ha.Subscription, 0),
 		stateSubscriptions: make([]state.Subscription, 0),
 		shadowTracker:      shadowstate.NewTVTracker(),
+		pluginName:         pluginName,
+		registry:           registry,
 	}
+
+	// Create input capture helper if registry is provided
+	if registry != nil {
+		m.inputHelper = shadowstate.NewInputCaptureHelper(registry, haClient, stateManager)
+	}
+
+	return m
 }
 
 // GetShadowState returns the current shadow state
@@ -48,6 +63,18 @@ func (m *Manager) GetShadowState() *shadowstate.TVShadowState {
 // Start begins monitoring TV-related entities
 func (m *Manager) Start() error {
 	m.logger.Info("Starting TV Manager")
+
+	// Register subscriptions with the registry for automatic input tracking
+	if m.registry != nil {
+		// HA subscriptions
+		m.registry.RegisterHASubscription(m.pluginName, "media_player.big_beautiful_oled")
+		m.registry.RegisterHASubscription(m.pluginName, "switch.sync_box_power")
+		m.registry.RegisterHASubscription(m.pluginName, "select.sync_box_hdmi_input")
+
+		// State subscriptions
+		m.registry.RegisterStateSubscription(m.pluginName, "isAppleTVPlaying")
+		m.registry.RegisterStateSubscription(m.pluginName, "isTVon")
+	}
 
 	// Subscribe to Apple TV media player state changes
 	appleTVSub, err := m.haClient.SubscribeStateChanges("media_player.big_beautiful_oled", m.handleAppleTVStateChange)
@@ -254,6 +281,14 @@ func (m *Manager) handleAppleTVPlayingChange(key string, oldValue, newValue inte
 
 // updateShadowInputs captures the current input values from HA entities
 func (m *Manager) updateShadowInputs() {
+	// Use automatic input capture if available
+	if m.inputHelper != nil {
+		inputs := m.inputHelper.CaptureInputs(m.pluginName)
+		m.shadowTracker.UpdateCurrentInputs(inputs)
+		return
+	}
+
+	// Fallback to manual capture if no registry
 	inputs := make(map[string]interface{})
 
 	// Capture raw HA entity states

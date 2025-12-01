@@ -23,36 +23,38 @@ type Manager struct {
 	readOnly     bool
 	timezone     *time.Location
 
-	// Subscriptions for cleanup
-	haSubscriptions    []ha.Subscription
-	stateSubscriptions []state.Subscription
-
 	// Control for free energy checker
 	stopChecker chan struct{}
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.EnergyTracker
+
+	// Subscription helper for automatic shadow state input capture
+	subHelper *shadowstate.SubscriptionHelper
 }
 
 // NewManager creates a new Energy State manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *EnergyConfig, logger *zap.Logger, readOnly bool, timezone *time.Location) *Manager {
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *EnergyConfig, logger *zap.Logger, readOnly bool, timezone *time.Location, registry *shadowstate.SubscriptionRegistry) *Manager {
 	// Default to UTC if no timezone provided
 	if timezone == nil {
 		timezone = time.UTC
 	}
 
-	return &Manager{
-		haClient:           haClient,
-		stateManager:       stateManager,
-		config:             config,
-		logger:             logger.Named("energy"),
-		readOnly:           readOnly,
-		timezone:           timezone,
-		haSubscriptions:    make([]ha.Subscription, 0),
-		stateSubscriptions: make([]state.Subscription, 0),
-		stopChecker:        make(chan struct{}),
-		shadowTracker:      shadowstate.NewEnergyTracker(),
+	shadowTracker := shadowstate.NewEnergyTracker()
+
+	m := &Manager{
+		haClient:      haClient,
+		stateManager:  stateManager,
+		config:        config,
+		logger:        logger.Named("energy"),
+		readOnly:      readOnly,
+		timezone:      timezone,
+		stopChecker:   make(chan struct{}),
+		shadowTracker: shadowTracker,
+		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "energy", logger.Named("energy")),
 	}
+
+	return m
 }
 
 // GetShadowState returns the current shadow state
@@ -64,46 +66,38 @@ func (m *Manager) GetShadowState() *shadowstate.EnergyShadowState {
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Energy State Manager")
 
-	// Subscribe to battery level changes
-	if err := m.subscribeToSensor("sensor.span_panel_span_storage_battery_percentage_2", m.handleBatteryChange); err != nil {
+	// Subscribe to battery level changes (shadow inputs captured automatically)
+	if err := m.subHelper.SubscribeToSensor("sensor.span_panel_span_storage_battery_percentage_2", m.handleBatteryChange); err != nil {
 		return fmt.Errorf("failed to subscribe to battery sensor: %w", err)
 	}
 
 	// Subscribe to this hour solar generation
-	if err := m.subscribeToSensor("sensor.energy_next_hour", m.handleThisHourSolarChange); err != nil {
+	if err := m.subHelper.SubscribeToSensor("sensor.energy_next_hour", m.handleThisHourSolarChange); err != nil {
 		return fmt.Errorf("failed to subscribe to this hour solar sensor: %w", err)
 	}
 
 	// Subscribe to remaining solar generation
-	if err := m.subscribeToSensor("sensor.energy_production_today_remaining", m.handleRemainingSolarChange); err != nil {
+	if err := m.subHelper.SubscribeToSensor("sensor.energy_production_today_remaining", m.handleRemainingSolarChange); err != nil {
 		return fmt.Errorf("failed to subscribe to remaining solar sensor: %w", err)
 	}
 
 	// Subscribe to grid availability changes
-	sub, err := m.stateManager.Subscribe("isGridAvailable", m.handleGridAvailabilityChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("isGridAvailable", m.handleGridAvailabilityChange); err != nil {
 		return fmt.Errorf("failed to subscribe to grid availability: %w", err)
 	}
-	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
 	// Subscribe to battery and solar energy level changes to recalculate overall level
-	sub, err = m.stateManager.Subscribe("batteryEnergyLevel", m.handleIntermediateLevelChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("batteryEnergyLevel", m.handleIntermediateLevelChange); err != nil {
 		return fmt.Errorf("failed to subscribe to battery energy level: %w", err)
 	}
-	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
-	sub, err = m.stateManager.Subscribe("solarProductionEnergyLevel", m.handleIntermediateLevelChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("solarProductionEnergyLevel", m.handleIntermediateLevelChange); err != nil {
 		return fmt.Errorf("failed to subscribe to solar production energy level: %w", err)
 	}
-	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
-	sub, err = m.stateManager.Subscribe("isFreeEnergyAvailable", m.handleIntermediateLevelChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("isFreeEnergyAvailable", m.handleIntermediateLevelChange); err != nil {
 		return fmt.Errorf("failed to subscribe to free energy available: %w", err)
 	}
-	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
 	// Start free energy check timer (check every minute)
 	go m.runFreeEnergyChecker()
@@ -119,42 +113,10 @@ func (m *Manager) Stop() {
 	// Stop the free energy checker goroutine
 	close(m.stopChecker)
 
-	// Unsubscribe from all HA subscriptions
-	for _, sub := range m.haSubscriptions {
-		sub.Unsubscribe()
-	}
-	m.haSubscriptions = nil
-
-	// Unsubscribe from all state subscriptions
-	for _, sub := range m.stateSubscriptions {
-		sub.Unsubscribe()
-	}
-	m.stateSubscriptions = nil
+	// Unsubscribe from all subscriptions via helper
+	m.subHelper.UnsubscribeAll()
 
 	m.logger.Info("Energy State Manager stopped")
-}
-
-// subscribeToSensor subscribes to a Home Assistant sensor
-func (m *Manager) subscribeToSensor(entityID string, callback func(state float64)) error {
-	sub, err := m.haClient.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
-		// Try to convert to float64
-		var val float64
-
-		// Parse the state string
-		_, parseErr := fmt.Sscanf(newState.State, "%f", &val)
-		if parseErr != nil {
-			m.logger.Warn("Failed to parse sensor value as number",
-				zap.String("entity_id", entityID),
-				zap.String("value", newState.State))
-			return
-		}
-
-		callback(val)
-	})
-	if err == nil {
-		m.haSubscriptions = append(m.haSubscriptions, sub)
-	}
-	return err
 }
 
 // handleBatteryChange processes battery percentage changes

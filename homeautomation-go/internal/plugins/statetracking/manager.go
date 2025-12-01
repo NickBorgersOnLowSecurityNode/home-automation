@@ -61,11 +61,17 @@ type Manager struct {
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.StateTrackingTracker
+
+	// Automatic shadow state input tracking
+	pluginName  string
+	registry    *shadowstate.SubscriptionRegistry
+	inputHelper *shadowstate.InputCaptureHelper
 }
 
 // NewManager creates a new State Tracking manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool) *Manager {
-	return &Manager{
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+	const pluginName = "statetracking"
+	m := &Manager{
 		haClient:        haClient,
 		stateManager:    stateManager,
 		logger:          logger.Named("statetracking"),
@@ -73,7 +79,16 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		clock:           clock.NewRealClock(),
 		haSubscriptions: make([]ha.Subscription, 0),
 		shadowTracker:   shadowstate.NewStateTrackingTracker(),
+		pluginName:      pluginName,
+		registry:        registry,
 	}
+
+	// Create input capture helper if registry is provided
+	if registry != nil {
+		m.inputHelper = shadowstate.NewInputCaptureHelper(registry, haClient, stateManager)
+	}
+
+	return m
 }
 
 // GetShadowState returns the current shadow state
@@ -90,6 +105,28 @@ func (m *Manager) SetClock(c clock.Clock) {
 // This must be called before other plugins that depend on derived states (Music, Security).
 func (m *Manager) Start() error {
 	m.logger.Info("Starting State Tracking Manager")
+
+	// Register subscriptions with the registry for automatic input tracking
+	if m.registry != nil {
+		// HA subscriptions
+		m.registry.RegisterHASubscription(m.pluginName, "light.primary_suite")
+		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.primary_bedroom_door_open")
+		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.nick_home")
+		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.caroline_home")
+		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.tori_here")
+
+		// State variables this plugin reads
+		m.registry.RegisterStateSubscription(m.pluginName, "isNickHome")
+		m.registry.RegisterStateSubscription(m.pluginName, "isCarolineHome")
+		m.registry.RegisterStateSubscription(m.pluginName, "isToriHere")
+		m.registry.RegisterStateSubscription(m.pluginName, "isMasterAsleep")
+		m.registry.RegisterStateSubscription(m.pluginName, "isGuestAsleep")
+		m.registry.RegisterStateSubscription(m.pluginName, "isAnyOwnerHome")
+		m.registry.RegisterStateSubscription(m.pluginName, "isAnyoneHome")
+		m.registry.RegisterStateSubscription(m.pluginName, "isAnyoneAsleep")
+		m.registry.RegisterStateSubscription(m.pluginName, "isEveryoneAsleep")
+		m.registry.RegisterStateSubscription(m.pluginName, "didOwnerJustReturnHome")
+	}
 
 	// Create and start the derived state helper
 	m.helper = state.NewDerivedStateHelper(m.stateManager, m.logger)
@@ -569,6 +606,14 @@ func (m *Manager) Reset() error {
 
 // updateShadowInputs captures the current input values used for state tracking
 func (m *Manager) updateShadowInputs() {
+	// Use automatic input capture if available
+	if m.inputHelper != nil {
+		inputs := m.inputHelper.CaptureInputs(m.pluginName)
+		m.shadowTracker.UpdateCurrentInputs(inputs)
+		return
+	}
+
+	// Fallback to manual capture if no registry
 	inputs := make(map[string]interface{})
 
 	// Capture presence states (primary inputs)

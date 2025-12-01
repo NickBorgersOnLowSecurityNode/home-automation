@@ -20,7 +20,7 @@ func setupTVScenarioTest(t *testing.T) (*MockHAServer, *state.Manager, func()) {
 	logger, _ := zap.NewDevelopment()
 
 	// Create and start TV plugin
-	tvManager := tv.NewManager(client, stateManager, logger, false)
+	tvManager := tv.NewManager(client, stateManager, logger, false, nil)
 	require.NoError(t, tvManager.Start(), "TV manager should start successfully")
 
 	cleanup := func() {
