@@ -19,14 +19,16 @@ type Server struct {
 	shadowTracker *shadowstate.Tracker
 	logger        *zap.Logger
 	server        *http.Server
+	timezone      *time.Location
 }
 
 // NewServer creates a new API server
-func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, logger *zap.Logger, port int) *Server {
+func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, logger *zap.Logger, port int, timezone *time.Location) *Server {
 	s := &Server{
 		stateManager:  stateManager,
 		shadowTracker: shadowTracker,
 		logger:        logger,
+		timezone:      timezone,
 	}
 
 	mux := http.NewServeMux()
@@ -530,7 +532,7 @@ func (s *Server) handleGetLightingShadowState(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(state); err != nil {
+	if err := s.writeJSONWithLocalTimestamps(w, state); err != nil {
 		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -554,7 +556,7 @@ func (s *Server) handleGetMusicShadowState(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(state); err != nil {
+	if err := s.writeJSONWithLocalTimestamps(w, state); err != nil {
 		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -578,7 +580,7 @@ func (s *Server) handleGetSecurityShadowState(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(state); err != nil {
+	if err := s.writeJSONWithLocalTimestamps(w, state); err != nil {
 		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -602,7 +604,7 @@ func (s *Server) handleGetLoadSheddingShadowState(w http.ResponseWriter, r *http
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(state); err != nil {
+	if err := s.writeJSONWithLocalTimestamps(w, state); err != nil {
 		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -626,7 +628,7 @@ func (s *Server) handleGetSleepHygieneShadowState(w http.ResponseWriter, r *http
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(state); err != nil {
+	if err := s.writeJSONWithLocalTimestamps(w, state); err != nil {
 		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -650,7 +652,7 @@ func (s *Server) handleGetEnergyShadowState(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(state); err != nil {
+	if err := s.writeJSONWithLocalTimestamps(w, state); err != nil {
 		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -674,7 +676,7 @@ func (s *Server) handleGetStateTrackingShadowState(w http.ResponseWriter, r *htt
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(state); err != nil {
+	if err := s.writeJSONWithLocalTimestamps(w, state); err != nil {
 		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -698,7 +700,7 @@ func (s *Server) handleGetDayPhaseShadowState(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(state); err != nil {
+	if err := s.writeJSONWithLocalTimestamps(w, state); err != nil {
 		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -722,7 +724,7 @@ func (s *Server) handleGetTVShadowState(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(state); err != nil {
+	if err := s.writeJSONWithLocalTimestamps(w, state); err != nil {
 		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -768,7 +770,7 @@ func (s *Server) handleGetAllShadowStates(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := s.writeJSONWithLocalTimestamps(w, response); err != nil {
 		s.logger.Error("Failed to encode shadow states response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -804,4 +806,69 @@ func (s *Server) Stop() error {
 	}
 
 	return nil
+}
+
+// localTimeFormat is the human-readable format for local timestamps
+const localTimeFormat = "Jan 2, 2006 3:04:05 PM MST"
+
+// addLocalTimestamps recursively walks a JSON-compatible structure and adds
+// "*Local" fields for any timestamp fields, formatted in the configured timezone.
+// It returns a new structure with the local time fields added.
+func (s *Server) addLocalTimestamps(data interface{}) interface{} {
+	if s.timezone == nil {
+		return data
+	}
+
+	switch v := data.(type) {
+	case map[string]interface{}:
+		result := make(map[string]interface{})
+		// First pass: copy all existing keys
+		for key, val := range v {
+			result[key] = s.addLocalTimestamps(val)
+		}
+		// Second pass: add Local versions for timestamp strings
+		for key, val := range v {
+			if strVal, ok := val.(string); ok {
+				if t, err := time.Parse(time.RFC3339Nano, strVal); err == nil {
+					localKey := key + "Local"
+					result[localKey] = t.In(s.timezone).Format(localTimeFormat)
+				} else if t, err := time.Parse(time.RFC3339, strVal); err == nil {
+					localKey := key + "Local"
+					result[localKey] = t.In(s.timezone).Format(localTimeFormat)
+				}
+			}
+		}
+		return result
+
+	case []interface{}:
+		result := make([]interface{}, len(v))
+		for i, val := range v {
+			result[i] = s.addLocalTimestamps(val)
+		}
+		return result
+
+	default:
+		return data
+	}
+}
+
+// writeJSONWithLocalTimestamps encodes the given data as JSON, adding local
+// timestamp fields for any RFC3339 timestamps found in the structure.
+func (s *Server) writeJSONWithLocalTimestamps(w http.ResponseWriter, data interface{}) error {
+	// First marshal to JSON, then unmarshal to map so we can transform
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+
+	var genericData interface{}
+	if err := json.Unmarshal(jsonBytes, &genericData); err != nil {
+		return err
+	}
+
+	// Add local timestamps
+	transformed := s.addLocalTimestamps(genericData)
+
+	// Encode the transformed data
+	return json.NewEncoder(w).Encode(transformed)
 }

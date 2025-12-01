@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
@@ -32,7 +33,7 @@ func TestHandleGetState(t *testing.T) {
 
 	// Create API server
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/state", nil)
@@ -107,7 +108,7 @@ func TestHandleGetStateMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/api/state", nil)
@@ -125,7 +126,7 @@ func TestHandleHealth(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
@@ -151,7 +152,7 @@ func TestHandleSitemap(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -202,7 +203,7 @@ func TestHandleSitemapHTML(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "text/html")
@@ -255,7 +256,7 @@ func TestHandleSitemapMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -273,7 +274,7 @@ func TestHandleSitemapNonRootPath(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Test non-root path (should return 404 without sitemap)
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
@@ -327,7 +328,7 @@ func TestHandleGetStatesByPlugin(t *testing.T) {
 
 	// Create API server
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/states", nil)
@@ -459,7 +460,7 @@ func TestHandleGetStatesByPluginMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/api/states", nil)
@@ -478,7 +479,7 @@ func TestHandleGetStatesByPluginEmptyState(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/states", nil)
 	w := httptest.NewRecorder()
@@ -580,7 +581,7 @@ func TestHandleGetLightingShadowState(t *testing.T) {
 	shadowTracker.RegisterPlugin("lighting", lightingState)
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/lighting", nil)
@@ -629,7 +630,7 @@ func TestHandleGetLightingShadowState_NotFound(t *testing.T) {
 	shadowTracker := shadowstate.NewTracker()
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/lighting", nil)
@@ -666,7 +667,7 @@ func TestHandleGetSecurityShadowState(t *testing.T) {
 	shadowTracker.RegisterPlugin("security", securityState)
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/security", nil)
@@ -723,7 +724,7 @@ func TestHandleGetSecurityShadowState_NotFound(t *testing.T) {
 	shadowTracker := shadowstate.NewTracker()
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/security", nil)
@@ -761,7 +762,7 @@ func TestHandleGetAllShadowStates(t *testing.T) {
 	shadowTracker.RegisterPlugin("security", securityState)
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logger, 8080)
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow", nil)
@@ -805,5 +806,196 @@ func TestHandleGetAllShadowStates(t *testing.T) {
 	// Verify metadata is present
 	if response.Metadata.Version == "" {
 		t.Error("Expected metadata version to be set")
+	}
+}
+
+func TestAddLocalTimestamps(t *testing.T) {
+	// Load a test timezone (EST = UTC-5)
+	estLocation, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("Failed to load timezone: %v", err)
+	}
+
+	// Create mock dependencies
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080, estLocation)
+
+	// Test cases
+	tests := []struct {
+		name    string
+		input   interface{}
+		checkFn func(t *testing.T, result interface{})
+	}{
+		{
+			name: "simple timestamp",
+			input: map[string]interface{}{
+				"lastUpdated": "2025-12-01T14:30:45Z",
+			},
+			checkFn: func(t *testing.T, result interface{}) {
+				m := result.(map[string]interface{})
+				// Original should be preserved
+				if m["lastUpdated"] != "2025-12-01T14:30:45Z" {
+					t.Errorf("Original timestamp was modified: %v", m["lastUpdated"])
+				}
+				// Local version should be added
+				local, ok := m["lastUpdatedLocal"]
+				if !ok {
+					t.Error("Expected lastUpdatedLocal to be added")
+					return
+				}
+				// Check it contains expected components (Dec 1, 2025 at 9:30 AM EST)
+				localStr := local.(string)
+				if localStr == "" {
+					t.Error("Local timestamp is empty")
+				}
+				// Should contain "Dec" and "2025" and "AM" (or "PM" depending on time)
+				if len(localStr) < 10 {
+					t.Errorf("Local timestamp too short: %s", localStr)
+				}
+			},
+		},
+		{
+			name: "timestamp with nanoseconds",
+			input: map[string]interface{}{
+				"created": "2025-06-15T08:00:00.123456789Z",
+			},
+			checkFn: func(t *testing.T, result interface{}) {
+				m := result.(map[string]interface{})
+				if _, ok := m["createdLocal"]; !ok {
+					t.Error("Expected createdLocal to be added for RFC3339Nano timestamp")
+				}
+			},
+		},
+		{
+			name: "nested objects",
+			input: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"timestamp": "2025-01-15T12:00:00Z",
+				},
+			},
+			checkFn: func(t *testing.T, result interface{}) {
+				m := result.(map[string]interface{})
+				metadata := m["metadata"].(map[string]interface{})
+				if _, ok := metadata["timestampLocal"]; !ok {
+					t.Error("Expected timestampLocal in nested object")
+				}
+			},
+		},
+		{
+			name: "arrays with timestamps",
+			input: map[string]interface{}{
+				"events": []interface{}{
+					map[string]interface{}{
+						"time": "2025-03-20T10:00:00Z",
+					},
+				},
+			},
+			checkFn: func(t *testing.T, result interface{}) {
+				m := result.(map[string]interface{})
+				events := m["events"].([]interface{})
+				event := events[0].(map[string]interface{})
+				if _, ok := event["timeLocal"]; !ok {
+					t.Error("Expected timeLocal in array element")
+				}
+			},
+		},
+		{
+			name: "non-timestamp strings unchanged",
+			input: map[string]interface{}{
+				"name":   "test",
+				"status": "ok",
+			},
+			checkFn: func(t *testing.T, result interface{}) {
+				m := result.(map[string]interface{})
+				// Should not add Local versions for non-timestamp strings
+				if _, ok := m["nameLocal"]; ok {
+					t.Error("Should not add Local version for non-timestamp string")
+				}
+				if _, ok := m["statusLocal"]; ok {
+					t.Error("Should not add Local version for non-timestamp string")
+				}
+			},
+		},
+		{
+			name:  "nil timezone returns original",
+			input: map[string]interface{}{"ts": "2025-01-01T00:00:00Z"},
+			checkFn: func(t *testing.T, result interface{}) {
+				// This test uses a server with nil timezone, handled separately
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "nil timezone returns original" {
+				// Test with nil timezone
+				nilTzServer := NewServer(stateManager, shadowTracker, logger, 8080, nil)
+				result := nilTzServer.addLocalTimestamps(tc.input)
+				m := result.(map[string]interface{})
+				if _, ok := m["tsLocal"]; ok {
+					t.Error("Nil timezone should not add Local fields")
+				}
+				return
+			}
+			result := server.addLocalTimestamps(tc.input)
+			tc.checkFn(t, result)
+		})
+	}
+}
+
+func TestWriteJSONWithLocalTimestamps(t *testing.T) {
+	// Load a test timezone
+	estLocation, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("Failed to load timezone: %v", err)
+	}
+
+	// Create mock dependencies
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080, estLocation)
+
+	// Create a test struct with a timestamp
+	type TestData struct {
+		Name      string    `json:"name"`
+		Timestamp time.Time `json:"timestamp"`
+	}
+
+	testData := TestData{
+		Name:      "test",
+		Timestamp: time.Date(2025, 12, 1, 14, 30, 45, 0, time.UTC),
+	}
+
+	// Create response recorder
+	w := httptest.NewRecorder()
+	err = server.writeJSONWithLocalTimestamps(w, testData)
+	if err != nil {
+		t.Fatalf("writeJSONWithLocalTimestamps failed: %v", err)
+	}
+
+	// Parse the response
+	var result map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Check that original timestamp is present
+	if result["timestamp"] == nil {
+		t.Error("Expected timestamp field")
+	}
+
+	// Check that local timestamp is added
+	if result["timestampLocal"] == nil {
+		t.Error("Expected timestampLocal field to be added")
+	}
+
+	// Verify name is unchanged
+	if result["name"] != "test" {
+		t.Errorf("Expected name to be 'test', got %v", result["name"])
 	}
 }
