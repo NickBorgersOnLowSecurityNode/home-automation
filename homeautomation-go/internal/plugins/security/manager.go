@@ -37,14 +37,8 @@ type Manager struct {
 	clock         clock.Clock
 	shadowTracker *shadowstate.SecurityTracker
 
-	// Automatic shadow state input tracking
-	pluginName  string
-	registry    *shadowstate.SubscriptionRegistry
-	inputHelper *shadowstate.InputCaptureHelper
-
-	// Subscriptions for cleanup
-	haSubscriptions    []ha.Subscription
-	stateSubscriptions []state.Subscription
+	// Subscription helper for automatic shadow state input capture
+	subHelper *shadowstate.SubscriptionHelper
 
 	// Rate limiting for notifications
 	lastDoorbellNotification       time.Time
@@ -54,23 +48,16 @@ type Manager struct {
 
 // NewManager creates a new Security manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
-	const pluginName = "security"
-	m := &Manager{
-		haClient:           haClient,
-		stateManager:       stateManager,
-		logger:             logger.Named("security"),
-		readOnly:           readOnly,
-		clock:              clock.NewRealClock(),
-		shadowTracker:      shadowstate.NewSecurityTracker(),
-		pluginName:         pluginName,
-		registry:           registry,
-		haSubscriptions:    make([]ha.Subscription, 0),
-		stateSubscriptions: make([]state.Subscription, 0),
-	}
+	shadowTracker := shadowstate.NewSecurityTracker()
 
-	// Create input capture helper if registry is provided
-	if registry != nil {
-		m.inputHelper = shadowstate.NewInputCaptureHelper(registry, haClient, stateManager)
+	m := &Manager{
+		haClient:      haClient,
+		stateManager:  stateManager,
+		logger:        logger.Named("security"),
+		readOnly:      readOnly,
+		clock:         clock.NewRealClock(),
+		shadowTracker: shadowTracker,
+		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "security", logger.Named("security")),
 	}
 
 	return m
@@ -85,63 +72,42 @@ func (m *Manager) SetClock(c clock.Clock) {
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Security Manager")
 
-	// Register subscriptions with the registry for automatic input tracking
-	if m.registry != nil {
-		// State subscriptions
-		m.registry.RegisterStateSubscription(m.pluginName, "isEveryoneAsleep")
-		m.registry.RegisterStateSubscription(m.pluginName, "isAnyoneHome")
-		m.registry.RegisterStateSubscription(m.pluginName, "didOwnerJustReturnHome")
-		m.registry.RegisterStateSubscription(m.pluginName, "isExpectingSomeone")
-
-		// HA subscriptions
-		m.registry.RegisterHASubscription(m.pluginName, "input_button.doorbell")
-		m.registry.RegisterHASubscription(m.pluginName, "input_button.vehicle_arriving")
-		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.lockdown")
-	}
-
-	// Initialize shadow state with current input values
-	m.updateShadowInputs()
-
-	// 1. Subscribe to sleep/home states for lockdown activation
-	sub, err := m.stateManager.Subscribe("isEveryoneAsleep", m.handleEveryoneAsleepChange)
-	if err != nil {
+	// 1. Subscribe to sleep/home states for lockdown activation (shadow inputs captured automatically)
+	if err := m.subHelper.SubscribeToState("isEveryoneAsleep", m.handleEveryoneAsleepChange); err != nil {
 		return fmt.Errorf("failed to subscribe to isEveryoneAsleep: %w", err)
 	}
-	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
-	sub, err = m.stateManager.Subscribe("isAnyoneHome", m.handleAnyoneHomeChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("isAnyoneHome", m.handleAnyoneHomeChange); err != nil {
 		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
 	}
-	m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
 	// 2. Subscribe to didOwnerJustReturnHome for garage auto-open
-	sub, err = m.stateManager.Subscribe("didOwnerJustReturnHome", m.handleOwnerReturnHome)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("didOwnerJustReturnHome", m.handleOwnerReturnHome); err != nil {
 		return fmt.Errorf("failed to subscribe to didOwnerJustReturnHome: %w", err)
 	}
-	m.stateSubscriptions = append(m.stateSubscriptions, sub)
+
+	// Also register isExpectingSomeone for input capture (used by handleVehicleArriving)
+	if m.subHelper != nil {
+		// This doesn't subscribe but ensures it's captured in inputs
+		m.subHelper.TrySubscribeToState("isExpectingSomeone", func(key string, oldValue, newValue interface{}) {
+			// No-op handler, just for input capture
+		})
+	}
 
 	// 3. Subscribe to doorbell button
-	haSub, err := m.haClient.SubscribeStateChanges("input_button.doorbell", m.handleDoorbellPressed)
-	if err != nil {
+	if err := m.subHelper.SubscribeToEntity("input_button.doorbell", m.handleDoorbellPressed); err != nil {
 		return fmt.Errorf("failed to subscribe to doorbell: %w", err)
 	}
-	m.haSubscriptions = append(m.haSubscriptions, haSub)
 
 	// 4. Subscribe to vehicle arriving button
-	haSub, err = m.haClient.SubscribeStateChanges("input_button.vehicle_arriving", m.handleVehicleArriving)
-	if err != nil {
+	if err := m.subHelper.SubscribeToEntity("input_button.vehicle_arriving", m.handleVehicleArriving); err != nil {
 		return fmt.Errorf("failed to subscribe to vehicle_arriving: %w", err)
 	}
-	m.haSubscriptions = append(m.haSubscriptions, haSub)
 
 	// 5. Subscribe to lockdown activation for auto-reset
-	haSub, err = m.haClient.SubscribeStateChanges("input_boolean.lockdown", m.handleLockdownActivated)
-	if err != nil {
+	if err := m.subHelper.SubscribeToEntity("input_boolean.lockdown", m.handleLockdownActivated); err != nil {
 		return fmt.Errorf("failed to subscribe to lockdown: %w", err)
 	}
-	m.haSubscriptions = append(m.haSubscriptions, haSub)
 
 	m.logger.Info("Security Manager started successfully")
 	return nil
@@ -151,26 +117,14 @@ func (m *Manager) Start() error {
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Security Manager")
 
-	// Unsubscribe from all HA subscriptions
-	for _, sub := range m.haSubscriptions {
-		sub.Unsubscribe()
-	}
-	m.haSubscriptions = nil
-
-	// Unsubscribe from all state subscriptions
-	for _, sub := range m.stateSubscriptions {
-		sub.Unsubscribe()
-	}
-	m.stateSubscriptions = nil
+	// Unsubscribe from all subscriptions via helper
+	m.subHelper.UnsubscribeAll()
 
 	m.logger.Info("Security Manager stopped")
 }
 
 // handleEveryoneAsleepChange activates lockdown when everyone is asleep
 func (m *Manager) handleEveryoneAsleepChange(key string, oldValue, newValue interface{}) {
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
-
 	asleep, ok := newValue.(bool)
 	if !ok {
 		m.logger.Error("Invalid type for isEveryoneAsleep", zap.Any("value", newValue))
@@ -185,9 +139,6 @@ func (m *Manager) handleEveryoneAsleepChange(key string, oldValue, newValue inte
 
 // handleAnyoneHomeChange activates lockdown when no one is home
 func (m *Manager) handleAnyoneHomeChange(key string, oldValue, newValue interface{}) {
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
-
 	anyoneHome, ok := newValue.(bool)
 	if !ok {
 		m.logger.Error("Invalid type for isAnyoneHome", zap.Any("value", newValue))
@@ -249,9 +200,6 @@ func (m *Manager) handleLockdownActivated(entity string, oldState, newState *ha.
 
 // handleOwnerReturnHome opens garage door if owner just returned home
 func (m *Manager) handleOwnerReturnHome(key string, oldValue, newValue interface{}) {
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
-
 	returned, ok := newValue.(bool)
 	if !ok {
 		m.logger.Error("Invalid type for didOwnerJustReturnHome", zap.Any("value", newValue))
@@ -361,9 +309,6 @@ func (m *Manager) flashLights(lights []string) {
 
 // handleVehicleArriving announces when expected vehicle arrives
 func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.State) {
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
-
 	// Check if we're expecting someone
 	expectingSomeone, err := m.stateManager.GetBool("isExpectingSomeone")
 	if err != nil {
@@ -436,47 +381,8 @@ func (m *Manager) sendTTSNotification(message string) {
 	}
 }
 
-// updateShadowInputs updates the current shadow state inputs
-func (m *Manager) updateShadowInputs() {
-	// Use automatic input capture if available
-	if m.inputHelper != nil {
-		inputs := m.inputHelper.CaptureInputs(m.pluginName)
-		m.shadowTracker.UpdateCurrentInputs(inputs)
-		return
-	}
-
-	// Fallback to manual capture if no registry
-	inputs := make(map[string]interface{})
-
-	// Get all subscribed variables
-	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
-		inputs["isEveryoneAsleep"] = val
-	}
-	if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
-		inputs["isAnyoneHome"] = val
-	}
-	if val, err := m.stateManager.GetBool("isExpectingSomeone"); err == nil {
-		inputs["isExpectingSomeone"] = val
-	}
-	if val, err := m.stateManager.GetBool("didOwnerJustReturnHome"); err == nil {
-		inputs["didOwnerJustReturnHome"] = val
-	}
-
-	m.shadowTracker.UpdateCurrentInputs(inputs)
-}
-
 // updateShadowInputsWithTrigger updates the current shadow state inputs including the trigger
 func (m *Manager) updateShadowInputsWithTrigger(trigger string) {
-	additional := map[string]interface{}{"trigger": trigger}
-
-	// Use automatic input capture with additional fields if available
-	if m.inputHelper != nil {
-		inputs := m.inputHelper.CaptureInputsWithAdditional(m.pluginName, additional)
-		m.shadowTracker.UpdateCurrentInputs(inputs)
-		return
-	}
-
-	// Fallback to manual capture if no registry
 	inputs := make(map[string]interface{})
 
 	// Get all subscribed variables

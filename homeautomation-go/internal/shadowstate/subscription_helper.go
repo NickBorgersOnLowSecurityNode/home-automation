@@ -155,6 +155,33 @@ func (h *SubscriptionHelper) SubscribeToState(key string, handler func(key strin
 	return nil
 }
 
+// TrySubscribeToState subscribes to a state variable change, but doesn't fail if
+// the variable doesn't exist. Useful for optional/dynamic variables.
+// Returns true if subscription succeeded, false otherwise.
+func (h *SubscriptionHelper) TrySubscribeToState(key string, handler func(key string, oldValue, newValue interface{})) bool {
+	// Register the subscription for input capture even if subscription fails
+	if h.registry != nil {
+		h.registry.RegisterStateSubscription(h.pluginName, key)
+	}
+
+	sub, err := h.stateManager.Subscribe(key, func(k string, oldValue, newValue interface{}) {
+		// Capture shadow state inputs BEFORE calling the handler
+		h.captureInputs()
+
+		handler(k, oldValue, newValue)
+	})
+
+	if err != nil {
+		h.logger.Debug("Optional subscription failed (variable may not exist yet)",
+			zap.String("key", key),
+			zap.Error(err))
+		return false
+	}
+
+	h.stateSubscriptions = append(h.stateSubscriptions, sub)
+	return true
+}
+
 // GetHASubscriptions returns all HA subscriptions (for manual cleanup if needed)
 func (h *SubscriptionHelper) GetHASubscriptions() []ha.Subscription {
 	return h.haSubscriptions

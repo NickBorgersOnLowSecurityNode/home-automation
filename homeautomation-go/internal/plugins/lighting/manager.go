@@ -21,32 +21,22 @@ type Manager struct {
 	readOnly      bool
 	shadowTracker *shadowstate.LightingTracker
 
-	// Subscriptions for cleanup
-	subscriptions []state.Subscription
-
-	// Automatic input capture for shadow state
-	pluginName  string
-	registry    *shadowstate.SubscriptionRegistry
-	inputHelper *shadowstate.InputCaptureHelper
+	// Subscription helper for automatic shadow state input capture
+	subHelper *shadowstate.SubscriptionHelper
 }
 
 // NewManager creates a new Lighting Control manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueConfig, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+	shadowTracker := shadowstate.NewLightingTracker()
+
 	m := &Manager{
 		haClient:      haClient,
 		stateManager:  stateManager,
 		config:        config,
 		logger:        logger.Named("lighting"),
 		readOnly:      readOnly,
-		shadowTracker: shadowstate.NewLightingTracker(),
-		subscriptions: make([]state.Subscription, 0),
-		pluginName:    "lighting",
-		registry:      registry,
-	}
-
-	// Create input helper if registry provided
-	if registry != nil {
-		m.inputHelper = shadowstate.NewInputCaptureHelper(registry, haClient, stateManager)
+		shadowTracker: shadowTracker,
+		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "lighting", logger.Named("lighting")),
 	}
 
 	return m
@@ -56,96 +46,50 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueCo
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Lighting Control Manager")
 
-	// Initialize shadow state with current input values
-	m.updateShadowInputs()
-
-	// Subscribe to day phase changes
-	sub, err := m.stateManager.Subscribe("dayPhase", m.handleDayPhaseChange)
-	if err != nil {
+	// Subscribe to day phase changes (shadow inputs captured automatically)
+	if err := m.subHelper.SubscribeToState("dayPhase", m.handleDayPhaseChange); err != nil {
 		return fmt.Errorf("failed to subscribe to dayPhase: %w", err)
-	}
-	m.subscriptions = append(m.subscriptions, sub)
-	if m.registry != nil {
-		m.registry.RegisterStateSubscription(m.pluginName, "dayPhase")
 	}
 
 	// Subscribe to sun event changes
-	sub, err = m.stateManager.Subscribe("sunevent", m.handleSunEventChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("sunevent", m.handleSunEventChange); err != nil {
 		return fmt.Errorf("failed to subscribe to sunevent: %w", err)
-	}
-	m.subscriptions = append(m.subscriptions, sub)
-	if m.registry != nil {
-		m.registry.RegisterStateSubscription(m.pluginName, "sunevent")
 	}
 
 	// Subscribe to presence changes that might affect lighting
-	sub, err = m.stateManager.Subscribe("isAnyoneHome", m.handlePresenceChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("isAnyoneHome", m.handlePresenceChange); err != nil {
 		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
-	}
-	m.subscriptions = append(m.subscriptions, sub)
-	if m.registry != nil {
-		m.registry.RegisterStateSubscription(m.pluginName, "isAnyoneHome")
 	}
 
 	// Subscribe to TV state for brightness adjustments
-	sub, err = m.stateManager.Subscribe("isTVPlaying", m.handleTVStateChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("isTVPlaying", m.handleTVStateChange); err != nil {
 		return fmt.Errorf("failed to subscribe to isTVPlaying: %w", err)
-	}
-	m.subscriptions = append(m.subscriptions, sub)
-	if m.registry != nil {
-		m.registry.RegisterStateSubscription(m.pluginName, "isTVPlaying")
 	}
 
 	// Subscribe to sleep state changes
-	sub, err = m.stateManager.Subscribe("isEveryoneAsleep", m.handleSleepStateChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("isEveryoneAsleep", m.handleSleepStateChange); err != nil {
 		return fmt.Errorf("failed to subscribe to isEveryoneAsleep: %w", err)
 	}
-	m.subscriptions = append(m.subscriptions, sub)
-	if m.registry != nil {
-		m.registry.RegisterStateSubscription(m.pluginName, "isEveryoneAsleep")
-	}
 
-	sub, err = m.stateManager.Subscribe("isMasterAsleep", m.handleSleepStateChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("isMasterAsleep", m.handleSleepStateChange); err != nil {
 		return fmt.Errorf("failed to subscribe to isMasterAsleep: %w", err)
-	}
-	m.subscriptions = append(m.subscriptions, sub)
-	if m.registry != nil {
-		m.registry.RegisterStateSubscription(m.pluginName, "isMasterAsleep")
 	}
 
 	// Subscribe to guest presence
-	sub, err = m.stateManager.Subscribe("isHaveGuests", m.handlePresenceChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToState("isHaveGuests", m.handlePresenceChange); err != nil {
 		return fmt.Errorf("failed to subscribe to isHaveGuests: %w", err)
-	}
-	m.subscriptions = append(m.subscriptions, sub)
-	if m.registry != nil {
-		m.registry.RegisterStateSubscription(m.pluginName, "isHaveGuests")
 	}
 
 	// Subscribe to all occupancy and condition variables from room configs
+	// These are optional - they might not exist yet
 	occupancyVars := m.collectConditionVariables()
 	for _, varName := range occupancyVars {
-		varNameCopy := varName // Capture loop variable
-		sub, err = m.stateManager.Subscribe(varNameCopy, m.handleOccupancyChange)
-		if err != nil {
-			// Log warning but don't fail - variable might not exist yet
-			m.logger.Warn("Failed to subscribe to condition variable",
-				zap.String("variable", varNameCopy),
-				zap.Error(err))
-			continue
+		if m.subHelper.TrySubscribeToState(varName, m.handleOccupancyChange) {
+			m.logger.Debug("Subscribed to condition variable", zap.String("variable", varName))
+		} else {
+			m.logger.Warn("Failed to subscribe to condition variable (may not exist yet)",
+				zap.String("variable", varName))
 		}
-		m.subscriptions = append(m.subscriptions, sub)
-		if m.registry != nil {
-			m.registry.RegisterStateSubscription(m.pluginName, varNameCopy)
-		}
-		m.logger.Debug("Subscribed to condition variable",
-			zap.String("variable", varNameCopy))
 	}
 
 	m.logger.Info("Lighting Control Manager started successfully")
@@ -156,11 +100,8 @@ func (m *Manager) Start() error {
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Lighting Control Manager")
 
-	// Unsubscribe from all subscriptions
-	for _, sub := range m.subscriptions {
-		sub.Unsubscribe()
-	}
-	m.subscriptions = nil
+	// Unsubscribe from all subscriptions via helper
+	m.subHelper.UnsubscribeAll()
 
 	m.logger.Info("Lighting Control Manager stopped")
 }
@@ -172,9 +113,6 @@ func (m *Manager) handleDayPhaseChange(key string, oldValue, newValue interface{
 		m.logger.Warn("Day phase value is not a string", zap.Any("value", newValue))
 		return
 	}
-
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
 
 	m.logger.Info("Day phase changed, activating scenes",
 		zap.Any("old", oldValue),
@@ -192,9 +130,6 @@ func (m *Manager) handleSunEventChange(key string, oldValue, newValue interface{
 		m.logger.Warn("Sun event value is not a string", zap.Any("value", newValue))
 		return
 	}
-
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
 
 	m.logger.Info("Sun event changed",
 		zap.Any("old", oldValue),
@@ -214,9 +149,6 @@ func (m *Manager) handleSunEventChange(key string, oldValue, newValue interface{
 
 // handlePresenceChange processes presence changes
 func (m *Manager) handlePresenceChange(key string, oldValue, newValue interface{}) {
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
-
 	m.logger.Info("Presence state changed",
 		zap.String("key", key),
 		zap.Any("old", oldValue),
@@ -234,9 +166,6 @@ func (m *Manager) handlePresenceChange(key string, oldValue, newValue interface{
 
 // handleTVStateChange processes TV state changes
 func (m *Manager) handleTVStateChange(key string, oldValue, newValue interface{}) {
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
-
 	m.logger.Info("TV state changed",
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
@@ -253,9 +182,6 @@ func (m *Manager) handleTVStateChange(key string, oldValue, newValue interface{}
 
 // handleSleepStateChange processes sleep state changes
 func (m *Manager) handleSleepStateChange(key string, oldValue, newValue interface{}) {
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
-
 	m.logger.Info("Sleep state changed",
 		zap.String("key", key),
 		zap.Any("old", oldValue),
@@ -323,9 +249,6 @@ func (m *Manager) collectConditionVariables() []string {
 
 // handleOccupancyChange processes occupancy and other room-specific condition changes
 func (m *Manager) handleOccupancyChange(key string, oldValue, newValue interface{}) {
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
-
 	m.logger.Info("Occupancy/condition state changed",
 		zap.String("key", key),
 		zap.Any("old", oldValue),
@@ -642,41 +565,6 @@ func (m *Manager) Reset() error {
 
 	m.logger.Info("Successfully reset Lighting Control")
 	return nil
-}
-
-// updateShadowInputs updates the current shadow state inputs
-func (m *Manager) updateShadowInputs() {
-	if m.inputHelper == nil {
-		// Fall back to manual capture if no registry
-		inputs := make(map[string]interface{})
-		if val, err := m.stateManager.GetString("dayPhase"); err == nil {
-			inputs["dayPhase"] = val
-		}
-		if val, err := m.stateManager.GetString("sunevent"); err == nil {
-			inputs["sunevent"] = val
-		}
-		if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
-			inputs["isAnyoneHome"] = val
-		}
-		if val, err := m.stateManager.GetBool("isTVPlaying"); err == nil {
-			inputs["isTVPlaying"] = val
-		}
-		if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
-			inputs["isEveryoneAsleep"] = val
-		}
-		if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
-			inputs["isMasterAsleep"] = val
-		}
-		if val, err := m.stateManager.GetBool("isHaveGuests"); err == nil {
-			inputs["isHaveGuests"] = val
-		}
-		m.shadowTracker.UpdateCurrentInputs(inputs)
-		return
-	}
-
-	// Use automatic input capture
-	inputs := m.inputHelper.CaptureInputs(m.pluginName)
-	m.shadowTracker.UpdateCurrentInputs(inputs)
 }
 
 // updateShadowInputsWithTrigger updates the current shadow state inputs including the trigger
