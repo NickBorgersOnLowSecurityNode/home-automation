@@ -71,6 +71,13 @@ func (h *SubscriptionHelper) captureInputs() {
 	h.shadowTracker.UpdateCurrentInputs(inputs)
 }
 
+// CaptureInitialInputs captures all registered inputs at startup.
+// Call this after all subscriptions are registered to populate shadow state
+// before any events fire. This prevents empty inputs.current in shadow state.
+func (h *SubscriptionHelper) CaptureInitialInputs() {
+	h.captureInputs()
+}
+
 // SubscribeToSensor subscribes to a Home Assistant sensor entity and parses its
 // state as a float64. Shadow state inputs are automatically captured before
 // the handler is called.

@@ -128,6 +128,9 @@ func (m *Manager) Start() error {
 		m.registry.RegisterStateSubscription(m.pluginName, "didOwnerJustReturnHome")
 	}
 
+	// Initialize shadow state with current input values (after registrations)
+	m.updateShadowInputs()
+
 	// Create and start the derived state helper
 	m.helper = state.NewDerivedStateHelper(m.stateManager, m.logger)
 	if err := m.helper.Start(); err != nil {

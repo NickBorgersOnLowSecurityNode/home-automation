@@ -56,9 +56,6 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueCo
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Lighting Control Manager")
 
-	// Initialize shadow state with current input values
-	m.updateShadowInputs()
-
 	// Subscribe to day phase changes
 	sub, err := m.stateManager.Subscribe("dayPhase", m.handleDayPhaseChange)
 	if err != nil {
@@ -147,6 +144,9 @@ func (m *Manager) Start() error {
 		m.logger.Debug("Subscribed to condition variable",
 			zap.String("variable", varNameCopy))
 	}
+
+	// Initialize shadow state with current input values (after all subscriptions registered)
+	m.updateShadowInputs()
 
 	m.logger.Info("Lighting Control Manager started successfully")
 	return nil
