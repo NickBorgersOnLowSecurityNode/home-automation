@@ -243,7 +243,8 @@ func (c *Client) nextMsgID() int {
 
 // sendMessage sends a message and waits for response
 func (c *Client) sendMessage(msg interface{}) (*Message, error) {
-	// Capture connection and connected status under lock to prevent race conditions
+	// Capture connection reference while holding the lock to prevent race with Disconnect().
+	// Invariant: connected == true implies conn != nil (enforced by Connect/Disconnect).
 	c.connMu.RLock()
 	if !c.connected {
 		c.connMu.RUnlock()
@@ -251,11 +252,6 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 	}
 	conn := c.conn
 	c.connMu.RUnlock()
-
-	// Double-check conn is not nil (defensive)
-	if conn == nil {
-		return nil, fmt.Errorf("connection is nil")
-	}
 
 	// Get context for cancellation check
 	c.ctxMu.RLock()
@@ -315,24 +311,20 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 	}
 }
 
-// receiveMessages handles incoming messages in the background
+// receiveMessages handles incoming messages in the background.
+// Called from Connect() after connection is established, so conn is guaranteed non-nil.
 func (c *Client) receiveMessages() {
-	// Get initial context reference - this context is replaced on reconnect,
-	// so we capture it once at the start of this receive loop.
-	// When the context is cancelled (either by Disconnect or resetContext),
-	// we'll exit this loop gracefully.
+	// Capture context reference - replaced on reconnect, so we capture once at start.
+	// When cancelled (by Disconnect or resetContext), we exit gracefully.
 	c.ctxMu.RLock()
 	ctx := c.ctx
 	c.ctxMu.RUnlock()
 
-	// Capture connection reference to avoid race with Disconnect setting c.conn = nil
+	// Capture connection reference to avoid race with Disconnect setting c.conn = nil.
+	// This goroutine is spawned from Connect() which guarantees conn != nil at this point.
 	c.connMu.RLock()
 	conn := c.conn
 	c.connMu.RUnlock()
-
-	if conn == nil {
-		return
-	}
 
 	for {
 		// Check if context is cancelled before blocking on read
