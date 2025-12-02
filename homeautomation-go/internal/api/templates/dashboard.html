@@ -369,6 +369,20 @@
             return true;
         }
 
+        function getDisplayKey(key, parentObj) {
+            // Strip "Local" suffix from keys when the UTC version was hidden
+            if (key.endsWith('Local') && parentObj) {
+                const utcKey = key.slice(0, -5); // Remove "Local"
+                // Only strip if we hid the UTC version
+                if (parentObj[utcKey] !== undefined) {
+                    return utcKey;
+                }
+            }
+            return key;
+        }
+
+        const LONG_VALUE_THRESHOLD = 30; // Characters before wrapping to next line
+
         function formatRelativeTime(dateStr) {
             if (!dateStr) return '';
 
@@ -422,10 +436,11 @@
 
         function renderValue(value, key, parentObj, prefix, depth) {
             const nodeId = 'node-' + (nodeIdCounter++);
+            const displayKey = getDisplayKey(key, parentObj);
 
             if (value === null || value === undefined) {
                 return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
-                       '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                       '<span class="tree-key">' + escapeHtml(displayKey) + ':</span> ' +
                        '<span class="tree-value null">null</span></div>';
             }
 
@@ -433,26 +448,34 @@
                 const icon = value ? '✓' : '✗';
                 const cls = value ? 'bool-true' : 'bool-false';
                 return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
-                       '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                       '<span class="tree-key">' + escapeHtml(displayKey) + ':</span> ' +
                        '<span class="tree-value ' + cls + '">' + icon + '</span></div>';
             }
 
             if (typeof value === 'number') {
                 return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
-                       '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                       '<span class="tree-key">' + escapeHtml(displayKey) + ':</span> ' +
                        '<span class="tree-value number">' + value + '</span></div>';
             }
 
             if (typeof value === 'string') {
+                // For long strings, put value on next line with indent
+                if (value.length > LONG_VALUE_THRESHOLD) {
+                    const indentPrefix = prefix.replace(/[├└─]/g, ' ') + '  ';
+                    return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
+                           '<span class="tree-key">' + escapeHtml(displayKey) + ':</span></div>' +
+                           '<div class="tree-item"><span class="tree-prefix">' + indentPrefix + '</span>' +
+                           '<span class="tree-value">"' + escapeHtml(value) + '"</span></div>';
+                }
                 return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
-                       '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                       '<span class="tree-key">' + escapeHtml(displayKey) + ':</span> ' +
                        '<span class="tree-value">"' + escapeHtml(value) + '"</span></div>';
             }
 
             if (Array.isArray(value)) {
                 if (value.length === 0) {
                     return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
-                           '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                           '<span class="tree-key">' + escapeHtml(displayKey) + ':</span> ' +
                            '<span class="tree-value">[]</span></div>';
                 }
 
@@ -460,7 +483,7 @@
                 let html = '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
                            '<span class="tree-toggle" data-toggle="' + nodeId + '" onclick="toggleNode(\'' + nodeId + '\')">' +
                            (isExpanded ? '▼' : '▶') + '</span> ' +
-                           '<span class="tree-key">' + escapeHtml(key) + '</span> [' + value.length + ']</div>';
+                           '<span class="tree-key">' + escapeHtml(displayKey) + '</span> [' + value.length + ']</div>';
 
                 html += '<div id="' + nodeId + '" class="tree-children' + (isExpanded ? '' : ' collapsed') + '">';
                 const childPrefix = prefix.replace(/[├└]/g, '│').replace(/─/g, ' ') + '  ';
@@ -476,7 +499,7 @@
                 const keys = Object.keys(value).filter(k => shouldShowKey(k, value));
                 if (keys.length === 0) {
                     return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
-                           '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                           '<span class="tree-key">' + escapeHtml(displayKey) + ':</span> ' +
                            '<span class="tree-value">{}</span></div>';
                 }
 
@@ -484,7 +507,7 @@
                 let html = '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
                            '<span class="tree-toggle" data-toggle="' + nodeId + '" onclick="toggleNode(\'' + nodeId + '\')">' +
                            (isExpanded ? '▼' : '▶') + '</span> ' +
-                           '<span class="tree-key">' + escapeHtml(key) + '</span></div>';
+                           '<span class="tree-key">' + escapeHtml(displayKey) + '</span></div>';
 
                 html += '<div id="' + nodeId + '" class="tree-children' + (isExpanded ? '' : ' collapsed') + '">';
                 const childPrefix = prefix.replace(/[├└]/g, '│').replace(/─/g, ' ') + '  ';
@@ -497,7 +520,7 @@
             }
 
             return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
-                   '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                   '<span class="tree-key">' + escapeHtml(displayKey) + ':</span> ' +
                    '<span class="tree-value">' + escapeHtml(String(value)) + '</span></div>';
         }
 
