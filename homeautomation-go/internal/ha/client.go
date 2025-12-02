@@ -243,12 +243,19 @@ func (c *Client) nextMsgID() int {
 
 // sendMessage sends a message and waits for response
 func (c *Client) sendMessage(msg interface{}) (*Message, error) {
+	// Capture connection and connected status under lock to prevent race conditions
 	c.connMu.RLock()
 	if !c.connected {
 		c.connMu.RUnlock()
 		return nil, fmt.Errorf("not connected")
 	}
+	conn := c.conn
 	c.connMu.RUnlock()
+
+	// Double-check conn is not nil (defensive)
+	if conn == nil {
+		return nil, fmt.Errorf("connection is nil")
+	}
 
 	// Get context for cancellation check
 	c.ctxMu.RLock()
@@ -282,8 +289,9 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 	}()
 
 	// Send message (protected by writeMu to prevent concurrent writes)
+	// Use the captured conn reference to avoid race with Disconnect setting c.conn = nil
 	c.writeMu.Lock()
-	err := c.conn.WriteJSON(msg)
+	err := conn.WriteJSON(msg)
 	c.writeMu.Unlock()
 
 	if err != nil {
@@ -317,6 +325,15 @@ func (c *Client) receiveMessages() {
 	ctx := c.ctx
 	c.ctxMu.RUnlock()
 
+	// Capture connection reference to avoid race with Disconnect setting c.conn = nil
+	c.connMu.RLock()
+	conn := c.conn
+	c.connMu.RUnlock()
+
+	if conn == nil {
+		return
+	}
+
 	for {
 		// Check if context is cancelled before blocking on read
 		select {
@@ -326,7 +343,7 @@ func (c *Client) receiveMessages() {
 		}
 
 		var msg Message
-		if err := c.conn.ReadJSON(&msg); err != nil {
+		if err := conn.ReadJSON(&msg); err != nil {
 			c.logger.Error("Failed to read message", zap.Error(err))
 			c.handleDisconnect()
 			return
