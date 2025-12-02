@@ -46,6 +46,7 @@ func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, 
 	mux.HandleFunc("/api/shadow/dayphase", s.handleGetDayPhaseShadowState)
 	mux.HandleFunc("/api/shadow/tv", s.handleGetTVShadowState)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/dashboard", s.handleDashboard)
 
 	s.server = &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
@@ -427,6 +428,11 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Path:        "/health",
 			Method:      "GET",
 			Description: "Health check endpoint - returns {\"status\": \"ok\"}",
+		},
+		{
+			Path:        "/dashboard",
+			Method:      "GET",
+			Description: "Shadow State Dashboard - web UI to visualize plugin states",
 		},
 	}
 
@@ -872,3 +878,641 @@ func (s *Server) writeJSONWithLocalTimestamps(w http.ResponseWriter, data interf
 	// Encode the transformed data
 	return json.NewEncoder(w).Encode(transformed)
 }
+
+// handleDashboard serves a web UI for visualizing shadow state
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, dashboardHTML)
+
+	s.logger.Debug("Dashboard request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+const dashboardHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow State Dashboard</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #0f3460;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #eee;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .last-updated {
+            color: #888;
+            font-size: 0.875rem;
+        }
+
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.875rem;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background: #333;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .toggle-switch.active {
+            background: #4ade80;
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: #fff;
+            border-radius: 50%;
+            transition: left 0.2s;
+        }
+
+        .toggle-switch.active::after {
+            left: 22px;
+        }
+
+        .refresh-indicator {
+            display: none;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #4ade80;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .refresh-indicator.visible {
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .plugins-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+        }
+
+        .plugin-card {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: box-shadow 0.2s;
+        }
+
+        .plugin-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .plugin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .plugin-header:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .plugin-name {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .plugin-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .plugin-updated {
+            color: #888;
+            font-size: 0.8rem;
+        }
+
+        .plugin-updated.stale-warning {
+            color: #fbbf24;
+        }
+
+        .plugin-updated.stale-error {
+            color: #f87171;
+        }
+
+        .expand-icon {
+            color: #888;
+            font-size: 0.8rem;
+            transition: transform 0.2s;
+        }
+
+        .plugin-card.expanded .expand-icon {
+            transform: rotate(180deg);
+        }
+
+        .plugin-content {
+            display: none;
+            padding: 0 15px 15px;
+            border-top: 1px solid #0f3460;
+        }
+
+        .plugin-card.expanded .plugin-content {
+            display: block;
+        }
+
+        .section-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #888;
+            margin: 15px 0 10px;
+            letter-spacing: 0.5px;
+        }
+
+        .tree-node {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+
+        .tree-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 2px 0;
+        }
+
+        .tree-prefix {
+            color: #555;
+            white-space: pre;
+            flex-shrink: 0;
+        }
+
+        .tree-key {
+            color: #9cdcfe;
+            margin-right: 4px;
+        }
+
+        .tree-value {
+            color: #ce9178;
+            word-break: break-word;
+        }
+
+        .tree-value.bool-true {
+            color: #4ade80;
+        }
+
+        .tree-value.bool-false {
+            color: #f87171;
+        }
+
+        .tree-value.number {
+            color: #b5cea8;
+        }
+
+        .tree-value.null {
+            color: #888;
+            font-style: italic;
+        }
+
+        .tree-toggle {
+            cursor: pointer;
+            color: #569cd6;
+        }
+
+        .tree-toggle:hover {
+            text-decoration: underline;
+        }
+
+        .tree-children {
+            margin-left: 0;
+        }
+
+        .tree-children.collapsed {
+            display: none;
+        }
+
+        .error-message {
+            background: rgba(248, 113, 113, 0.1);
+            border: 1px solid #f87171;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            color: #f87171;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 15px;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .plugins-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Shadow State Dashboard</h1>
+        <div class="header-right">
+            <span class="last-updated" id="lastUpdated">Loading...</span>
+            <div class="refresh-indicator" id="refreshIndicator"></div>
+            <div class="toggle-container">
+                <span>Auto-refresh</span>
+                <div class="toggle-switch active" id="autoRefreshToggle" onclick="toggleAutoRefresh()"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="content" class="loading">Loading shadow state...</div>
+
+    <script>
+        let autoRefresh = true;
+        let refreshInterval = null;
+        const REFRESH_INTERVAL_MS = 30000;
+        const STALE_WARNING_MS = 5 * 60 * 1000;  // 5 minutes
+        const STALE_ERROR_MS = 15 * 60 * 1000;   // 15 minutes
+
+        // Track which plugins and nodes are expanded
+        const expandedPlugins = new Set();
+        const expandedNodes = new Set();
+
+        function toggleAutoRefresh() {
+            autoRefresh = !autoRefresh;
+            const toggle = document.getElementById('autoRefreshToggle');
+            toggle.classList.toggle('active', autoRefresh);
+
+            if (autoRefresh) {
+                startAutoRefresh();
+            } else {
+                stopAutoRefresh();
+            }
+        }
+
+        function startAutoRefresh() {
+            if (refreshInterval) clearInterval(refreshInterval);
+            refreshInterval = setInterval(fetchData, REFRESH_INTERVAL_MS);
+        }
+
+        function stopAutoRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+
+        function togglePlugin(pluginName) {
+            if (expandedPlugins.has(pluginName)) {
+                expandedPlugins.delete(pluginName);
+            } else {
+                expandedPlugins.add(pluginName);
+            }
+
+            const card = document.getElementById('plugin-' + pluginName);
+            if (card) {
+                card.classList.toggle('expanded', expandedPlugins.has(pluginName));
+            }
+        }
+
+        function toggleNode(nodeId) {
+            if (expandedNodes.has(nodeId)) {
+                expandedNodes.delete(nodeId);
+            } else {
+                expandedNodes.add(nodeId);
+            }
+
+            const children = document.getElementById(nodeId);
+            if (children) {
+                children.classList.toggle('collapsed', !expandedNodes.has(nodeId));
+            }
+
+            const toggle = document.querySelector('[data-toggle="' + nodeId + '"]');
+            if (toggle) {
+                toggle.textContent = expandedNodes.has(nodeId) ? '▼' : '▶';
+            }
+        }
+
+        function shouldShowKey(key, obj) {
+            // Hide UTC keys if a *Local version exists
+            if (obj && obj[key + 'Local'] !== undefined) {
+                return false;
+            }
+            return true;
+        }
+
+        function formatRelativeTime(dateStr) {
+            if (!dateStr) return '';
+
+            try {
+                const date = new Date(dateStr);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffSec = Math.floor(diffMs / 1000);
+                const diffMin = Math.floor(diffSec / 60);
+                const diffHour = Math.floor(diffMin / 60);
+                const diffDay = Math.floor(diffHour / 24);
+
+                if (diffSec < 60) return 'just now';
+                if (diffMin < 60) return diffMin + 'm ago';
+                if (diffHour < 24) return diffHour + 'h ago';
+                return diffDay + 'd ago';
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function getStaleClass(dateStr) {
+            if (!dateStr) return '';
+
+            try {
+                const date = new Date(dateStr);
+                const now = new Date();
+                const diffMs = now - date;
+
+                if (diffMs >= STALE_ERROR_MS) return 'stale-error';
+                if (diffMs >= STALE_WARNING_MS) return 'stale-warning';
+                return '';
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function getPluginLastUpdated(pluginData) {
+            // Try to find lastUpdated in metadata
+            if (pluginData && pluginData.metadata && pluginData.metadata.lastUpdated) {
+                return pluginData.metadata.lastUpdated;
+            }
+            // Try lastUpdatedLocal in metadata
+            if (pluginData && pluginData.metadata && pluginData.metadata.lastUpdatedLocal) {
+                return pluginData.metadata.lastUpdatedLocal;
+            }
+            return null;
+        }
+
+        let nodeIdCounter = 0;
+
+        function renderValue(value, key, parentObj, prefix, depth) {
+            const nodeId = 'node-' + (nodeIdCounter++);
+
+            if (value === null || value === undefined) {
+                return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
+                       '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                       '<span class="tree-value null">null</span></div>';
+            }
+
+            if (typeof value === 'boolean') {
+                const icon = value ? '✓' : '✗';
+                const cls = value ? 'bool-true' : 'bool-false';
+                return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
+                       '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                       '<span class="tree-value ' + cls + '">' + icon + '</span></div>';
+            }
+
+            if (typeof value === 'number') {
+                return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
+                       '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                       '<span class="tree-value number">' + value + '</span></div>';
+            }
+
+            if (typeof value === 'string') {
+                return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
+                       '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                       '<span class="tree-value">"' + escapeHtml(value) + '"</span></div>';
+            }
+
+            if (Array.isArray(value)) {
+                if (value.length === 0) {
+                    return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
+                           '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                           '<span class="tree-value">[]</span></div>';
+                }
+
+                const isExpanded = expandedNodes.has(nodeId);
+                let html = '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
+                           '<span class="tree-toggle" data-toggle="' + nodeId + '" onclick="toggleNode(\'' + nodeId + '\')">' +
+                           (isExpanded ? '▼' : '▶') + '</span> ' +
+                           '<span class="tree-key">' + escapeHtml(key) + '</span> [' + value.length + ']</div>';
+
+                html += '<div id="' + nodeId + '" class="tree-children' + (isExpanded ? '' : ' collapsed') + '">';
+                const childPrefix = prefix.replace(/[├└]/g, '│').replace(/─/g, ' ') + '  ';
+                for (let i = 0; i < value.length; i++) {
+                    const itemPrefix = childPrefix + (i === value.length - 1 ? '└─ ' : '├─ ');
+                    html += renderValue(value[i], '[' + i + ']', value, itemPrefix, depth + 1);
+                }
+                html += '</div>';
+                return html;
+            }
+
+            if (typeof value === 'object') {
+                const keys = Object.keys(value).filter(k => shouldShowKey(k, value));
+                if (keys.length === 0) {
+                    return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
+                           '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                           '<span class="tree-value">{}</span></div>';
+                }
+
+                const isExpanded = expandedNodes.has(nodeId);
+                let html = '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
+                           '<span class="tree-toggle" data-toggle="' + nodeId + '" onclick="toggleNode(\'' + nodeId + '\')">' +
+                           (isExpanded ? '▼' : '▶') + '</span> ' +
+                           '<span class="tree-key">' + escapeHtml(key) + '</span></div>';
+
+                html += '<div id="' + nodeId + '" class="tree-children' + (isExpanded ? '' : ' collapsed') + '">';
+                const childPrefix = prefix.replace(/[├└]/g, '│').replace(/─/g, ' ') + '  ';
+                for (let i = 0; i < keys.length; i++) {
+                    const itemPrefix = childPrefix + (i === keys.length - 1 ? '└─ ' : '├─ ');
+                    html += renderValue(value[keys[i]], keys[i], value, itemPrefix, depth + 1);
+                }
+                html += '</div>';
+                return html;
+            }
+
+            return '<div class="tree-item"><span class="tree-prefix">' + prefix + '</span>' +
+                   '<span class="tree-key">' + escapeHtml(key) + ':</span> ' +
+                   '<span class="tree-value">' + escapeHtml(String(value)) + '</span></div>';
+        }
+
+        function renderSection(title, data) {
+            if (!data || (typeof data === 'object' && Object.keys(data).length === 0)) {
+                return '';
+            }
+
+            let html = '<div class="section-title">' + escapeHtml(title) + '</div>';
+            html += '<div class="tree-node">';
+
+            if (typeof data === 'object' && !Array.isArray(data)) {
+                const keys = Object.keys(data).filter(k => shouldShowKey(k, data));
+                for (let i = 0; i < keys.length; i++) {
+                    const prefix = (i === keys.length - 1 ? '└─ ' : '├─ ');
+                    html += renderValue(data[keys[i]], keys[i], data, prefix, 0);
+                }
+            } else {
+                html += renderValue(data, title, null, '', 0);
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        function renderPlugin(name, data) {
+            const lastUpdated = getPluginLastUpdated(data);
+            const relativeTime = formatRelativeTime(lastUpdated);
+            const staleClass = getStaleClass(lastUpdated);
+            const isExpanded = expandedPlugins.has(name);
+
+            let html = '<div class="plugin-card' + (isExpanded ? ' expanded' : '') + '" id="plugin-' + escapeHtml(name) + '">';
+            html += '<div class="plugin-header" onclick="togglePlugin(\'' + escapeHtml(name) + '\')">';
+            html += '<span class="plugin-name">' + escapeHtml(name) + '</span>';
+            html += '<div class="plugin-meta">';
+            if (relativeTime) {
+                html += '<span class="plugin-updated ' + staleClass + '">Updated ' + relativeTime + '</span>';
+            }
+            html += '<span class="expand-icon">▼</span>';
+            html += '</div></div>';
+
+            html += '<div class="plugin-content">';
+
+            // Render outputs first (most important)
+            if (data.outputs) {
+                html += renderSection('Outputs', data.outputs);
+            }
+
+            // Then inputs
+            if (data.inputs) {
+                html += renderSection('Inputs', data.inputs);
+            }
+
+            // Then metadata
+            if (data.metadata) {
+                html += renderSection('Metadata', data.metadata);
+            }
+
+            html += '</div></div>';
+            return html;
+        }
+
+        function escapeHtml(str) {
+            if (typeof str !== 'string') return str;
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        async function fetchData() {
+            const indicator = document.getElementById('refreshIndicator');
+            indicator.classList.add('visible');
+
+            try {
+                const response = await fetch('/api/shadow');
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+
+                const data = await response.json();
+
+                // Update last updated time
+                const now = new Date();
+                document.getElementById('lastUpdated').textContent =
+                    'Last updated: ' + now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+                // Reset node counter for consistent IDs
+                nodeIdCounter = 0;
+
+                // Render plugins
+                const content = document.getElementById('content');
+
+                if (!data.plugins || Object.keys(data.plugins).length === 0) {
+                    content.innerHTML = '<div class="error-message">No plugins found in shadow state</div>';
+                    return;
+                }
+
+                let html = '<div class="plugins-grid">';
+                const pluginNames = Object.keys(data.plugins).sort();
+                for (const name of pluginNames) {
+                    html += renderPlugin(name, data.plugins[name]);
+                }
+                html += '</div>';
+
+                content.innerHTML = html;
+                content.classList.remove('loading');
+
+            } catch (error) {
+                console.error('Failed to fetch shadow state:', error);
+                document.getElementById('content').innerHTML =
+                    '<div class="error-message">Failed to load shadow state: ' + escapeHtml(error.message) + '</div>';
+            } finally {
+                indicator.classList.remove('visible');
+            }
+        }
+
+        // Initial fetch and start auto-refresh
+        fetchData();
+        startAutoRefresh();
+    </script>
+</body>
+</html>
+`
