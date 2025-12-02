@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +13,9 @@ import (
 
 	"go.uber.org/zap"
 )
+
+//go:embed templates/dashboard.html
+var dashboardHTML string
 
 // Server provides HTTP API endpoints for the home automation system
 type Server struct {
@@ -46,6 +50,7 @@ func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, 
 	mux.HandleFunc("/api/shadow/dayphase", s.handleGetDayPhaseShadowState)
 	mux.HandleFunc("/api/shadow/tv", s.handleGetTVShadowState)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/dashboard", s.handleDashboard)
 
 	s.server = &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
@@ -427,6 +432,11 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Path:        "/health",
 			Method:      "GET",
 			Description: "Health check endpoint - returns {\"status\": \"ok\"}",
+		},
+		{
+			Path:        "/dashboard",
+			Method:      "GET",
+			Description: "Shadow State Dashboard - web UI to visualize plugin states",
 		},
 	}
 
@@ -871,4 +881,18 @@ func (s *Server) writeJSONWithLocalTimestamps(w http.ResponseWriter, data interf
 
 	// Encode the transformed data
 	return json.NewEncoder(w).Encode(transformed)
+}
+
+// handleDashboard serves a web UI for visualizing shadow state
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, dashboardHTML)
+
+	s.logger.Debug("Dashboard request served",
+		zap.String("remote_addr", r.RemoteAddr))
 }

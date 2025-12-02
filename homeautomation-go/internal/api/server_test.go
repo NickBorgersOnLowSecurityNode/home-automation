@@ -946,6 +946,87 @@ func TestAddLocalTimestamps(t *testing.T) {
 	}
 }
 
+func TestHandleDashboard(t *testing.T) {
+	// Create logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create mock HA client
+	mockClient := ha.NewMockClient()
+
+	// Create state manager
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create shadow tracker with some test data
+	shadowTracker := shadowstate.NewTracker()
+	lightingState := shadowstate.NewLightingShadowState()
+	lightingState.Inputs.Current["dayPhase"] = "evening"
+	shadowTracker.RegisterPlugin("lighting", lightingState)
+
+	// Create API server
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
+
+	// Create test request
+	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	w := httptest.NewRecorder()
+
+	// Handle request
+	server.handleDashboard(w, req)
+
+	// Check status code
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	// Check content type
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "text/html; charset=utf-8" {
+		t.Errorf("Expected Content-Type text/html; charset=utf-8, got %s", contentType)
+	}
+
+	// Check body contains expected HTML elements
+	body := w.Body.String()
+	expectedElements := []string{
+		"<!DOCTYPE html>",
+		"<title>Shadow State Dashboard</title>",
+		"Shadow State Dashboard",
+		"/api/shadow",
+		"autoRefresh",
+		"plugins-grid",
+		"#1a1a2e", // dark mode background color
+	}
+
+	for _, expected := range expectedElements {
+		found := false
+		for i := 0; i <= len(body)-len(expected); i++ {
+			if body[i:i+len(expected)] == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected dashboard HTML to contain '%s'", expected)
+		}
+	}
+}
+
+func TestHandleDashboardMethodNotAllowed(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	shadowTracker := shadowstate.NewTracker()
+	server := NewServer(stateManager, shadowTracker, logger, 8080, time.UTC)
+
+	// Test POST method (should be rejected)
+	req := httptest.NewRequest(http.MethodPost, "/dashboard", nil)
+	w := httptest.NewRecorder()
+
+	server.handleDashboard(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405, got %d", w.Code)
+	}
+}
+
 func TestWriteJSONWithLocalTimestamps(t *testing.T) {
 	// Load a test timezone
 	estLocation, err := time.LoadLocation("America/New_York")
