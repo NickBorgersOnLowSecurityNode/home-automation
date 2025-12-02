@@ -102,8 +102,23 @@ func (m *Manager) Start() error {
 	// Start free energy check timer (check every minute)
 	go m.runFreeEnergyChecker()
 
+	// Capture initial shadow state inputs after all subscriptions are registered
+	m.captureInitialInputs()
+
 	m.logger.Info("Energy State Manager started successfully")
 	return nil
+}
+
+// captureInitialInputs captures the current input values at startup.
+// This ensures shadow state shows inputs immediately, not just after first event.
+func (m *Manager) captureInitialInputs() {
+	if m.subHelper == nil {
+		return
+	}
+	// The SubscriptionHelper automatically captures inputs before each handler,
+	// but we need to capture them once on startup so the shadow state isn't empty
+	// until the first event fires.
+	m.subHelper.CaptureInitialInputs()
 }
 
 // Stop stops the Energy State Manager and cleans up subscriptions
