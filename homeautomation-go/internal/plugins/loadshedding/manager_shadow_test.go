@@ -17,29 +17,44 @@ func TestLoadSheddingShadowState_CaptureInputs(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 
-	// Create load shedding manager
-	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	// Create a registry for proper input capture
+	registry := shadowstate.NewSubscriptionRegistry()
 
-	// Set some state
+	// Set initial state
 	if err := stateManager.SetString("currentEnergyLevel", "green"); err != nil {
 		t.Fatalf("Failed to set energy level: %v", err)
 	}
 
-	// Update inputs
-	manager.updateShadowInputs()
+	// Create load shedding manager WITH registry
+	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, registry)
+
+	// Start the manager (this registers subscriptions with the registry)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Trigger a state change to have the SubscriptionHelper capture inputs
+	// (The SubscriptionHelper wraps subscription callbacks, not direct method calls)
+	if err := stateManager.SetString("currentEnergyLevel", "yellow"); err != nil {
+		t.Fatalf("Failed to change energy level: %v", err)
+	}
+
+	// Give the subscription handler time to process
+	time.Sleep(10 * time.Millisecond)
 
 	// Get shadow state
 	shadowState := manager.GetShadowState()
 
-	// Verify inputs were captured
+	// Verify inputs were captured by the SubscriptionHelper
 	if len(shadowState.Inputs.Current) == 0 {
 		t.Error("Expected current inputs to be captured, got empty map")
 	}
 
 	if val, ok := shadowState.Inputs.Current["currentEnergyLevel"]; !ok {
 		t.Error("Expected currentEnergyLevel to be in current inputs")
-	} else if val != "green" {
-		t.Errorf("Expected currentEnergyLevel='green', got '%v'", val)
+	} else if val != "yellow" {
+		t.Errorf("Expected currentEnergyLevel='yellow', got '%v'", val)
 	}
 }
 
@@ -159,8 +174,11 @@ func TestLoadSheddingShadowState_GetShadowState(t *testing.T) {
 
 	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
 
-	// Record some state
-	manager.updateShadowInputs()
+	// Start manager to trigger subscriptions (inputs captured automatically)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
 
 	// Get shadow state
 	shadowState := manager.GetShadowState()
@@ -220,10 +238,10 @@ func TestLoadSheddingShadowState_ConcurrentAccess(t *testing.T) {
 		done <- true
 	}()
 
-	// Another writer goroutine - updates inputs
+	// Another writer goroutine - gets shadow state
 	go func() {
 		for i := 0; i < 100; i++ {
-			manager.updateShadowInputs()
+			_ = manager.GetShadowState()
 			time.Sleep(1 * time.Millisecond)
 		}
 		done <- true
@@ -271,19 +289,21 @@ func TestLoadSheddingShadowState_InputSnapshot(t *testing.T) {
 		t.Errorf("Expected at-last-action currentEnergyLevel='red', got '%v'", val)
 	}
 
-	// Now change energy level to green
+	// Now change energy level to green - this triggers updateShadowInputsWithTrigger via recordAction
 	if err := stateManager.SetString("currentEnergyLevel", "green"); err != nil {
 		t.Fatalf("Failed to change energy level: %v", err)
 	}
-	manager.updateShadowInputs()
+	// Trigger another action to update inputs
+	manager.recordAction(false, "disable", "Battery restored", false, 0, 0, "test_trigger")
 
-	// Verify current inputs changed but at-last-action stayed the same
+	// Verify current inputs changed and at-last-action reflects the state at new action time
 	shadowState = manager.GetShadowState()
 	if val, ok := shadowState.Inputs.Current["currentEnergyLevel"]; !ok || val != "green" {
 		t.Errorf("Expected current currentEnergyLevel='green', got '%v'", val)
 	}
-	if val, ok := shadowState.Inputs.AtLastAction["currentEnergyLevel"]; !ok || val != "red" {
-		t.Errorf("Expected at-last-action currentEnergyLevel='red' (unchanged), got '%v'", val)
+	// After the second action (disable), at-last-action should now be green
+	if val, ok := shadowState.Inputs.AtLastAction["currentEnergyLevel"]; !ok || val != "green" {
+		t.Errorf("Expected at-last-action currentEnergyLevel='green' (from second action), got '%v'", val)
 	}
 }
 
